@@ -125,4 +125,39 @@ final class Auth
             error_log('[PDV] ensureBootstrapAdmin: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Regenera el hash del admin desde ADMIN_PASSWORD del .env.
+     * Activar solo temporalmente: ADMIN_RESET_PASSWORD=true
+     * (las contraseñas en BD deben ser bcrypt, nunca texto plano).
+     */
+    public static function syncAdminPasswordFromEnv(): bool
+    {
+        if (!Env::getBool('ADMIN_RESET_PASSWORD', false)) {
+            return false;
+        }
+
+        $email = strtolower(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com');
+        $password = Env::get('ADMIN_PASSWORD');
+        if ($password === null || $password === '') {
+            throw new \RuntimeException('ADMIN_PASSWORD vacío en .env; no se puede resetear.');
+        }
+
+        $pdo = Connection::get();
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+
+        $stmt = $pdo->prepare(
+            'UPDATE users SET password_hash = ?, is_active = 1, role = ? WHERE email = ?'
+        );
+        $stmt->execute([$hash, 'admin', $email]);
+
+        if ($stmt->rowCount() === 0) {
+            $insert = $pdo->prepare(
+                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+            );
+            $insert->execute([$email, $hash, 'Administrador', 'admin']);
+        }
+
+        return true;
+    }
 }
