@@ -18,7 +18,8 @@ $router->get('/', static function (): void {
 
 $router->get('/login', static function (): void {
     if (Auth::check()) {
-        header('Location: /admin');
+        $user = Auth::user();
+        header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
         exit;
     }
     view('auth/login', [
@@ -28,7 +29,13 @@ $router->get('/login', static function (): void {
 });
 
 $router->post('/login', static function (): void {
-    Auth::ensureBootstrapAdmin();
+    try {
+        Auth::ensureBootstrapAdmin();
+    } catch (Throwable $e) {
+        flash('error', 'Error al preparar admin: ' . $e->getMessage());
+        header('Location: /login');
+        exit;
+    }
 
     $email = (string) ($_POST['email'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
@@ -46,8 +53,8 @@ $router->post('/login', static function (): void {
     }
 
     $user = Auth::user();
-    if ($user && $user['role'] === 'admin') {
-        header('Location: /admin/salud');
+    if ($user && ($user['role'] ?? '') === 'admin') {
+        header('Location: /admin');
     } else {
         header('Location: /');
     }
@@ -62,37 +69,55 @@ $router->post('/logout', static function (): void {
 
 $router->get('/admin', static function (): void {
     Auth::requireAdmin();
-    header('Location: /admin/salud');
-    exit;
+    view('admin/dashboard', [
+        'title' => 'Administración',
+        'user' => Auth::user(),
+    ]);
 });
 
 $router->get('/admin/salud', static function (): void {
     Auth::requireAdmin();
 
-    $checker = new HealthChecker();
-    $runSmtp = isset($_GET['smtp']) && $_GET['smtp'] === '1';
-    $results = [
-        $checker->checkDatabase(),
-        $checker->checkMoodle(),
-        $checker->checkOpenPay(),
-        $checker->checkStorage(),
-    ];
-
-    if ($runSmtp) {
-        $results[] = $checker->checkSmtp();
-    } else {
-        $results[] = [
-            'name' => 'SMTP',
-            'ok' => null,
-            'message' => 'No ejecutado automáticamente (envía correo real). Usa el botón “Probar SMTP”.',
+    try {
+        $checker = new HealthChecker();
+        $runSmtp = isset($_GET['smtp']) && $_GET['smtp'] === '1';
+        $results = [
+            $checker->checkDatabase(),
+            $checker->checkMoodle(),
+            $checker->checkOpenPay(),
+            $checker->checkStorage(),
         ];
-    }
 
-    view('admin/health', [
-        'title' => 'Salud del sistema',
-        'results' => $results,
-        'user' => Auth::user(),
-    ]);
+        if ($runSmtp) {
+            $results[] = $checker->checkSmtp();
+        } else {
+            $results[] = [
+                'name' => 'SMTP',
+                'ok' => false,
+                'message' => 'No ejecutado automáticamente (envía correo real). Usa el botón “Probar SMTP”.',
+                'meta' => ['skipped' => true],
+            ];
+            // Marcamos skipped sin romper tipos estrictos en la vista
+            $results[count($results) - 1]['ok'] = null;
+        }
+
+        view('admin/health', [
+            'title' => 'Salud del sistema',
+            'results' => $results,
+            'user' => Auth::user(),
+        ]);
+    } catch (Throwable $e) {
+        error_log('[PDV][salud] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+        view('admin/health', [
+            'title' => 'Salud del sistema',
+            'results' => [[
+                'name' => 'Panel',
+                'ok' => false,
+                'message' => 'Error al ejecutar salud: ' . $e->getMessage(),
+            ]],
+            'user' => Auth::user(),
+        ]);
+    }
 });
 
 $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'] ?? '/');
