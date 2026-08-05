@@ -1,0 +1,14 @@
+RewriteEngine On
+
+# Assets desde /public cuando el Document Root es la raíz del repo
+RewriteRule ^assets/(.*)$ public/assets/$1 [L]
+
+# Preferir public/ si el Document Root es la raíz del repositorio
+RewriteRule ^(public)($|/) - [L]
+
+# Bloquear acceso directo a carpetas sensibles
+RewriteRule ^(\.env|src/|views/|sql/|storage/|docs/) - [F,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
