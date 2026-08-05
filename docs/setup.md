@@ -39,7 +39,7 @@ Valores ya prellenados (puedes dejarlos):
 2. Importa en orden:
    - `sql/schema.sql`
    - `sql/seed.sql`
-3. El primer login con `ADMIN_EMAIL` / `ADMIN_PASSWORD` creará el usuario admin si la tabla `users` está vacía.
+3. El primer login con `ADMIN_EMAIL` o `ADMIN_USERNAME` / `ADMIN_PASSWORD` creará el usuario admin si la tabla `users` está vacía. Puedes entrar con `admin` si usas `ADMIN_USERNAME=admin`.
 
 ## 4. Moodle
 

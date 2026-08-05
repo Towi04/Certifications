@@ -51,6 +51,12 @@ try {
     foreach ($rows as $r) echo json_encode($r, JSON_UNESCAPED_UNICODE) . "\n";
 
     $email = strtolower(trim($env['ADMIN_EMAIL'] ?? 'admin@institutodoceo.com'));
+    $username = $env['ADMIN_USERNAME'] ?? null;
+    if ($username === null || trim($username) === '') {
+        $username = explode('@', $email, 2)[0];
+    }
+    $username = strtolower(trim($username));
+
     $pass = (string)($env['ADMIN_PASSWORD'] ?? 'password');
     if ($pass === '') throw new RuntimeException('ADMIN_PASSWORD vacío');
 
@@ -59,8 +65,8 @@ try {
 
     // Borrar cualquier admin roto y recrear limpio
     $pdo->prepare('DELETE FROM users WHERE LOWER(TRIM(email)) = ?')->execute([$email]);
-    $pdo->prepare('INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?,?,?,?,1)')
-        ->execute([$email, $hash, 'Administrador', 'admin']);
+    $pdo->prepare('INSERT INTO users (email, username, password_hash, name, role, is_active) VALUES (?,?,?,?,?,1)')
+        ->execute([$email, $username, $hash, 'Administrador', 'admin']);
 
     $st = $pdo->prepare('SELECT id, email, role, is_active, password_hash FROM users WHERE email = ?');
     $st->execute([$email]);

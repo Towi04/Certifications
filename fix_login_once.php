@@ -106,18 +106,26 @@ try {
         $pdo->exec("CREATE TABLE users (
           id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           email VARCHAR(190) NOT NULL,
+          username VARCHAR(190) NULL,
           password_hash VARCHAR(255) NOT NULL,
           name VARCHAR(190) NOT NULL,
           role ENUM('admin','partner','student') NOT NULL DEFAULT 'student',
           is_active TINYINT(1) NOT NULL DEFAULT 1,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-          UNIQUE KEY uq_users_email (email)
+          UNIQUE KEY uq_users_email (email),
+          UNIQUE KEY uq_users_username (username)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         $lines[] = 'Tabla users creada con esquema correcto';
     }
 
     $email = strtolower(trim($env['ADMIN_EMAIL'] ?? 'admin@institutodoceo.com'));
+    $username = $env['ADMIN_USERNAME'] ?? null;
+    if ($username === null || trim($username) === '') {
+        $username = explode('@', $email, 2)[0];
+    }
+    $username = strtolower(trim($username));
+
     $pass = (string)($env['ADMIN_PASSWORD'] ?? '');
     if ($pass === '') throw new RuntimeException('ADMIN_PASSWORD vacío');
     $hash = password_hash($pass, PASSWORD_DEFAULT);
@@ -126,13 +134,19 @@ try {
     $id->execute([$email]);
     $uid = $id->fetchColumn();
 
+    $username = $env['ADMIN_USERNAME'] ?? null;
+    if ($username === null || trim($username) === '') {
+        $username = explode('@', $email, 2)[0];
+    }
+    $username = strtolower(trim($username));
+
     if ($uid) {
-        $pdo->prepare('UPDATE users SET email=?, password_hash=?, name=?, role=?, is_active=1 WHERE id=?')
-            ->execute([$email, $hash, 'Administrador', 'admin', (int)$uid]);
+        $pdo->prepare('UPDATE users SET email=?, username=?, password_hash=?, name=?, role=?, is_active=1 WHERE id=?')
+            ->execute([$email, $username, $hash, 'Administrador', 'admin', (int)$uid]);
         $lines[] = "UPDATE admin id={$uid}";
     } else {
-        $pdo->prepare('INSERT INTO users (email,password_hash,name,role,is_active) VALUES (?,?,?,?,1)')
-            ->execute([$email, $hash, 'Administrador', 'admin']);
+        $pdo->prepare('INSERT INTO users (email,username,password_hash,name,role,is_active) VALUES (?,?,?,?,?,1)')
+            ->execute([$email, $username, $hash, 'Administrador', 'admin']);
         $uid = $pdo->lastInsertId();
         $lines[] = "INSERT admin id={$uid}";
     }

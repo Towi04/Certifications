@@ -24,11 +24,19 @@ final class Auth
         ]);
     }
 
-    public static function attempt(string $email, string $password): bool
+    private static function normalizeIdentifier(string $identifier): string
+    {
+        return strtolower(trim($identifier));
+    }
+
+    public static function attempt(string $identifier, string $password): bool
     {
         $pdo = Connection::get();
-        $stmt = $pdo->prepare('SELECT id, email, password_hash, role, name, is_active FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
-        $stmt->execute([strtolower(trim($email))]);
+        $query = 'SELECT id, email, username, password_hash, role, name, is_active '
+            . 'FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(username)) = ? LIMIT 1';
+        $stmt = $pdo->prepare($query);
+        $normalized = self::normalizeIdentifier($identifier);
+        $stmt->execute([$normalized, $normalized]);
         $user = $stmt->fetch();
 
         if (!$user) {
@@ -106,6 +114,11 @@ final class Auth
         try {
             $pdo = Connection::get();
             $email = strtolower(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com');
+            $username = Env::get('ADMIN_USERNAME');
+            if ($username === null || trim($username) === '') {
+                $username = explode('@', $email, 2)[0];
+            }
+            $username = strtolower(trim($username));
 
             $exists = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
             $exists->execute([$email]);
@@ -117,9 +130,9 @@ final class Auth
             $hash = password_hash($password, PASSWORD_DEFAULT);
 
             $stmt = $pdo->prepare(
-                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+                'INSERT INTO users (email, username, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
             );
-            $stmt->execute([$email, $hash, 'Administrador', 'admin']);
+            $stmt->execute([$email, $username, $hash, 'Administrador', 'admin']);
         } catch (\PDOException $e) {
             // Duplicado por carrera entre requests: no bloquea el login
             if ($e->getCode() === '23000' || str_contains($e->getMessage(), '1062')) {
@@ -167,18 +180,24 @@ final class Auth
         $find->execute([$email]);
         $user = $find->fetch();
 
+        $username = Env::get('ADMIN_USERNAME');
+        if ($username === null || trim($username) === '') {
+            $username = explode('@', $email, 2)[0];
+        }
+        $username = strtolower(trim($username));
+
         if ($user) {
             // Reactivar + nueva clave por id (evita fallos si is_active=0 u email con espacios)
             $upd = $pdo->prepare(
-                'UPDATE users SET email = ?, password_hash = ?, is_active = 1, role = ? WHERE id = ?'
+                'UPDATE users SET email = ?, username = ?, password_hash = ?, is_active = 1, role = ? WHERE id = ?'
             );
-            $upd->execute([$email, $hash, 'admin', (int) $user['id']]);
+            $upd->execute([$email, $username, $hash, 'admin', (int) $user['id']]);
             $userId = (int) $user['id'];
         } else {
             $insert = $pdo->prepare(
-                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+                'INSERT INTO users (email, username, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
             );
-            $insert->execute([$email, $hash, 'Administrador', 'admin']);
+            $insert->execute([$email, $username, $hash, 'Administrador', 'admin']);
             $userId = (int) $pdo->lastInsertId();
         }
 

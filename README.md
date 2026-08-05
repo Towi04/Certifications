@@ -24,7 +24,8 @@ Resumen:
 1. Despliega el repo en el subdomain `pdv.institutodoceo.com` (webhook).
 2. Copia `.env.example` → `.env` y completa contraseñas/tokens.
 3. Importa `sql/schema.sql` y `sql/seed.sql` en phpMyAdmin (`insti241_pdv`).
-4. Entra a `/login` con `ADMIN_EMAIL` / `ADMIN_PASSWORD` del `.env`.
+4. Entra a `/login` con `ADMIN_USERNAME` o `ADMIN_EMAIL` y `ADMIN_PASSWORD` del `.env`.
+   - Si usas `ADMIN_USERNAME=admin`, el usuario puede ser `admin`.
 5. Abre `/admin/salud` y verifica semáforos.
 
 ## Estructura

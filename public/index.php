@@ -27,11 +27,11 @@ $router->post('/login', static function (): void {
         // Continuar al attempt; si el hash ya es válido, entrará igual
     }
 
-    $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+    $login = strtolower(trim((string) ($_POST['email'] ?? '')));
     $password = (string) ($_POST['password'] ?? '');
 
     try {
-        if (!Auth::attempt($email, $password)) {
+        if (!Auth::attempt($login, $password)) {
             $msg = 'Correo o contraseña incorrectos.';
             if (\App\Config\Env::getBool('ADMIN_RESET_PASSWORD', false)) {
                 $msg .= ' Tip: pon ADMIN_RESET_PASSWORD=false en el .env si ya reparaste el usuario en la BD.';
