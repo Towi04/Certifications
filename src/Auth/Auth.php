@@ -35,7 +35,8 @@ final class Auth
             return false;
         }
 
-        if (!password_verify($password, $user['password_hash'])) {
+        $hash = trim((string) $user['password_hash']);
+        if (!password_verify($password, $hash)) {
             return false;
         }
 
