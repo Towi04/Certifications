@@ -39,12 +39,17 @@ final class Auth
             return false;
         }
 
-        session_regenerate_id(true);
+        try {
+            session_regenerate_id(true);
+        } catch (\Throwable $e) {
+            error_log('[PDV] session_regenerate_id: ' . $e->getMessage());
+        }
+
         $_SESSION['user'] = [
             'id' => (int) $user['id'],
-            'email' => $user['email'],
-            'role' => $user['role'],
-            'name' => $user['name'],
+            'email' => (string) $user['email'],
+            'role' => (string) $user['role'],
+            'name' => (string) $user['name'],
         ];
 
         return true;

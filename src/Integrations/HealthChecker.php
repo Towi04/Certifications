@@ -63,12 +63,16 @@ final class HealthChecker
             $count = count($courses);
             $sample = [];
             foreach (array_slice($courses, 0, 5) as $course) {
+                if (!is_array($course)) {
+                    continue;
+                }
                 $sample[] = [
                     'id' => $course['id'] ?? null,
-                    'shortname' => $course['shortname'] ?? null,
-                    'fullname' => $course['fullname'] ?? null,
+                    'shortname' => isset($course['shortname']) ? (string) $course['shortname'] : null,
+                    'fullname' => isset($course['fullname']) ? mb_substr((string) $course['fullname'], 0, 120) : null,
                 ];
             }
+            unset($courses);
 
             return [
                 'name' => $name,

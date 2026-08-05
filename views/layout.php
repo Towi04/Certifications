@@ -17,6 +17,7 @@
                 <?php if (\App\Auth\Auth::check()): ?>
                     <?php $u = \App\Auth\Auth::user(); ?>
                     <?php if ($u && $u['role'] === 'admin'): ?>
+                        <a href="/admin">Admin</a>
                         <a href="/admin/salud">Salud</a>
                     <?php endif; ?>
                     <form class="inline-form" method="post" action="/logout">

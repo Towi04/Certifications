@@ -23,7 +23,7 @@
             </header>
             <p><?= e($item['message']) ?></p>
             <?php if (!empty($item['meta'])): ?>
-                <pre class="meta"><?= e(json_encode($item['meta'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) ?></pre>
+                <pre class="meta"><?= e_json($item['meta']) ?></pre>
             <?php endif; ?>
         </article>
     <?php endforeach; ?>
