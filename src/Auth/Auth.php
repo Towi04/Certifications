@@ -95,32 +95,34 @@ final class Auth
         }
     }
 
-    /** Crea el admin inicial desde .env si la tabla users está vacía. */
+    /** Crea el admin inicial desde .env solo si ese correo aún no existe. */
     public static function ensureBootstrapAdmin(): void
     {
         try {
             $pdo = Connection::get();
-        } catch (\Throwable) {
-            return;
+            $email = strtolower(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com');
+
+            $exists = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $exists->execute([$email]);
+            if ($exists->fetch()) {
+                return;
+            }
+
+            $password = Env::get('ADMIN_PASSWORD', 'CambiarYa123!') ?? 'CambiarYa123!';
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+            );
+            $stmt->execute([$email, $hash, 'Administrador', 'admin']);
+        } catch (\PDOException $e) {
+            // Duplicado por carrera entre requests: no bloquea el login
+            if ($e->getCode() === '23000' || str_contains($e->getMessage(), '1062')) {
+                return;
+            }
+            error_log('[PDV] ensureBootstrapAdmin: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[PDV] ensureBootstrapAdmin: ' . $e->getMessage());
         }
-
-        try {
-            $count = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
-        } catch (\Throwable) {
-            return;
-        }
-
-        if ($count > 0) {
-            return;
-        }
-
-        $email = strtolower(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com');
-        $password = Env::get('ADMIN_PASSWORD', 'CambiarYa123!') ?? 'CambiarYa123!';
-        $hash = password_hash($password, PASSWORD_DEFAULT);
-
-        $stmt = $pdo->prepare(
-            'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
-        );
-        $stmt->execute([$email, $hash, 'Administrador', 'admin']);
     }
 }
