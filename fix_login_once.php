@@ -1,237 +1,168 @@
 <?php
-
 declare(strict_types=1);
-
 /**
- * Script de UN SOLO USO — diagnosticar y reparar login admin + esquema users.
- *
- * Abrir: https://pdv.institutodoceo.com/fix_login_once.php?key=TU_APP_KEY
- * Luego BORRAR este archivo.
+ * FIX LOGIN v3 — si no ves "FIX LOGIN v3" arriba del resultado, ESTE archivo no está en el servidor.
+ * https://pdv.institutodoceo.com/fix_login_once.php?key=TU_APP_KEY
+ * BORRAR después de usar.
  */
 
-$rootCandidates = [
-    dirname(__DIR__),
-    __DIR__,
-    dirname(__DIR__, 2),
-];
-$root = null;
-foreach ($rootCandidates as $candidate) {
-    if (is_file($candidate . '/src/bootstrap.php')) {
-        $root = $candidate;
-        break;
-    }
-}
-if ($root === null) {
-    http_response_code(500);
-    echo 'No se encontró src/bootstrap.php';
-    exit;
-}
-
-require $root . '/src/bootstrap.php';
-
-use App\Config\Env;
-use App\Database\Connection;
-
 header('Content-Type: text/html; charset=UTF-8');
+echo '<h1>FIX LOGIN v3</h1>';
 
-$provided = (string) ($_GET['key'] ?? '');
-$appKey = (string) (Env::get('APP_KEY') ?? '');
-if ($appKey === '' || $provided === '' || !hash_equals($appKey, $provided)) {
-    http_response_code(403);
-    echo '<h1>403</h1><p>Usa <code>?key=TU_APP_KEY</code> (valor de <code>APP_KEY</code> en el .env).</p>';
+// --- localizar .env ---
+$roots = [__DIR__, dirname(__DIR__), dirname(__DIR__, 2)];
+$envPath = null;
+foreach ($roots as $r) {
+    if (is_file($r . '/.env')) { $envPath = $r . '/.env'; $root = $r; break; }
+}
+if (!$envPath) {
+    http_response_code(500);
+    echo '<p>No encontré .env. Sube este archivo junto al .env (raíz del proyecto).</p>';
     exit;
 }
 
-function h(mixed $s): string
-{
-    return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+function env_load(string $path): array {
+    $out = [];
+    $raw = file_get_contents($path);
+    if ($raw === false) return $out;
+    if (str_starts_with($raw, "\xEF\xBB\xBF")) $raw = substr($raw, 3);
+    foreach (preg_split("/\r\n|\n|\r/", $raw) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
+        [$k, $v] = explode('=', $line, 2);
+        $k = trim($k); $v = trim($v);
+        if ($k === '') continue;
+        if ((str_starts_with($v, '"') && str_ends_with($v, '"')) || (str_starts_with($v, "'") && str_ends_with($v, "'"))) {
+            $v = substr($v, 1, -1);
+        }
+        $out[$k] = $v;
+    }
+    return $out;
 }
+
+$env = env_load($envPath);
+$key = (string)($_GET['key'] ?? '');
+$appKey = (string)($env['APP_KEY'] ?? '');
+if ($appKey === '' || $key === '' || !hash_equals($appKey, $key)) {
+    http_response_code(403);
+    echo '<p>403 — usa ?key= valor de APP_KEY del .env</p>';
+    exit;
+}
+
+function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 $lines = [];
 $ok = false;
 
 try {
-    $pdo = Connection::get();
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $dsn = sprintf(
+        'mysql:host=%s;dbname=%s;charset=utf8mb4',
+        $env['DB_HOST'] ?? 'localhost',
+        $env['DB_NAME'] ?? ''
+    );
+    $pdo = new PDO($dsn, $env['DB_USER'] ?? '', $env['DB_PASS'] ?? '', [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
 
-    $dbName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
-    $dbUser = (string) $pdo->query('SELECT CURRENT_USER()')->fetchColumn();
-    $lines[] = "DATABASE()=[{$dbName}] CURRENT_USER=[{$dbUser}]";
-    $lines[] = 'env DB_NAME=[' . (Env::get('DB_NAME') ?? '') . '] DB_USER=[' . (Env::get('DB_USER') ?? '') . ']';
+    $db = $pdo->query('SELECT DATABASE()')->fetchColumn();
+    $lines[] = 'OK conexión a [' . $db . ']';
+    $lines[] = '.env path = ' . $envPath;
 
-    $hasUsers = (bool) $pdo->query("SHOW TABLES LIKE 'users'")->fetch();
-    if (!$hasUsers) {
-        $lines[] = 'Tabla users NO existe. Creándola...';
-        $pdo->exec(<<<SQL
-CREATE TABLE users (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(190) NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  name VARCHAR(190) NOT NULL,
-  role ENUM('admin', 'partner', 'student') NOT NULL DEFAULT 'student',
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_users_email (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-SQL);
-        $lines[] = 'Tabla users creada.';
-    }
+    // ¿Existe users?
+    $exists = (bool)$pdo->query("SHOW TABLES LIKE 'users'")->fetch();
+    if ($exists) {
+        $cols = $pdo->query('SHOW COLUMNS FROM users')->fetchAll();
+        $names = array_column($cols, 'Field');
+        $lines[] = 'Columnas actuales: ' . implode(', ', $names);
 
-    $columns = $pdo->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_ASSOC);
-    $colNames = array_map(static fn(array $c): string => (string) $c['Field'], $columns);
-    $lines[] = 'Columnas users: ' . implode(', ', $colNames);
+        $need = ['id','email','password_hash','name','role','is_active'];
+        $missing = array_diff($need, $names);
+        $lines[] = 'Faltan: ' . ($missing ? implode(', ', $missing) : '(ninguna)');
 
-    $required = ['id', 'email', 'password_hash', 'name', 'role', 'is_active'];
-    $missing = array_values(array_diff($required, $colNames));
-    if ($missing !== []) {
-        $lines[] = 'FALTAN columnas: ' . implode(', ', $missing) . ' — se intentará reparar el esquema.';
-
-        // Renombrar tabla rota y crear la correcta
-        $backup = 'users_backup_' . date('Ymd_His');
-        $pdo->exec("RENAME TABLE users TO `{$backup}`");
-        $lines[] = "Tabla anterior renombrada a {$backup}";
-
-        $pdo->exec(<<<SQL
-CREATE TABLE users (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(190) NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  name VARCHAR(190) NOT NULL,
-  role ENUM('admin', 'partner', 'student') NOT NULL DEFAULT 'student',
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_users_email (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-SQL);
-        $lines[] = 'Nueva tabla users creada con esquema correcto.';
-
-        // Intentar migrar datos obvios desde el backup
-        $backupCols = $pdo->query("SHOW COLUMNS FROM `{$backup}`")->fetchAll(PDO::FETCH_ASSOC);
-        $backupNames = array_map(static fn(array $c): string => strtolower((string) $c['Field']), $backupCols);
-        $lines[] = "Columnas {$backup}: " . implode(', ', $backupNames);
-
-        $mapEmail = null;
-        foreach (['email', 'correo', 'user_email', 'username', 'user'] as $cand) {
-            if (in_array($cand, $backupNames, true)) {
-                $mapEmail = $cand;
-                break;
-            }
-        }
-        $mapPass = null;
-        foreach (['password_hash', 'password', 'pass', 'clave', 'hash'] as $cand) {
-            if (in_array($cand, $backupNames, true)) {
-                $mapPass = $cand;
-                break;
-            }
-        }
-        if ($mapEmail) {
-            $rows = $pdo->query("SELECT * FROM `{$backup}`")->fetchAll(PDO::FETCH_ASSOC);
-            $ins = $pdo->prepare('INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)');
-            foreach ($rows as $r) {
-                $keys = array_change_key_case($r, CASE_LOWER);
-                $em = strtolower(trim((string) ($keys[$mapEmail] ?? '')));
-                if ($em === '' || !str_contains($em, '@')) {
-                    continue;
-                }
-                $rawPass = (string) ($keys[$mapPass] ?? '');
-                $hash = str_starts_with($rawPass, '$2') ? $rawPass : password_hash($rawPass !== '' ? $rawPass : 'Temporal123!', PASSWORD_DEFAULT);
-                $name = (string) ($keys['name'] ?? $keys['nombre'] ?? 'Usuario');
-                $role = in_array(($keys['role'] ?? ''), ['admin', 'partner', 'student'], true) ? $keys['role'] : 'admin';
-                try {
-                    $ins->execute([$em, $hash, $name !== '' ? $name : 'Usuario', $role]);
-                    $lines[] = "Migrado: {$em}";
-                } catch (Throwable $e) {
-                    $lines[] = "No migró {$em}: " . $e->getMessage();
+        // Dump crudo
+        $raw = $pdo->query('SELECT * FROM users LIMIT 3')->fetchAll();
+        $lines[] = 'SELECT * count=' . count($raw);
+        foreach ($raw as $i => $row) {
+            $lines[] = ' keys['.$i.']=' . implode('|', array_keys($row));
+            $copy = $row;
+            foreach ($copy as $k => $v) {
+                if (stripos($k, 'pass') !== false || stripos($k, 'hash') !== false) {
+                    $copy[$k] = is_string($v) ? (substr($v, 0, 7) . '…') : $v;
                 }
             }
+            $lines[] = ' data['.$i.']=' . json_encode($copy, JSON_UNESCAPED_UNICODE);
+        }
+
+        if ($missing) {
+            $bak = 'users_backup_' . date('Ymd_His');
+            $pdo->exec("RENAME TABLE users TO `{$bak}`");
+            $lines[] = "Renombrada users → {$bak}";
+            $exists = false;
         }
     }
 
-    $raw = $pdo->query('SELECT * FROM users LIMIT 5')->fetchAll(PDO::FETCH_ASSOC);
-    $lines[] = 'Filas actuales: ' . count($raw);
-    foreach ($raw as $i => $row) {
-        $safe = $row;
-        if (isset($safe['password_hash'])) {
-            $safe['password_hash'] = substr((string) $safe['password_hash'], 0, 7) . '…(len ' . strlen((string) $row['password_hash']) . ')';
-        }
-        $lines[] = ' row[' . $i . '] keys=' . implode('|', array_keys($row));
-        $lines[] = ' row[' . $i . ']=' . json_encode($safe, JSON_UNESCAPED_UNICODE);
+    if (!$exists) {
+        $pdo->exec("CREATE TABLE users (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          email VARCHAR(190) NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          name VARCHAR(190) NOT NULL,
+          role ENUM('admin','partner','student') NOT NULL DEFAULT 'student',
+          is_active TINYINT(1) NOT NULL DEFAULT 1,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_users_email (email)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $lines[] = 'Tabla users creada con esquema correcto';
     }
 
-    $email = strtolower(trim((string) (Env::get('ADMIN_EMAIL') ?: 'admin@institutodoceo.com')));
-    $password = (string) (Env::get('ADMIN_PASSWORD') ?? '');
-    if ($password === '') {
-        throw new RuntimeException('ADMIN_PASSWORD vacío en .env');
-    }
-    $hash = password_hash($password, PASSWORD_DEFAULT);
-    if ($hash === false || !password_verify($password, $hash)) {
-        throw new RuntimeException('No se pudo generar bcrypt');
-    }
+    $email = strtolower(trim($env['ADMIN_EMAIL'] ?? 'admin@institutodoceo.com'));
+    $pass = (string)($env['ADMIN_PASSWORD'] ?? '');
+    if ($pass === '') throw new RuntimeException('ADMIN_PASSWORD vacío');
+    $hash = password_hash($pass, PASSWORD_DEFAULT);
 
-    $find = $pdo->prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
-    $find->execute([$email]);
-    $id = $find->fetchColumn();
+    $id = $pdo->prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?');
+    $id->execute([$email]);
+    $uid = $id->fetchColumn();
 
-    if ($id) {
-        $upd = $pdo->prepare('UPDATE users SET email = ?, password_hash = ?, name = ?, role = ?, is_active = 1 WHERE id = ?');
-        $upd->execute([$email, $hash, 'Administrador', 'admin', (int) $id]);
-        $lines[] = "Admin actualizado id={$id}";
+    if ($uid) {
+        $pdo->prepare('UPDATE users SET email=?, password_hash=?, name=?, role=?, is_active=1 WHERE id=?')
+            ->execute([$email, $hash, 'Administrador', 'admin', (int)$uid]);
+        $lines[] = "UPDATE admin id={$uid}";
     } else {
-        $ins = $pdo->prepare('INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)');
-        $ins->execute([$email, $hash, 'Administrador', 'admin']);
-        $id = (int) $pdo->lastInsertId();
-        $lines[] = "Admin creado id={$id}";
+        $pdo->prepare('INSERT INTO users (email,password_hash,name,role,is_active) VALUES (?,?,?,?,1)')
+            ->execute([$email, $hash, 'Administrador', 'admin']);
+        $uid = $pdo->lastInsertId();
+        $lines[] = "INSERT admin id={$uid}";
     }
 
-    $check = $pdo->prepare('SELECT id, email, role, is_active, password_hash FROM users WHERE id = ?');
-    $check->execute([(int) $id]);
-    $row = $check->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-        throw new RuntimeException('No se pudo releer el admin tras guardar.');
-    }
+    $st = $pdo->prepare('SELECT id,email,role,is_active,password_hash FROM users WHERE id=?');
+    $st->execute([(int)$uid]);
+    $u = $st->fetch();
+    $ver = $u && password_verify($pass, $u['password_hash']);
+    $lines[] = 'Resultado: ' . json_encode([
+        'id' => $u['id'] ?? null,
+        'email' => $u['email'] ?? null,
+        'role' => $u['role'] ?? null,
+        'is_active' => $u['is_active'] ?? null,
+        'hash_prefix' => isset($u['password_hash']) ? substr($u['password_hash'], 0, 7) : null,
+        'password_verify' => $ver ? 'OK' : 'FAIL',
+    ], JSON_UNESCAPED_UNICODE);
 
-    $verify = password_verify($password, (string) $row['password_hash']);
-    $lines[] = 'Verify: id=' . $row['id']
-        . ' email=' . $row['email']
-        . ' role=' . $row['role']
-        . ' active=' . $row['is_active']
-        . ' password_verify=' . ($verify ? 'OK' : 'FAIL');
-
-    if ((int) $row['is_active'] !== 1 || !$verify || (string) $row['role'] !== 'admin') {
-        throw new RuntimeException('Admin aún no usable tras reparación.');
+    if (!$u || !(int)$u['is_active'] || !$ver) {
+        throw new RuntimeException('Admin no quedó usable');
     }
 
     $ok = true;
-    $lines[] = 'LISTO. Entra a /login con:';
-    $lines[] = "  email: {$email}";
-    $lines[] = '  password: (ADMIN_PASSWORD del .env, longitud ' . strlen($password) . ')';
-    $lines[] = 'Luego: ADMIN_RESET_PASSWORD=false y BORRA fix_login_once.php';
+    $lines[] = "LISTO → /login con {$email} y ADMIN_PASSWORD (len ".strlen($pass).')';
+    $lines[] = 'Pon ADMIN_RESET_PASSWORD=false y BORRA este archivo';
 } catch (Throwable $e) {
     $lines[] = 'ERROR: ' . $e->getMessage();
 }
 ?>
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Fix login Doceo</title>
-    <style>
-        body { font-family: ui-monospace, monospace; background: #0a0a0a; color: #f5df25; padding: 2rem; }
-        .box { background: #315285; color: #fff; padding: 1rem 1.25rem; border-radius: 12px; max-width: 980px; }
-        pre { white-space: pre-wrap; background: #111; color: #eee; padding: 1rem; border-radius: 8px; }
-        .ok { color: #8dffb0; } .bad { color: #ff8d8d; }
-    </style>
-</head>
-<body>
-    <div class="box">
-        <h1>Reparar login admin</h1>
-        <p class="<?= $ok ? 'ok' : 'bad' ?>"><?= $ok ? 'Éxito' : 'Falló' ?></p>
-        <pre><?php foreach ($lines as $line) {
-            echo h($line), "\n";
-        } ?></pre>
-        <p>BORRA este archivo cuando termines.</p>
-    </div>
-</body>
-</html>
+<pre style="background:#111;color:#eee;padding:1rem;border-radius:8px;white-space:pre-wrap"><?php
+echo $ok ? "ÉXITO\n" : "FALLO\n";
+foreach ($lines as $l) echo h($l), "\n";
+?></pre>
+<p style="color:#f5df25;font-family:monospace">Si no viste el título <b>FIX LOGIN v3</b>, el archivo del servidor NO se actualizó.</p>
