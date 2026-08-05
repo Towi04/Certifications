@@ -22,9 +22,20 @@ $router->get('/login', static function (): void {
         header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
         exit;
     }
+
+    $info = null;
+    try {
+        if (Auth::syncAdminPasswordFromEnv()) {
+            $info = 'Contraseña de admin actualizada desde .env. Quita ADMIN_RESET_PASSWORD=true del .env ahora.';
+        }
+    } catch (Throwable $e) {
+        flash('error', 'No se pudo resetear admin: ' . $e->getMessage());
+    }
+
     view('auth/login', [
         'title' => 'Iniciar sesión',
         'error' => flash('error'),
+        'info' => $info,
     ]);
 });
 
@@ -32,12 +43,22 @@ $router->post('/login', static function (): void {
     // Si el admin ya existe, no hace nada; nunca debe bloquear el login
     Auth::ensureBootstrapAdmin();
 
+    try {
+        if (Auth::syncAdminPasswordFromEnv()) {
+            // Se aplicó el hash nuevo; el login de este mismo POST usará ADMIN_PASSWORD del .env
+        }
+    } catch (Throwable $e) {
+        flash('error', 'No se pudo resetear admin: ' . $e->getMessage());
+        header('Location: /login');
+        exit;
+    }
+
     $email = (string) ($_POST['email'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
 
     try {
         if (!Auth::attempt($email, $password)) {
-            flash('error', 'Correo o contraseña incorrectos.');
+            flash('error', 'Correo o contraseña incorrectos. Si editaste la contraseña en phpMyAdmin como texto plano, no funcionará: usa ADMIN_RESET_PASSWORD=true en el .env.');
             header('Location: /login');
             exit;
         }
