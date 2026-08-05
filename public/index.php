@@ -93,12 +93,10 @@ $router->get('/admin/salud', static function (): void {
         } else {
             $results[] = [
                 'name' => 'SMTP',
-                'ok' => false,
+                'ok' => null,
                 'message' => 'No ejecutado automáticamente (envía correo real). Usa el botón “Probar SMTP”.',
                 'meta' => ['skipped' => true],
             ];
-            // Marcamos skipped sin romper tipos estrictos en la vista
-            $results[count($results) - 1]['ok'] = null;
         }
 
         view('admin/health', [
