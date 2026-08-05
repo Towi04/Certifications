@@ -1,0 +1,6 @@
+RewriteEngine On
+
+# Si el proyecto se sirve desde /public, estas reglas bastan.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
