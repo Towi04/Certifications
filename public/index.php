@@ -16,44 +16,15 @@ $router->get('/', static function (): void {
     ]);
 });
 
-$router->get('/login', static function (): void {
-    if (Auth::check()) {
-        $user = Auth::user();
-        header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
-        exit;
-    }
-
-    $info = flash('info');
-    try {
-        $reset = Auth::syncAdminPasswordFromEnv();
-        if ($reset !== null) {
-            $info = 'Hash actualizado para ' . $reset['email']
-                . ' (longitud de ADMIN_PASSWORD: ' . $reset['length'] . '). '
-                . 'Entra con ESE correo y la misma clave del .env. '
-                . 'Si tiene * - # ! pon: ADMIN_PASSWORD="tu*clave". '
-                . 'Luego pon ADMIN_RESET_PASSWORD=false.';
-        }
-    } catch (Throwable $e) {
-        flash('error', 'No se pudo resetear admin: ' . $e->getMessage());
-        $info = null;
-    }
-
-    view('auth/login', [
-        'title' => 'Iniciar sesión',
-        'error' => flash('error'),
-        'info' => $info,
-    ]);
-});
-
 $router->post('/login', static function (): void {
     Auth::ensureBootstrapAdmin();
 
+    // El reset NO debe impedir el login si falla
     try {
         Auth::syncAdminPasswordFromEnv();
     } catch (Throwable $e) {
-        flash('error', 'No se pudo resetear admin: ' . $e->getMessage());
-        header('Location: /login');
-        exit;
+        error_log('[PDV] reset admin en login: ' . $e->getMessage());
+        // Continuar al attempt; si el hash ya es válido, entrará igual
     }
 
     $email = strtolower(trim((string) ($_POST['email'] ?? '')));
@@ -63,29 +34,14 @@ $router->post('/login', static function (): void {
         if (!Auth::attempt($email, $password)) {
             $msg = 'Correo o contraseña incorrectos.';
             if (\App\Config\Env::getBool('ADMIN_RESET_PASSWORD', false)) {
-                $envPass = (string) (\App\Config\Env::get('ADMIN_PASSWORD') ?? '');
-                $adminEmail = strtolower(trim((string) (\App\Config\Env::get('ADMIN_EMAIL') ?? '')));
-                if ($password !== $envPass) {
-                    $msg = 'La contraseña del formulario NO coincide con ADMIN_PASSWORD del .env. '
-                        . 'Longitud escrita: ' . strlen($password)
-                        . ' · longitud en .env: ' . strlen($envPass) . '. '
-                        . 'Usa comillas dobles si hay caracteres especiales: ADMIN_PASSWORD="tu*clave-1". '
-                        . 'Correo admin configurado: ' . $adminEmail;
-                } elseif ($email !== $adminEmail) {
-                    $msg = "Estás entrando con [{$email}] pero el admin del .env es [{$adminEmail}]. Usa ese correo.";
-                } else {
-                    $msg = 'La clave coincide con el .env y el correo también, pero password_verify falló. '
-                        . 'Revisa que la columna sea password_hash (VARCHAR 255) y vuelve a cargar /login con ADMIN_RESET_PASSWORD=true.';
-                }
-            } else {
-                $msg .= ' Tip: ADMIN_RESET_PASSWORD=true y ADMIN_PASSWORD="tu clave" en el .env, luego abre /login.';
+                $msg .= ' Tip: pon ADMIN_RESET_PASSWORD=false en el .env si ya reparaste el usuario en la BD.';
             }
             flash('error', $msg);
             header('Location: /login');
             exit;
         }
     } catch (Throwable $e) {
-        flash('error', 'No se pudo iniciar sesión: ' . $e->getMessage() . ' ¿Ya importaste sql/schema.sql?');
+        flash('error', 'No se pudo iniciar sesión: ' . $e->getMessage());
         header('Location: /login');
         exit;
     }
@@ -97,6 +53,35 @@ $router->post('/login', static function (): void {
         header('Location: /');
     }
     exit;
+});
+
+$router->get('/login', static function (): void {
+    if (Auth::check()) {
+        $user = Auth::user();
+        header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
+        exit;
+    }
+
+    $info = flash('info');
+    // Solo intentar reset en GET si está activo; no tumbar la página
+    try {
+        $reset = Auth::syncAdminPasswordFromEnv();
+        if ($reset !== null) {
+            $info = 'Hash actualizado para ' . $reset['email']
+                . ' (longitud ADMIN_PASSWORD: ' . $reset['length'] . '). '
+                . 'Entra con ese correo/clave y luego pon ADMIN_RESET_PASSWORD=false.';
+        }
+    } catch (Throwable $e) {
+        // No usar flash error bloqueante: el login debe seguir visible
+        $info = 'Aviso reset: ' . $e->getMessage()
+            . ' — Si ya insertaste el admin en phpMyAdmin, pon ADMIN_RESET_PASSWORD=false y entra normal.';
+    }
+
+    view('auth/login', [
+        'title' => 'Iniciar sesión',
+        'error' => flash('error'),
+        'info' => $info,
+    ]);
 });
 
 $router->post('/logout', static function (): void {
