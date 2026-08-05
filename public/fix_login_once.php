@@ -92,7 +92,7 @@ try {
     $existing = $find->fetch();
 
     if ($existing) {
-        $stmt = $pdo->prepare('UPDATE users SET email = ?, password_hash = ?, role = ?, is_active = 1, name = COALESCE(NULLIF(name, \"\"), ?) WHERE id = ?');
+        $stmt = $pdo->prepare('UPDATE users SET email = ?, password_hash = ?, role = ?, is_active = 1, name = COALESCE(NULLIF(name, \'\'), ?) WHERE id = ?');
         $stmt->execute([$email, $hash, 'admin', 'Administrador', (int) $existing['id']]);
         $lines[] = 'UPDATE hecho sobre id=' . $existing['id'];
     } else {

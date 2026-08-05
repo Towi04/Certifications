@@ -27,11 +27,15 @@ final class Auth
     public static function attempt(string $email, string $password): bool
     {
         $pdo = Connection::get();
-        $stmt = $pdo->prepare('SELECT id, email, password_hash, role, name, is_active FROM users WHERE email = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, email, password_hash, role, name, is_active FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
         $stmt->execute([strtolower(trim($email))]);
         $user = $stmt->fetch();
 
-        if (!$user || !(int) $user['is_active']) {
+        if (!$user) {
+            return false;
+        }
+
+        if (!(int) $user['is_active']) {
             return false;
         }
 
