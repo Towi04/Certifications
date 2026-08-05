@@ -23,10 +23,17 @@ final class Env
             );
         }
 
-        $lines = file($path, FILE_IGNORE_NEW_LINES);
-        if ($lines === false) {
+        $raw = file_get_contents($path);
+        if ($raw === false) {
             throw new \RuntimeException('No se pudo leer el archivo .env.');
         }
+
+        // Quitar BOM UTF-8 si existe
+        if (str_starts_with($raw, "\xEF\xBB\xBF")) {
+            $raw = substr($raw, 3);
+        }
+
+        $lines = preg_split("/\r\n|\n|\r/", $raw) ?: [];
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -42,12 +49,11 @@ final class Env
             $name = trim($name);
             $value = trim($value);
 
-            if (
-                (str_starts_with($value, '"') && str_ends_with($value, '"'))
-                || (str_starts_with($value, "'") && str_ends_with($value, "'"))
-            ) {
-                $value = substr($value, 1, -1);
+            if ($name === '') {
+                continue;
             }
+
+            $value = self::parseValue($value);
 
             self::$values[$name] = $value;
             $_ENV[$name] = $value;
@@ -55,6 +61,30 @@ final class Env
         }
 
         self::$loaded = true;
+    }
+
+    private static function parseValue(string $value): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        $quote = $value[0];
+        if (($quote === '"' || $quote === "'") && str_ends_with($value, $quote) && strlen($value) >= 2) {
+            $inner = substr($value, 1, -1);
+            if ($quote === '"') {
+                $inner = str_replace(['\\n', '\\r', '\\t', '\\"', '\\\\'], ["\n", "\r", "\t", '"', '\\'], $inner);
+            }
+
+            return $inner;
+        }
+
+        // Sin comillas: cortar comentario inline solo si hay espacio antes de #
+        if (preg_match('/^([^#]*?)\s+#.*$/', $value, $m)) {
+            return rtrim($m[1]);
+        }
+
+        return $value;
     }
 
     public static function get(string $key, ?string $default = null): ?string
@@ -78,7 +108,7 @@ final class Env
             return $default;
         }
 
-        return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
     }
 
     public static function require(string $key): string

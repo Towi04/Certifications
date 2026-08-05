@@ -129,22 +129,35 @@ final class Auth
     /**
      * Regenera el hash del admin desde ADMIN_PASSWORD del .env.
      * Activar solo temporalmente: ADMIN_RESET_PASSWORD=true
-     * (las contraseñas en BD deben ser bcrypt, nunca texto plano).
+     * Usa comillas dobles si la clave tiene * - # ! etc:
+     * ADMIN_PASSWORD="mi*clave-segura"
+     *
+     * @return array{email: string, length: int}|null
      */
-    public static function syncAdminPasswordFromEnv(): bool
+    public static function syncAdminPasswordFromEnv(): ?array
     {
         if (!Env::getBool('ADMIN_RESET_PASSWORD', false)) {
-            return false;
+            return null;
         }
 
-        $email = strtolower(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com');
+        $email = strtolower(trim(Env::get('ADMIN_EMAIL', 'admin@institutodoceo.com') ?? 'admin@institutodoceo.com'));
         $password = Env::get('ADMIN_PASSWORD');
         if ($password === null || $password === '') {
             throw new \RuntimeException('ADMIN_PASSWORD vacío en .env; no se puede resetear.');
         }
 
+        // Evitar espacios accidentales pegados al editar en cPanel
+        if ($password !== trim($password)) {
+            throw new \RuntimeException(
+                'ADMIN_PASSWORD tiene espacios al inicio/final. Ponla entre comillas dobles sin espacios de más.'
+            );
+        }
+
         $pdo = Connection::get();
         $hash = password_hash($password, PASSWORD_DEFAULT);
+        if ($hash === false || !password_verify($password, $hash)) {
+            throw new \RuntimeException('No se pudo generar un hash bcrypt válido.');
+        }
 
         $stmt = $pdo->prepare(
             'UPDATE users SET password_hash = ?, is_active = 1, role = ? WHERE email = ?'
@@ -152,12 +165,43 @@ final class Auth
         $stmt->execute([$hash, 'admin', $email]);
 
         if ($stmt->rowCount() === 0) {
-            $insert = $pdo->prepare(
-                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
-            );
-            $insert->execute([$email, $hash, 'Administrador', 'admin']);
+            // Confirmar si existe con otra capitalización / collation
+            $check = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $check->execute([$email]);
+            if (!$check->fetch()) {
+                $insert = $pdo->prepare(
+                    'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+                );
+                $insert->execute([$email, $hash, 'Administrador', 'admin']);
+            } else {
+                // rowCount 0 pero existe: forzar update por id
+                $force = $pdo->prepare('UPDATE users SET password_hash = ?, is_active = 1, role = ? WHERE email = ?');
+                $force->execute([$hash, 'admin', $email]);
+            }
         }
 
-        return true;
+        $verify = $pdo->prepare('SELECT password_hash, is_active FROM users WHERE email = ? LIMIT 1');
+        $verify->execute([$email]);
+        $row = $verify->fetch();
+        if (!$row) {
+            throw new \RuntimeException("No se encontró el usuario {$email} tras el reset.");
+        }
+        if (!(int) $row['is_active']) {
+            throw new \RuntimeException("El usuario {$email} está inactivo.");
+        }
+        if (!is_string($row['password_hash']) || !preg_match('/^\$2[ayb]\$/', $row['password_hash'])) {
+            throw new \RuntimeException('El hash en BD no parece bcrypt. Revisa la columna password_hash.');
+        }
+        if (!password_verify($password, $row['password_hash'])) {
+            throw new \RuntimeException(
+                'El hash se guardó pero no verifica contra ADMIN_PASSWORD. ' .
+                'Pon la clave entre comillas dobles en el .env, ej: ADMIN_PASSWORD="tu*clave".'
+            );
+        }
+
+        return [
+            'email' => $email,
+            'length' => strlen($password),
+        ];
     }
 }
