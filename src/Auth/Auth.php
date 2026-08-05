@@ -147,7 +147,6 @@ final class Auth
             throw new \RuntimeException('ADMIN_PASSWORD vacío en .env; no se puede resetear.');
         }
 
-        // Evitar espacios accidentales pegados al editar en cPanel
         if ($password !== trim($password)) {
             throw new \RuntimeException(
                 'ADMIN_PASSWORD tiene espacios al inicio/final. Ponla entre comillas dobles sin espacios de más.'
@@ -160,40 +159,43 @@ final class Auth
             throw new \RuntimeException('No se pudo generar un hash bcrypt válido.');
         }
 
-        $stmt = $pdo->prepare(
-            'UPDATE users SET password_hash = ?, is_active = 1, role = ? WHERE email = ?'
-        );
-        $stmt->execute([$hash, 'admin', $email]);
+        $find = $pdo->prepare('SELECT id, email, is_active FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1');
+        $find->execute([$email]);
+        $user = $find->fetch();
 
-        if ($stmt->rowCount() === 0) {
-            // Confirmar si existe con otra capitalización / collation
-            $check = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
-            $check->execute([$email]);
-            if (!$check->fetch()) {
-                $insert = $pdo->prepare(
-                    'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
-                );
-                $insert->execute([$email, $hash, 'Administrador', 'admin']);
-            } else {
-                // rowCount 0 pero existe: forzar update por id
-                $force = $pdo->prepare('UPDATE users SET password_hash = ?, is_active = 1, role = ? WHERE email = ?');
-                $force->execute([$hash, 'admin', $email]);
-            }
+        if ($user) {
+            // Reactivar + nueva clave por id (evita fallos si is_active=0 u email con espacios)
+            $upd = $pdo->prepare(
+                'UPDATE users SET email = ?, password_hash = ?, is_active = 1, role = ? WHERE id = ?'
+            );
+            $upd->execute([$email, $hash, 'admin', (int) $user['id']]);
+            $userId = (int) $user['id'];
+        } else {
+            $insert = $pdo->prepare(
+                'INSERT INTO users (email, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, 1)'
+            );
+            $insert->execute([$email, $hash, 'Administrador', 'admin']);
+            $userId = (int) $pdo->lastInsertId();
         }
 
-        $verify = $pdo->prepare('SELECT password_hash, is_active FROM users WHERE email = ? LIMIT 1');
-        $verify->execute([$email]);
+        $verify = $pdo->prepare('SELECT email, password_hash, is_active, role FROM users WHERE id = ? LIMIT 1');
+        $verify->execute([$userId]);
         $row = $verify->fetch();
         if (!$row) {
             throw new \RuntimeException("No se encontró el usuario {$email} tras el reset.");
         }
-        if (!(int) $row['is_active']) {
-            throw new \RuntimeException("El usuario {$email} está inactivo.");
+        if ((int) $row['is_active'] !== 1) {
+            // Segundo intento explícito
+            $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$userId]);
+            $row['is_active'] = 1;
+        }
+        if ((string) $row['role'] !== 'admin') {
+            $pdo->prepare('UPDATE users SET role = ? WHERE id = ?')->execute(['admin', $userId]);
         }
         if (!is_string($row['password_hash']) || !preg_match('/^\$2[ayb]\$/', $row['password_hash'])) {
             throw new \RuntimeException('El hash en BD no parece bcrypt. Revisa la columna password_hash.');
         }
-        if (!password_verify($password, $row['password_hash'])) {
+        if (!password_verify($password, trim((string) $row['password_hash']))) {
             throw new \RuntimeException(
                 'El hash se guardó pero no verifica contra ADMIN_PASSWORD. ' .
                 'Pon la clave entre comillas dobles en el .env, ej: ADMIN_PASSWORD="tu*clave".'
@@ -201,7 +203,7 @@ final class Auth
         }
 
         return [
-            'email' => $email,
+            'email' => (string) $row['email'],
             'length' => strlen($password),
         ];
     }
