@@ -29,13 +29,8 @@ $router->get('/login', static function (): void {
 });
 
 $router->post('/login', static function (): void {
-    try {
-        Auth::ensureBootstrapAdmin();
-    } catch (Throwable $e) {
-        flash('error', 'Error al preparar admin: ' . $e->getMessage());
-        header('Location: /login');
-        exit;
-    }
+    // Si el admin ya existe, no hace nada; nunca debe bloquear el login
+    Auth::ensureBootstrapAdmin();
 
     $email = (string) ($_POST['email'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
