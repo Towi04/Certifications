@@ -65,12 +65,27 @@ Valores ya prellenados (puedes dejarlos):
 4. Semáforos verdes: MariaDB, Moodle, OpenPay, Storage
 5. Probar SMTP aparte
 
+## Reset de contraseña admin (importante)
+
+La columna `password_hash` **no** acepta la contraseña en texto plano. Si la editaste en phpMyAdmin como texto normal, el login fallará.
+
+Para regenerar el hash correctamente:
+
+1. En el `.env` del servidor pon:
+   - `ADMIN_EMAIL=admin@institutodoceo.com`
+   - `ADMIN_PASSWORD=TuNuevaClaveSegura`
+   - `ADMIN_RESET_PASSWORD=true`
+2. Abre `/login` (o intenta entrar). Verás aviso de contraseña actualizada.
+3. Entra con ese correo y `ADMIN_PASSWORD`.
+4. **Vuelve a poner** `ADMIN_RESET_PASSWORD=false` en el `.env`.
+
 ## Problemas frecuentes
 
 | Síntoma | Qué revisar |
 |---|---|
 | “No se encontró .env” | Crear `.env` en la raíz del proyecto (junto a `src/`) |
 | Login: error de tabla | Importar `schema.sql` |
+| Contraseña incorrecta tras editar en phpMyAdmin | Usar `ADMIN_RESET_PASSWORD=true` (ver arriba) |
 | Moodle access exception | Función no agregada al servicio externo |
 | OpenPay 1002 / invalid key | `OPENPAY_PRIVATE_KEY` incorrecta o aún placeholder |
 | SMTP auth fail | Contraseña del correo o puerto/encryption |
