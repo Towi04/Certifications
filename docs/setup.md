@@ -71,13 +71,15 @@ La columna `password_hash` **no** acepta la contraseña en texto plano. Si la ed
 
 Para regenerar el hash correctamente:
 
-1. En el `.env` del servidor pon:
+1. En el `.env` del servidor pon (**comillas dobles** si hay `*` `-` `#` `!`):
    - `ADMIN_EMAIL=admin@institutodoceo.com`
-   - `ADMIN_PASSWORD=TuNuevaClaveSegura`
+   - `ADMIN_PASSWORD="TuNuevaClaveSegura"`
    - `ADMIN_RESET_PASSWORD=true`
-2. Abre `/login` (o intenta entrar). Verás aviso de contraseña actualizada.
-3. Entra con ese correo y `ADMIN_PASSWORD`.
+2. Abre `/login` (verás el correo y la **longitud** de la clave leída del `.env`).
+3. Entra con **ese mismo correo** y **la misma clave**.
 4. **Vuelve a poner** `ADMIN_RESET_PASSWORD=false` en el `.env`.
+
+Si falla, el error ahora dice si la clave del formulario no coincide con la del `.env` (compara longitudes) o si usaste otro correo.
 
 ## Problemas frecuentes
 
