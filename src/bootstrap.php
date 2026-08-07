@@ -72,6 +72,31 @@ function e(mixed $value): string
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/** Solo dígitos (para tel: y wa.me). */
+function phone_digits(?string $value): string
+{
+    return preg_replace('/\D+/', '', (string) $value) ?? '';
+}
+
+/** Enlace WhatsApp (wa.me). Prefija 52 si son 10 dígitos (MX). */
+function wa_me_url(?string $whatsapp): ?string
+{
+    $digits = phone_digits($whatsapp);
+    if ($digits === '') {
+        return null;
+    }
+    if (strlen($digits) === 10) {
+        $digits = '52' . $digits;
+    }
+    return 'https://wa.me/' . $digits;
+}
+
+function tel_url(?string $phone): ?string
+{
+    $digits = phone_digits($phone);
+    return $digits !== '' ? 'tel:+' . $digits : null;
+}
+
 function e_json(mixed $value): string
 {
     $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE;

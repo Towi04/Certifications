@@ -722,7 +722,107 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   font-size: 1.05rem;
   color: var(--blue);
 }
-.notes-timeline { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 1.25rem; }
+.panel-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.panel-toolbar h3 { margin: 0; }
+.inline-form-panel {
+  border: 1px dashed rgba(49, 82, 133, 0.25);
+  border-radius: 14px;
+  padding: 1rem;
+  background: rgba(49, 82, 133, 0.03);
+  margin-top: 0.35rem;
+}
+.icon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(49, 82, 133, 0.08);
+  color: var(--blue);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+.icon-btn svg { width: 18px; height: 18px; display: block; }
+.icon-btn:hover { background: rgba(49, 82, 133, 0.16); }
+.icon-btn-wa { color: #128c7e; }
+.icon-btn-danger { color: #b42318; }
+.icon-btn.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.admin-only-hint { font-size: 0.78rem; opacity: 0.75; }
+.is-row-inactive { opacity: 0.55; }
+
+.venue-accordion .venue-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "trigger actions"
+    "panel panel";
+  gap: 0.35rem 0.5rem;
+  align-items: start;
+  padding: 0.55rem 0.75rem;
+}
+.venue-accordion .accordion-trigger {
+  grid-area: trigger;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  color: inherit;
+  width: 100%;
+  font: inherit;
+}
+.accordion-trigger-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.accordion-chevron {
+  color: var(--blue);
+  transition: transform 0.18s ease;
+  display: grid;
+  place-items: center;
+}
+.accordion-chevron svg { width: 18px; height: 18px; }
+.venue-card.is-open .accordion-chevron { transform: rotate(180deg); }
+.venue-accordion .accordion-actions {
+  grid-area: actions;
+  margin-top: 0.2rem;
+}
+.venue-accordion .accordion-panel {
+  grid-area: panel;
+  padding: 0.35rem 0 0.5rem;
+  border-top: 1px solid rgba(49, 82, 133, 0.1);
+  margin-top: 0.25rem;
+}
+.venue-accordion .venue-card header { display: contents; }
+
+.notes-timeline { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.5rem; }
 .note-entry {
   border-left: 3px solid var(--yellow);
   padding: 0.65rem 0.85rem;

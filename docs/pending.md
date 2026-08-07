@@ -8,3 +8,9 @@
 - Sedes fijas (ej. 2 en CDMX) sí tienen dirección completa desde el admin de proveedores.
 
 Estado actual: admin ya distingue `sede fija` vs `subcentro` (solo ciudad/estado).
+
+## Proveedor: convenio vs marca pública
+
+- Campo `code` = **Convenio con** (Creative Solutions, ETC Iberoamérica, Lingua Franca…). Solo admin.
+- Campo `name` = **Certificaciones de** (Cambridge, Certiport, TOEFL/IIE…). Lo que ven alumnos y TR.
+- No exponer el convenio/intermediario en catálogo público ni partner.

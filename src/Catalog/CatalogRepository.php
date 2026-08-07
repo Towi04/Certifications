@@ -126,6 +126,16 @@ final class CatalogRepository
         ]);
     }
 
+    public function providerContact(int $providerId, int $contactId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_contacts WHERE id = ? AND provider_id = ?'
+        );
+        $stmt->execute([$contactId, $providerId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
     public function addProviderContact(array $data): int
     {
         if (!empty($data['is_primary'])) {
@@ -150,11 +160,52 @@ final class CatalogRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    public function updateProviderContact(int $contactId, array $data): void
+    {
+        if (!empty($data['is_primary'])) {
+            $this->pdo->prepare(
+                'UPDATE provider_contacts SET is_primary = 0 WHERE provider_id = ?'
+            )->execute([$data['provider_id']]);
+        }
+        $stmt = $this->pdo->prepare(
+            'UPDATE provider_contacts SET
+                role=?, name=?, email=?, phone=?, whatsapp=?, notes=?, is_primary=?
+             WHERE id=? AND provider_id=?'
+        );
+        $stmt->execute([
+            $data['role'],
+            $data['name'],
+            $data['email'],
+            $data['phone'],
+            $data['whatsapp'],
+            $data['notes'],
+            !empty($data['is_primary']) ? 1 : 0,
+            $contactId,
+            $data['provider_id'],
+        ]);
+    }
+
     public function deleteProviderContact(int $providerId, int $contactId): void
     {
         $this->pdo->prepare(
             'DELETE FROM provider_contacts WHERE id = ? AND provider_id = ?'
         )->execute([$contactId, $providerId]);
+    }
+
+    public function setCertificationPublished(int $certificationId, bool $published): void
+    {
+        $this->pdo->prepare(
+            'UPDATE certifications SET is_published = ? WHERE id = ?'
+        )->execute([$published ? 1 : 0, $certificationId]);
+    }
+
+    public function certificationBelongsToProvider(int $certificationId, int $providerId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM certifications WHERE id = ? AND provider_id = ? LIMIT 1'
+        );
+        $stmt->execute([$certificationId, $providerId]);
+        return (bool) $stmt->fetchColumn();
     }
 
     /** @return list<array<string, mixed>> */
