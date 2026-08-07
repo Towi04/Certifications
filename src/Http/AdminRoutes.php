@@ -1480,7 +1480,6 @@ final class AdminRoutes
                 'first_name' => (string) ($_POST['first_name'] ?? ''),
                 'last_name' => (string) ($_POST['last_name'] ?? ''),
                 'role' => (string) ($_POST['role'] ?? ''),
-                'password' => (string) ($_POST['password'] ?? ''),
             ];
 
             try {
@@ -1494,7 +1493,16 @@ final class AdminRoutes
                     header('Location: /admin/users/edit?id=' . $id);
                 } else {
                     $savedId = $users()->create($payload);
-                    flash('info', 'Usuario creado.');
+                    try {
+                        $users()->sendWelcomeActivationEmail($savedId);
+                        flash('info', 'Usuario creado. Se envió el correo de activación a ' . $payload['email'] . '.');
+                    } catch (\Throwable $mailError) {
+                        flash(
+                            'info',
+                            'Usuario creado, pero no se pudo enviar el correo: ' . $mailError->getMessage()
+                            . ' Contraseña temporal: ' . UserRepository::DEFAULT_PASSWORD
+                        );
+                    }
                     header('Location: /admin/users/edit?id=' . $savedId);
                 }
                 exit;
@@ -1508,18 +1516,37 @@ final class AdminRoutes
         $router->post('/admin/users/reset-password', static function () use ($users): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0);
-            $password = (string) ($_POST['password'] ?? '');
-            $password2 = (string) ($_POST['password_confirm'] ?? '');
+            $redirect = (string) ($_POST['redirect'] ?? '/admin/users');
+            if (!str_starts_with($redirect, '/admin/users')) {
+                $redirect = '/admin/users';
+            }
             try {
-                if ($password !== $password2) {
-                    throw new \RuntimeException('Las contraseñas no coinciden.');
-                }
-                $users()->setPassword($id, $password);
-                flash('info', 'Contraseña restablecida.');
+                $users()->resetToDefaultPassword($id);
+                flash('info', 'Contraseña restablecida a ' . UserRepository::DEFAULT_PASSWORD . '. El usuario deberá cambiarla al entrar.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/users/edit?id=' . $id);
+            header('Location: ' . $redirect);
+            exit;
+        });
+
+        $router->post('/admin/users/resend-activation', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            try {
+                $item = $users()->find($id);
+                if (!$item) {
+                    throw new \RuntimeException('Usuario no encontrado.');
+                }
+                if (!empty($item['email_verified_at']) && (int) $item['is_active'] === 1) {
+                    throw new \RuntimeException('La cuenta ya está activa.');
+                }
+                $users()->sendWelcomeActivationEmail($id);
+                flash('info', 'Correo de activación reenviado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/users');
             exit;
         });
 

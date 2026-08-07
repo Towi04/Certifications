@@ -201,7 +201,7 @@ final class Auth
         if ($password === '') {
             throw new \RuntimeException('La contraseña no puede estar vacía.');
         }
-        if ($password === \App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) {
+        if ($password === \App\Users\UserRepository::DEFAULT_PASSWORD) {
             throw new \RuntimeException('Elige una contraseña distinta a la temporal.');
         }
 
