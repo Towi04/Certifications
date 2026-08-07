@@ -215,6 +215,58 @@ input:focus {
 .note ol { margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--muted); line-height: 1.7; }
 code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.35em; border-radius: 6px; }
 
+.protocol-timeline {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.protocol-phase-label {
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.protocol-step {
+  border: 1px solid rgba(49, 82, 133, 0.18);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+.protocol-step.is-inactive { opacity: 0.55; }
+.protocol-step.status-current {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(49, 82, 133, 0.12);
+}
+.protocol-step.status-done {
+  border-color: rgba(31, 122, 76, 0.35);
+  background: rgba(229, 245, 236, 0.45);
+}
+.protocol-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.protocol-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.protocol-step .actions { margin-top: 0.5rem; }
+.protocol-step form { display: inline; }
+
 .admin-nav {
   display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
   margin: 0 0 1.25rem; padding: 0.75rem 0;

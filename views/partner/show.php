@@ -173,11 +173,51 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
         <div class="prose"><?= $item['description_html'] ?></div>
     <?php endif; ?>
 
-    <h2>Cómo se aplica</h2>
-    <?php if (!empty($item['protocol_procedure_html'])): ?>
+    <h2>Cómo se aplica (protocolo)</h2>
+    <?php
+    $protocolSteps = $protocolSteps ?? [];
+    $phaseLabels = [
+        'pre_exam' => 'Pre-examen',
+        'during_exam' => 'Durante el examen',
+        'post_exam' => 'Post-examen',
+    ];
+    $respLabels = [
+        'student' => 'Alumno',
+        'admin' => 'Administrador',
+        'tr' => 'TR',
+        'student_or_tr' => 'Alumno o TR',
+        'provider' => 'Certificadora',
+        'sep' => 'SEP',
+        'system' => 'Sistema',
+    ];
+    ?>
+    <?php if ($protocolSteps): ?>
+        <ol class="protocol-timeline">
+            <?php
+            $lastPhase = null;
+            foreach ($protocolSteps as $step):
+                $phase = (string) ($step['phase'] ?? '');
+                if ($phase !== $lastPhase):
+                    $lastPhase = $phase;
+            ?>
+                <li class="protocol-phase-label"><?= e($phaseLabels[$phase] ?? $phase) ?></li>
+            <?php endif; ?>
+                <li class="protocol-step">
+                    <div class="protocol-step-head">
+                        <span class="protocol-step-num"><?= (int)$step['sort_order'] ?></span>
+                        <strong><?= e($step['title']) ?></strong>
+                        <span class="pill"><?= e($respLabels[$step['responsible']] ?? $step['responsible']) ?></span>
+                    </div>
+                    <?php if (!empty($step['description'])): ?>
+                        <p class="muted"><?= e($step['description']) ?></p>
+                    <?php endif; ?>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+    <?php elseif (!empty($item['protocol_procedure_html'])): ?>
         <div class="prose"><?= $item['protocol_procedure_html'] ?></div>
     <?php else: ?>
-        <p class="muted">Sin protocolo detallado aún.</p>
+        <p class="muted">Sin protocolo de pasos aún.</p>
     <?php endif; ?>
     <ul class="facts">
         <?php if (!empty($item['requires_regulation_signature'])): ?><li>Requiere firma de reglamento</li><?php endif; ?>

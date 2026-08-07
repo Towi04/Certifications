@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS protocols (
   code VARCHAR(64) NOT NULL,
   name VARCHAR(190) NOT NULL,
   modality ENUM('online', 'paper', 'hybrid', 'inventory', 'other') NOT NULL DEFAULT 'online',
-  procedure_html MEDIUMTEXT NULL,
+  procedure_html MEDIUMTEXT NULL COMMENT 'Resumen opcional; el flujo real vive en protocol_steps',
   requires_regulation_signature TINYINT(1) NOT NULL DEFAULT 0,
   requires_software TINYINT(1) NOT NULL DEFAULT 0,
   requires_zoom TINYINT(1) NOT NULL DEFAULT 0,
@@ -163,6 +163,30 @@ CREATE TABLE IF NOT EXISTS protocols (
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_protocols_code (code),
   CONSTRAINT fk_protocols_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS protocol_steps (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  protocol_id BIGINT UNSIGNED NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  phase ENUM('pre_exam', 'during_exam', 'post_exam') NOT NULL DEFAULT 'pre_exam',
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  responsible ENUM(
+    'student',
+    'admin',
+    'tr',
+    'student_or_tr',
+    'provider',
+    'sep',
+    'system'
+  ) NOT NULL DEFAULT 'student',
+  trigger_days_after_exam INT NULL COMMENT 'Días tras el examen para este paso (recordatorios/plazos)',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_protocol_steps_protocol (protocol_id, sort_order),
+  CONSTRAINT fk_protocol_steps_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS partner_tiers (
@@ -236,6 +260,7 @@ CREATE TABLE IF NOT EXISTS partner_agreement_assignments (
 
 CREATE TABLE IF NOT EXISTS courses (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  protocol_id BIGINT UNSIGNED NULL,
   code VARCHAR(64) NOT NULL,
   name VARCHAR(190) NOT NULL,
   platform_type ENUM('moodle', 'xperienceed', 'ethinking', 'external', 'internal', 'none') NOT NULL DEFAULT 'moodle',
@@ -246,7 +271,9 @@ CREATE TABLE IF NOT EXISTS courses (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_courses_code (code)
+  UNIQUE KEY uq_courses_code (code),
+  KEY idx_courses_protocol (protocol_id),
+  CONSTRAINT fk_courses_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS certifications (
@@ -355,4 +382,48 @@ CREATE TABLE IF NOT EXISTS certification_docs (
   UNIQUE KEY uq_cert_doc (certification_id, document_id, stage),
   CONSTRAINT fk_cd_cert FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE,
   CONSTRAINT fk_cd_doc FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Caso: un alumno siguiendo el protocolo de una certificación
+CREATE TABLE IF NOT EXISTS certification_cases (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  certification_id BIGINT UNSIGNED NOT NULL,
+  protocol_id BIGINT UNSIGNED NOT NULL,
+  student_user_id BIGINT UNSIGNED NULL,
+  partner_id BIGINT UNSIGNED NULL COMMENT 'TR asociado, si hay',
+  student_email VARCHAR(190) NOT NULL,
+  student_name VARCHAR(190) NOT NULL,
+  exam_date DATE NULL,
+  status ENUM('in_progress', 'completed', 'cancelled') NOT NULL DEFAULT 'in_progress',
+  current_step_id BIGINT UNSIGNED NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_cases_cert (certification_id),
+  KEY idx_cases_student_user (student_user_id),
+  KEY idx_cases_status (status),
+  CONSTRAINT fk_cases_certification FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE,
+  CONSTRAINT fk_cases_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_cases_student_user FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_cases_partner FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL,
+  CONSTRAINT fk_cases_current_step FOREIGN KEY (current_step_id) REFERENCES protocol_steps(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS certification_case_steps (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  case_id BIGINT UNSIGNED NOT NULL,
+  protocol_step_id BIGINT UNSIGNED NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  status ENUM('pending', 'current', 'done', 'skipped', 'blocked') NOT NULL DEFAULT 'pending',
+  completed_at DATETIME NULL,
+  completed_by BIGINT UNSIGNED NULL,
+  notes TEXT NULL,
+  meta_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_case_step (case_id, protocol_step_id),
+  KEY idx_case_steps_case (case_id, sort_order),
+  CONSTRAINT fk_case_steps_case FOREIGN KEY (case_id) REFERENCES certification_cases(id) ON DELETE CASCADE,
+  CONSTRAINT fk_case_steps_step FOREIGN KEY (protocol_step_id) REFERENCES protocol_steps(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_case_steps_user FOREIGN KEY (completed_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

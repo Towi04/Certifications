@@ -53,6 +53,8 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_admin_users_roles.sql` (roles Administrador/Asistente/Gestor/Partner TR + teléfono/nombre)
 - `sql/migration_partners_onboarding.sql` (alta Partner TR con docs/domicilio + must_change_password)
 - `sql/migration_user_activation.sql` (activación por correo + email_verified_at)
+- `sql/migration_protocol_steps.sql` (pasos del protocolo + casos de progreso)
+- Luego el seed ELET: `sql/seed_protocol_elet.sql`
 
 ### Subida de PDFs de convenio
 

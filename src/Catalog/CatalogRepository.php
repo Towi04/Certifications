@@ -668,7 +668,9 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function protocols(bool $onlyActive = false): array
     {
-        $sql = 'SELECT pr.*, p.name AS provider_name FROM protocols pr LEFT JOIN providers p ON p.id = pr.provider_id';
+        $sql = 'SELECT pr.*, p.name AS provider_name,
+                (SELECT COUNT(*) FROM protocol_steps ps WHERE ps.protocol_id = pr.id AND ps.is_active = 1) AS steps_count
+                FROM protocols pr LEFT JOIN providers p ON p.id = pr.provider_id';
         if ($onlyActive) {
             $sql .= ' WHERE pr.is_active = 1';
         }
@@ -678,10 +680,259 @@ final class CatalogRepository
 
     public function protocol(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM protocols WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT pr.*, p.name AS provider_name FROM protocols pr
+             LEFT JOIN providers p ON p.id = pr.provider_id WHERE pr.id = ?'
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    /** @return array<string, string> */
+    public static function protocolPhases(): array
+    {
+        return [
+            'pre_exam' => 'Pre-examen',
+            'during_exam' => 'Durante el examen',
+            'post_exam' => 'Post-examen',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function protocolResponsibles(): array
+    {
+        return [
+            'student' => 'Alumno',
+            'admin' => 'Administrador',
+            'tr' => 'Teacher Referral (TR)',
+            'student_or_tr' => 'Alumno o TR',
+            'provider' => 'Certificadora',
+            'sep' => 'SEP',
+            'system' => 'Sistema (OpenPay, etc.)',
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function protocolSteps(int $protocolId, bool $onlyActive = false): array
+    {
+        $sql = 'SELECT * FROM protocol_steps WHERE protocol_id = ?';
+        if ($onlyActive) {
+            $sql .= ' AND is_active = 1';
+        }
+        $sql .= ' ORDER BY sort_order ASC, id ASC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$protocolId]);
+        return $stmt->fetchAll();
+    }
+
+    public function protocolStep(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM protocol_steps WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function saveProtocolStep(array $data, ?int $id = null): int
+    {
+        $fields = [
+            $data['protocol_id'],
+            $data['sort_order'],
+            $data['phase'],
+            $data['title'],
+            $data['description'],
+            $data['responsible'],
+            $data['trigger_days_after_exam'],
+            $data['is_active'],
+        ];
+
+        if ($id) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE protocol_steps SET protocol_id=?, sort_order=?, phase=?, title=?, description=?,
+                 responsible=?, trigger_days_after_exam=?, is_active=? WHERE id=?'
+            );
+            $stmt->execute([...$fields, $id]);
+            return $id;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO protocol_steps
+             (protocol_id, sort_order, phase, title, description, responsible, trigger_days_after_exam, is_active)
+             VALUES (?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute($fields);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteProtocolStep(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM protocol_steps WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    public function nextProtocolStepOrder(int $protocolId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 FROM protocol_steps WHERE protocol_id = ?');
+        $stmt->execute([$protocolId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Abre un caso de certificación y clona los pasos del protocolo como pendientes.
+     * El primer paso queda en status=current.
+     */
+    public function openCertificationCase(array $data): int
+    {
+        $certId = (int) $data['certification_id'];
+        $cert = $this->certification($certId);
+        if (!$cert) {
+            throw new \RuntimeException('Certificación no encontrada.');
+        }
+        $protocolId = (int) ($data['protocol_id'] ?? ($cert['protocol_id'] ?? 0));
+        if ($protocolId <= 0) {
+            throw new \RuntimeException('La certificación no tiene protocolo asignado.');
+        }
+        $steps = $this->protocolSteps($protocolId, true);
+        if ($steps === []) {
+            throw new \RuntimeException('El protocolo no tiene pasos activos.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $firstStepId = (int) $steps[0]['id'];
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO certification_cases
+                 (certification_id, protocol_id, student_user_id, partner_id, student_email, student_name,
+                  exam_date, status, current_step_id, notes)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)'
+            );
+            $stmt->execute([
+                $certId,
+                $protocolId,
+                $data['student_user_id'] ?? null,
+                $data['partner_id'] ?? null,
+                $data['student_email'],
+                $data['student_name'],
+                $data['exam_date'] ?? null,
+                'in_progress',
+                $firstStepId,
+                $data['notes'] ?? null,
+            ]);
+            $caseId = (int) $this->pdo->lastInsertId();
+
+            $ins = $this->pdo->prepare(
+                'INSERT INTO certification_case_steps
+                 (case_id, protocol_step_id, sort_order, status) VALUES (?,?,?,?)'
+            );
+            foreach ($steps as $i => $step) {
+                $ins->execute([
+                    $caseId,
+                    (int) $step['id'],
+                    (int) $step['sort_order'],
+                    $i === 0 ? 'current' : 'pending',
+                ]);
+            }
+
+            $this->pdo->commit();
+            return $caseId;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function certificationCases(int $limit = 100): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+                    pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
+             ORDER BY c.updated_at DESC, c.id DESC
+             LIMIT ' . (int) $limit
+        );
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    public function certificationCase(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+                    pr.name AS protocol_name
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             WHERE c.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function certificationCaseSteps(int $caseId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT cs.*, ps.title, ps.description, ps.phase, ps.responsible, ps.trigger_days_after_exam
+             FROM certification_case_steps cs
+             JOIN protocol_steps ps ON ps.id = cs.protocol_step_id
+             WHERE cs.case_id = ?
+             ORDER BY cs.sort_order ASC, cs.id ASC'
+        );
+        $stmt->execute([$caseId]);
+        return $stmt->fetchAll();
+    }
+
+    /** Marca el paso actual como done y avanza al siguiente. */
+    public function completeCaseStep(int $caseId, int $caseStepId, ?int $completedBy = null, ?string $notes = null): void
+    {
+        $case = $this->certificationCase($caseId);
+        if (!$case || $case['status'] !== 'in_progress') {
+            throw new \RuntimeException('Caso no encontrado o no está en progreso.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $stmt = $this->pdo->prepare(
+                'UPDATE certification_case_steps
+                 SET status = ?, completed_at = NOW(), completed_by = ?, notes = COALESCE(?, notes)
+                 WHERE id = ? AND case_id = ? AND status = ?'
+            );
+            $stmt->execute(['done', $completedBy, $notes, $caseStepId, $caseId, 'current']);
+            if ($stmt->rowCount() === 0) {
+                throw new \RuntimeException('El paso no está activo o ya fue completado.');
+            }
+
+            $next = $this->pdo->prepare(
+                'SELECT id, protocol_step_id FROM certification_case_steps
+                 WHERE case_id = ? AND status = ? ORDER BY sort_order ASC, id ASC LIMIT 1'
+            );
+            $next->execute([$caseId, 'pending']);
+            $nextRow = $next->fetch();
+
+            if ($nextRow) {
+                $this->pdo->prepare(
+                    'UPDATE certification_case_steps SET status = ? WHERE id = ?'
+                )->execute(['current', (int) $nextRow['id']]);
+                $this->pdo->prepare(
+                    'UPDATE certification_cases SET current_step_id = ?, updated_at = NOW() WHERE id = ?'
+                )->execute([(int) $nextRow['protocol_step_id'], $caseId]);
+            } else {
+                $this->pdo->prepare(
+                    'UPDATE certification_cases SET status = ?, current_step_id = NULL, updated_at = NOW() WHERE id = ?'
+                )->execute(['completed', $caseId]);
+            }
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function saveProtocol(array $data, ?int $id = null): int
@@ -733,20 +984,21 @@ final class CatalogRepository
     public function saveCourse(array $data, ?int $id = null): int
     {
         $fields = [
+            $data['protocol_id'] ?? null,
             $data['code'], $data['name'], $data['platform_type'], $data['external_url'],
             $data['moodle_course_id'], $data['access_notes'], $data['description'], $data['is_active'],
         ];
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE courses SET code=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
+                'UPDATE courses SET protocol_id=?, code=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
                  access_notes=?, description=?, is_active=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
         }
         $stmt = $this->pdo->prepare(
-            'INSERT INTO courses (code, name, platform_type, external_url, moodle_course_id, access_notes, description, is_active)
-             VALUES (?,?,?,?,?,?,?,?)'
+            'INSERT INTO courses (protocol_id, code, name, platform_type, external_url, moodle_course_id, access_notes, description, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -1366,8 +1618,18 @@ final class CatalogRepository
             'partners' => (int) $this->pdo->query('SELECT COUNT(*) FROM partners')->fetchColumn(),
             'agreements' => (int) $this->pdo->query('SELECT COUNT(*) FROM agreements')->fetchColumn(),
             'protocols' => (int) $this->pdo->query('SELECT COUNT(*) FROM protocols')->fetchColumn(),
+            'cases' => $this->safeCount('certification_cases'),
             'tiers' => (int) $this->pdo->query('SELECT COUNT(*) FROM partner_tiers')->fetchColumn(),
             'users' => (int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
         ];
+    }
+
+    private function safeCount(string $table): int
+    {
+        try {
+            return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 }
