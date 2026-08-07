@@ -69,28 +69,26 @@ Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max
 - Dashboard sandbox → copiar **llave privada** a `OPENPAY_PRIVATE_KEY`.
 - La prueba de salud hace `GET /v1/{merchantId}` con autenticación básica (private key).
 
-## 6. SMTP
+## 6. SMTP / correo
 
-- Host `mail.institutodoceo.com`, puerto **465**, SSL, auth.
-- Panel: `/admin/salud` → **Probar SMTP** (envía un correo real a `SMTP_FROM`).
-- El alta de usuarios y “Probar SMTP” usan el **mismo** `Mailer` y el mismo `.env`.
+- Por defecto (`SMTP_TRANSPORT=auto`) se envía con **PHP `mail()`** local (sin AUTH), que es lo fiable en Neubox.
+- Si `mail()` falla, se intenta SMTP AUTH (`mail.dominio:465`, etc.).
+- Panel: `/admin/salud` → **Probar SMTP**.
 
-### Error `535 Incorrect authentication data`
+### Por qué webmail OK y SMTP 535
 
-Exim rechazó AUTH en ese momento. No implica que el formulario de usuarios esté mal: si el `.env` no cambió y antes funcionó, algo del lado correo/servidor puede haber cambiado (bloqueo cPHulk, política SMTP, cert, resolución de `mail.`).
+Webmail autentica contra **IMAP/Dovecot**. El cliente SMTP autentica contra **Exim**.
+Pueden divergir (bloqueo cPHulk tras muchos 535, restricción SMTP del hosting, etc.).
+Las comillas en `SMTP_PASS` no cambian eso si `pass_len` ya era correcto.
 
-1. Abre `/admin/salud?smtp=1` y mira el meta: `user`, `pass_len` y, si OK, `used_endpoint`.
-2. **Compara `pass_len` con la longitud real** de la clave en cPanel. Si no coincide, el `.env` está mal parseado → ponla entre comillas dobles: `SMTP_PASS="tu-clave"`.
-3. Entra a **webmail** con esa cuenta.
-4. El Mailer prueba solo `mail.…`, también `localhost` / `127.0.0.1` y `587/tls`. Si uno funciona, deja ese host fijo en el `.env`.
-5. Si el usuario quedó pendiente, en Usuarios **reenvía activación**.
+1. Deploy con `SMTP_TRANSPORT=auto` (o `mail`) y vuelve a **Probar SMTP**.
+2. Si el meta muestra `used_endpoint.transport = mail`, listo; reenvía activaciones.
+3. Si quieres insistir en AUTH: cPanel → cPHulk → desbloquea IP/cuenta; o restablece la clave del buzón y actualiza `SMTP_PASS`.
 
 ```env
-SMTP_HOST=localhost
-SMTP_PORT=465
-SMTP_ENCRYPTION=ssl
+SMTP_TRANSPORT=auto
 SMTP_USER=certificaciones@institutodoceo.com
-SMTP_PASS="tu-clave-entre-comillas"
+SMTP_PASS="tu-clave"
 SMTP_FROM=certificaciones@institutodoceo.com
 ```
 
