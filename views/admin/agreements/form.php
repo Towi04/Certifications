@@ -1,8 +1,6 @@
 <?php
 require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
-$prices = $prices ?? [];
-$certifications = $certifications ?? [];
 ?>
 <section class="note">
     <h2><?= e($title) ?></h2>
@@ -27,35 +25,12 @@ $certifications = $certifications ?? [];
 
 <?php if ($item): ?>
 <section class="note">
-    <h2>Precios de este convenio</h2>
-    <form method="post" action="/admin/agreements/price" class="stack form-grid">
-        <input type="hidden" name="agreement_id" value="<?= (int)$item['id'] ?>">
-        <label>Certificación
-            <select name="certification_id" required>
-                <option value="">Selecciona…</option>
-                <?php foreach ($certifications as $c): ?>
-                    <option value="<?= (int)$c['id'] ?>"><?= e($c['name']) ?> (<?= e($c['code']) ?>)</option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <label>Precio partner<input type="number" step="0.01" name="price" required></label>
-        <button class="btn" type="submit">Guardar precio</button>
-    </form>
-    <div class="table-wrap" style="margin-top:1rem">
-        <table class="data-table">
-            <thead><tr><th>Certificación</th><th>Código</th><th>Precio</th></tr></thead>
-            <tbody>
-            <?php foreach ($prices as $p): ?>
-                <tr>
-                    <td><?= e($p['certification_name']) ?></td>
-                    <td><code><?= e($p['certification_code']) ?></code></td>
-                    <td><?= e(\App\Support\Str::money((float)$p['price'], $p['currency'])) ?></td>
-                </tr>
-            <?php endforeach; ?>
-            <?php if (!$prices): ?><tr><td colspan="3">Sin precios aún.</td></tr><?php endif; ?>
-            </tbody>
-        </table>
-    </div>
+    <h2>Precios TR</h2>
+    <p class="muted">
+        Los precios por nivel se capturan en cada certificación (Precio público, Costo Doceo y precios por nivel TR).
+        Al agregar un nivel nuevo, aparece automáticamente en todas las fichas de certificación.
+    </p>
+    <p><a class="btn btn-ghost" href="/admin/certifications">Ir a certificaciones</a></p>
 </section>
 <?php
 $assets = $assets ?? [];

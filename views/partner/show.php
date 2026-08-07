@@ -46,17 +46,17 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
 <section class="note product-sheet">
     <div class="price-box">
         <?php if ($partnerPrice): ?>
-            <p class="eyebrow">Tu precio de convenio</p>
-            <p class="price-lg"><?= e(\App\Support\Str::money((float)$partnerPrice['price'], $partnerPrice['currency'])) ?></p>
+            <p class="eyebrow">Tu precio Teacher Referral</p>
+            <p class="price-lg"><?= e(\App\Support\Str::money((float)$partnerPrice['price'], $partnerPrice['currency'] ?? 'MXN')) ?></p>
             <?php if ($partner): ?>
-                <p class="muted"><?= e($partner['agreement_name'] ?? $partner['tier_name'] ?? '') ?></p>
+                <p class="muted"><?= e($partner['tier_name'] ?? $partner['agreement_name'] ?? '') ?></p>
             <?php endif; ?>
         <?php else: ?>
             <p class="eyebrow">Precio partner</p>
-            <p class="muted">Aún no hay precio cargado para tu convenio. Contacta a Doceo.</p>
+            <p class="muted">Aún no hay precio cargado para tu nivel. Contacta a Doceo.</p>
         <?php endif; ?>
         <?php if ($item['public_price'] !== null): ?>
-            <p class="muted">Referencia público: <?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'])) ?></p>
+            <p class="muted">Referencia público: <?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'] ?? 'MXN')) ?></p>
         <?php endif; ?>
     </div>
 
@@ -67,7 +67,26 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
                 <li><strong>Modalidad:</strong> <?= e(\App\Catalog\CatalogRepository::modalities()[$item['modality']] ?? ucfirst((string)$item['modality'])) ?></li>
                 <li><strong>Duración:</strong> <?= e($item['duration_label'] ?? '—') ?></li>
                 <li><strong>Audiencia:</strong> <?= e($item['audience'] ?? '—') ?></li>
-                <li><strong>Rango:</strong> <?= e($item['score_range'] ?? '—') ?></li>
+                <?php
+                $scoreRanges = \App\Catalog\CatalogRepository::decodeScoreRanges($item['score_ranges_json'] ?? null);
+                ?>
+                <li><strong>Rangos:</strong>
+                    <?php if ($scoreRanges): ?>
+                        <ul class="score-ranges-display">
+                            <?php foreach ($scoreRanges as $r): ?>
+                                <?php
+                                $span = trim($r['min'] . ($r['min'] !== '' && $r['max'] !== '' ? ' – ' : '') . $r['max']);
+                                $line = $span !== '' && $r['label'] !== ''
+                                    ? $span . ' = ' . $r['label']
+                                    : ($r['label'] !== '' ? $r['label'] : $span);
+                                ?>
+                                <li><?= e($line) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php else: ?>
+                        <?= e($item['score_range'] ?? '—') ?>
+                    <?php endif; ?>
+                </li>
                 <?php if (!empty($item['provider_brand_website'])): ?>
                     <li><strong>Sitio oficial:</strong>
                         <a href="<?= e($item['provider_brand_website']) ?>" target="_blank" rel="noopener">
@@ -152,11 +171,6 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
     <?php if (!empty($item['description_html'])): ?>
         <h2>Descripción</h2>
         <div class="prose"><?= $item['description_html'] ?></div>
-    <?php endif; ?>
-
-    <?php if (!empty($item['syllabus_html'])): ?>
-        <h2>Temario</h2>
-        <div class="prose"><?= $item['syllabus_html'] ?></div>
     <?php endif; ?>
 
     <h2>Cómo se aplica</h2>

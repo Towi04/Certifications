@@ -305,6 +305,53 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .prose-inline { display: inline; }
 .prose-inline p { display: inline; margin: 0; }
 
+.score-ranges-fieldset,
+.tier-prices-fieldset {
+  border: 1px solid rgba(49, 82, 133, 0.18);
+  border-radius: 12px;
+  padding: 0.85rem 1rem 1rem;
+  margin: 0;
+}
+.score-ranges-fieldset legend,
+.tier-prices-fieldset legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+  color: var(--blue);
+}
+.score-ranges-hint { margin: 0.25rem 0 0.75rem; font-size: 0.9rem; }
+.score-ranges-list { display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 0.75rem; }
+.score-range-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 120px) minmax(90px, 120px) minmax(160px, 1fr) auto;
+  gap: 0.55rem 0.75rem;
+  align-items: end;
+}
+.score-range-row label { margin: 0; }
+.score-range-remove {
+  width: 2.2rem;
+  height: 2.2rem;
+  margin-bottom: 0.15rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.tier-prices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.65rem 0.85rem;
+  margin-top: 0.5rem;
+}
+.score-ranges-display {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+@media (max-width: 640px) {
+  .score-range-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .score-range-row .score-range-label { grid-column: 1 / -1; }
+  .score-range-remove { grid-column: 1 / -1; justify-self: start; }
+}
+
 .table-wrap { overflow-x: auto; margin-top: 1rem; }
 .data-table {
   width: 100%; border-collapse: collapse; font-size: 0.92rem;

@@ -23,13 +23,13 @@ final class PartnerRoutes
                 'q' => trim((string) ($_GET['q'] ?? '')),
                 'cenni' => $_GET['cenni'] ?? '',
             ];
-            $agreementId = $partner['agreement_id'] ?? null;
+            $tierId = isset($partner['partner_tier_id']) ? (int) $partner['partner_tier_id'] : 0;
             view('partner/catalog', [
                 'title' => 'Catálogo Teacher Referral',
                 'user' => $user,
                 'partner' => $partner,
                 'items' => $repo()->publishedCertificationsForPartner(
-                    $agreementId ? (int) $agreementId : null,
+                    $tierId > 0 ? $tierId : null,
                     $filters
                 ),
                 'providers' => $repo()->providers(true),
@@ -50,14 +50,9 @@ final class PartnerRoutes
             }
 
             $partnerPrice = null;
-            $agreementId = $partner['agreement_id'] ?? null;
-            if ($agreementId) {
-                foreach ($repo()->agreementPrices((int) $agreementId) as $priceRow) {
-                    if ((int) $priceRow['certification_id'] === (int) $item['id']) {
-                        $partnerPrice = $priceRow;
-                        break;
-                    }
-                }
+            $tierId = isset($partner['partner_tier_id']) ? (int) $partner['partner_tier_id'] : 0;
+            if ($tierId > 0) {
+                $partnerPrice = $repo()->certificationTierPrice((int) $item['id'], $tierId);
             }
 
             view('partner/show', [
