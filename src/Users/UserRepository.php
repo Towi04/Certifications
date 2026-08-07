@@ -23,14 +23,63 @@ final class UserRepository
             'admin' => 'Administrador',
             'assistant' => 'Asistente',
             'manager' => 'Gestor',
-            'partner' => 'Partner TR',
         ];
     }
 
     /** @return array<string, string> */
     public static function allRoleLabels(): array
     {
-        return self::manageableRoles() + ['student' => 'Alumno'];
+        return self::manageableRoles() + [
+            'partner' => 'Partner TR',
+            'student' => 'Alumno',
+        ];
+    }
+
+    public const PARTNER_DEFAULT_PASSWORD = 'Doceo1234';
+
+    public function createPartnerUser(string $email, string $firstName, string $lastName, ?string $phone = null): int
+    {
+        $email = strtolower(trim($email));
+        $first = trim($firstName);
+        $last = trim($lastName);
+        $phone = trim((string) $phone) ?: null;
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Correo inválido.');
+        }
+        if ($first === '' || $last === '') {
+            throw new \RuntimeException('Nombre y apellidos son obligatorios.');
+        }
+        if ($this->findByEmail($email)) {
+            throw new \RuntimeException('Ya existe un usuario con ese correo.');
+        }
+
+        $username = $this->allocateUsernameFromEmail($email);
+        $name = self::displayName($first, $last);
+        $hash = password_hash(self::PARTNER_DEFAULT_PASSWORD, PASSWORD_DEFAULT);
+        if ($hash === false) {
+            throw new \RuntimeException('No se pudo generar la contraseña.');
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password)
+             VALUES (?,?,?,?,?,?,?,?,1,1)'
+        );
+        $stmt->execute([$email, $phone, $username, $hash, $name, $first, $last, 'partner']);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function allocateUsernameFromEmail(string $email): string
+    {
+        $base = strtolower(explode('@', $email, 2)[0]);
+        $base = preg_replace('/[^a-z0-9._-]+/', '', $base) ?: 'partner';
+        $username = $base;
+        $n = 1;
+        while ($this->findByUsername($username)) {
+            $n++;
+            $username = $base . $n;
+        }
+        return $username;
     }
 
     public static function displayName(?string $firstName, ?string $lastName, ?string $fallback = null): string
@@ -220,8 +269,13 @@ final class UserRepository
         if ($last === '') {
             throw new \RuntimeException('Los apellidos son obligatorios.');
         }
-        if (!isset(self::manageableRoles()[$role]) && !($role === 'student' && $existing['role'] === 'student')) {
-            throw new \RuntimeException('Rol no válido.');
+        if (!isset(self::manageableRoles()[$role])) {
+            // Permitir conservar partner/alumno al editar desde Usuarios (no se crean aquí).
+            $locked = in_array((string) $existing['role'], ['partner', 'student'], true)
+                && $role === (string) $existing['role'];
+            if (!$locked) {
+                throw new \RuntimeException('Rol no válido.');
+            }
         }
         if ($this->findByEmail($email, $id)) {
             throw new \RuntimeException('Ya existe un usuario con ese correo.');

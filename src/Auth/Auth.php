@@ -201,6 +201,9 @@ final class Auth
         if ($password === '') {
             throw new \RuntimeException('La contraseña no puede estar vacía.');
         }
+        if ($password === \App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) {
+            throw new \RuntimeException('Elige una contraseña distinta a la temporal.');
+        }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
         if ($hash === false) {
@@ -208,8 +211,12 @@ final class Auth
         }
 
         $pdo = Connection::get();
-        $stmt = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+        $stmt = $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?');
         $stmt->execute([$hash, $userId]);
+
+        if (isset($_SESSION['user']['id']) && (int) $_SESSION['user']['id'] === $userId) {
+            $_SESSION['user']['must_change_password'] = false;
+        }
     }
 
     public static function createPasswordResetToken(string $email): string
@@ -315,7 +322,7 @@ final class Auth
         $pdo = Connection::get();
         $dbName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
         $quotedIdentifier = $pdo->quote($normalized);
-        $query = 'SELECT id, email, username, password_hash, role, name, is_active '
+        $query = 'SELECT id, email, username, password_hash, role, name, is_active, must_change_password '
             . "FROM users WHERE LOWER(TRIM(email)) = {$quotedIdentifier} OR LOWER(TRIM(username)) = {$quotedIdentifier} LIMIT 1";
         $stmt = $pdo->query($query);
         $user = $stmt ? $stmt->fetch() : false;
@@ -363,6 +370,7 @@ final class Auth
             'email' => (string) $user['email'],
             'role' => $role,
             'name' => (string) $user['name'],
+            'must_change_password' => (int) ($user['must_change_password'] ?? 0) === 1,
         ];
 
         self::writeDebugLog('login_success user_id=' . $userId . ' role=' . $role . ' session_id=' . session_id());
@@ -385,10 +393,24 @@ final class Auth
         return isset($_SESSION['user']['id']);
     }
 
-    /** @return array{id:int,email:string,role:string,name:string}|null */
+    /** @return array{id:int,email:string,role:string,name:string,must_change_password?:bool}|null */
     public static function user(): ?array
     {
         return $_SESSION['user'] ?? null;
+    }
+
+    public static function mustChangePassword(): bool
+    {
+        $user = self::user();
+        return $user !== null && !empty($user['must_change_password']);
+    }
+
+    public static function requirePasswordChanged(): void
+    {
+        if (self::mustChangePassword()) {
+            header('Location: /change-password');
+            exit;
+        }
     }
 
     /** Roles del personal Doceo (acceso al panel admin por ahora). */
@@ -413,6 +435,7 @@ final class Auth
     public static function requireAdmin(): void
     {
         self::requireLogin();
+        self::requirePasswordChanged();
         $user = self::user();
         if ($user === null || !self::isStaffRole($user['role'] ?? null)) {
             http_response_code(403);
@@ -424,6 +447,7 @@ final class Auth
     public static function requirePartner(): void
     {
         self::requireLogin();
+        self::requirePasswordChanged();
         $user = self::user();
         $role = $user['role'] ?? null;
         if ($user === null || (!self::isStaffRole($role) && $role !== 'partner')) {
