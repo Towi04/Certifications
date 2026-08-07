@@ -124,11 +124,11 @@ final class Auth
 
         $pdo = Connection::get();
         $dbName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
+        $quotedIdentifier = $pdo->quote($normalized);
         $query = 'SELECT id, email, username, password_hash, role, name, is_active '
-            . 'FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(username)) = ? LIMIT 1';
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$normalized, $normalized]);
-        $user = $stmt->fetch();
+            . "FROM users WHERE LOWER(TRIM(email)) = {$quotedIdentifier} OR LOWER(TRIM(username)) = {$quotedIdentifier} LIMIT 1";
+        $stmt = $pdo->query($query);
+        $user = $stmt ? $stmt->fetch() : false;
 
         if (!$user) {
             self::writeDebugLog('db_name=' . $dbName . ' login_failed reason=user_not_found identifier=' . $normalized);
