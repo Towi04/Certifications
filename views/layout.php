@@ -23,6 +23,7 @@
             <nav class="nav">
                 <?php if (\App\Auth\Auth::check()): ?>
                     <?php $u = \App\Auth\Auth::user(); ?>
+                    <a href="/profile">Perfil</a>
                     <?php if ($u && $u['role'] === 'admin'): ?>
                         <a href="/admin">Admin</a>
                         <a href="/admin/salud">Salud</a>
@@ -32,6 +33,7 @@
                     </form>
                 <?php else: ?>
                     <a href="/login">Entrar</a>
+                    <a href="/register">Registro</a>
                 <?php endif; ?>
             </nav>
         </div>

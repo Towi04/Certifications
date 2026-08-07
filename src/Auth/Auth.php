@@ -117,6 +117,196 @@ final class Auth
         ];
     }
 
+    public static function findUserByEmail(string $email): ?array
+    {
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'SELECT id, email, username, password_hash, role, name, is_active '
+            . 'FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1'
+        );
+        $stmt->execute([self::normalizeIdentifier($email)]);
+        $user = $stmt->fetch();
+
+        return $user ?: null;
+    }
+
+    public static function findUserById(int $id): ?array
+    {
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'SELECT id, email, username, role, name, is_active '
+            . 'FROM users WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $user = $stmt->fetch();
+
+        return $user ?: null;
+    }
+
+    private static function generateUniqueUsername(string $email): string
+    {
+        $base = strtolower(explode('@', $email, 2)[0]);
+        $base = preg_replace('/[^a-z0-9._-]+/', '', $base);
+        if ($base === '') {
+            $base = 'user';
+        }
+
+        $pdo = Connection::get();
+        $counter = 0;
+        do {
+            $username = $base . ($counter > 0 ? (string) $counter : '');
+            $stmt = $pdo->prepare('SELECT 1 FROM users WHERE username = ? LIMIT 1');
+            $stmt->execute([$username]);
+            $counter++;
+        } while ($stmt->fetch());
+
+        return $username;
+    }
+
+    public static function register(string $email, string $name, string $password): int
+    {
+        $normalizedEmail = self::normalizeIdentifier($email);
+        if ($normalizedEmail === '' || !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Correo inválido.');
+        }
+        $name = trim($name);
+        if ($name === '') {
+            throw new \RuntimeException('Nombre inválido.');
+        }
+        if ($password === '') {
+            throw new \RuntimeException('La contraseña no puede estar vacía.');
+        }
+
+        if (self::findUserByEmail($normalizedEmail)) {
+            throw new \RuntimeException('Ya existe una cuenta con ese correo.');
+        }
+
+        $username = self::generateUniqueUsername($normalizedEmail);
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        if ($hash === false) {
+            throw new \RuntimeException('No se pudo generar la contraseña.');
+        }
+
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'INSERT INTO users (email, username, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$normalizedEmail, $username, $hash, $name, 'student']);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    public static function updatePassword(int $userId, string $password): void
+    {
+        if ($password === '') {
+            throw new \RuntimeException('La contraseña no puede estar vacía.');
+        }
+
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        if ($hash === false) {
+            throw new \RuntimeException('No se pudo generar la contraseña.');
+        }
+
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+        $stmt->execute([$hash, $userId]);
+    }
+
+    public static function createPasswordResetToken(string $email): string
+    {
+        $normalizedEmail = self::normalizeIdentifier($email);
+        if ($normalizedEmail === '' || !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Correo inválido.');
+        }
+
+        $pdo = Connection::get();
+        self::ensurePasswordResetTableExists($pdo);
+
+        $stmt = $pdo->prepare('DELETE FROM password_resets WHERE email = ? OR expires_at < ?');
+        $stmt->execute([$normalizedEmail, date('Y-m-d H:i:s')]);
+
+        $token = bin2hex(random_bytes(24));
+        $expiresAt = date('Y-m-d H:i:s', time() + 3600);
+
+        $insert = $pdo->prepare('INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)');
+        $insert->execute([$normalizedEmail, $token, $expiresAt]);
+
+        return $token;
+    }
+
+    private static function ensurePasswordResetTableExists(PDO $pdo): void
+    {
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS password_resets ('
+            . 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, '
+            . 'email VARCHAR(190) NOT NULL, '
+            . 'token VARCHAR(255) NOT NULL, '
+            . 'expires_at DATETIME NOT NULL, '
+            . 'created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+            . 'INDEX idx_password_resets_email (email), '
+            . 'INDEX idx_password_resets_token (token) '
+            . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    }
+
+    public static function verifyPasswordResetToken(string $token): ?array
+    {
+        if (trim($token) === '') {
+            return null;
+        }
+
+        $pdo = Connection::get();
+        self::ensurePasswordResetTableExists($pdo);
+
+        $stmt = $pdo->prepare('SELECT email FROM password_resets WHERE token = ? AND expires_at >= ? LIMIT 1');
+        $stmt->execute([$token, date('Y-m-d H:i:s')]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public static function consumePasswordResetToken(string $token): void
+    {
+        $pdo = Connection::get();
+        self::ensurePasswordResetTableExists($pdo);
+        $stmt = $pdo->prepare('DELETE FROM password_resets WHERE token = ?');
+        $stmt->execute([$token]);
+    }
+
+    public static function sendPasswordResetEmail(string $email): void
+    {
+        $normalizedEmail = self::normalizeIdentifier($email);
+        if ($normalizedEmail === '' || !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Correo inválido.');
+        }
+
+        $user = self::findUserByEmail($normalizedEmail);
+        if (!$user) {
+            return;
+        }
+
+        $token = self::createPasswordResetToken($normalizedEmail);
+        $mailer = new \App\Integrations\Mailer();
+        $url = self::buildPasswordResetUrl($token);
+        $subject = 'Restablecer contraseña';
+        $body = "Hola {$user['name']},\n\n";
+        $body .= "Recibimos una solicitud para restablecer tu contraseña. Visita el siguiente enlace:\n\n{$url}\n\n";
+        $body .= "Si no solicitaste este correo, puedes ignorarlo.\n\n";
+        $body .= 'Saludos,\n' . (Env::get('APP_NAME', 'Instituto Doceo') ?? 'Instituto Doceo');
+
+        $mailer->send($normalizedEmail, $subject, $body);
+    }
+
+    private static function buildPasswordResetUrl(string $token): string
+    {
+        $scheme = 'http';
+        if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+            $scheme = 'https';
+        }
+        $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+        return $scheme . '://' . $host . '/reset-password?token=' . rawurlencode($token);
+    }
+
     public static function attempt(string $identifier, string $password): bool
     {
         $normalized = self::normalizeIdentifier($identifier);

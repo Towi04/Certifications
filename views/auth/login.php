@@ -23,4 +23,8 @@
         </label>
         <button type="submit" class="btn">Entrar</button>
     </form>
+    <div class="auth-links">
+        <a class="linkish" href="/forgot-password">Olvidé mi contraseña</a>
+        <a class="linkish" href="/register">Registrarme</a>
+    </div>
 </section>
