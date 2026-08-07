@@ -33,8 +33,8 @@ final class CertIcons
             'writing' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l11-11a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3M4 20l.7-2.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
             // Burbuja de diálogo
             'speaking' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5h11a3.5 3.5 0 0 1 3.5 3.5v4A3.5 3.5 0 0 1 16 16.5h-5.2L6 20.2V16.5H5A3.5 3.5 0 0 1 1.5 13V9A3.5 3.5 0 0 1 5 5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 10.2h8M7.5 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-            // 🔤 Use of English / Grammar
-            'use_of_english' => '<span class="cert-meta-emoji" aria-hidden="true">🔤</span>',
+            // Ortografía / gramática (Aa + subrayado corrector)
+            'use_of_english' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 17 8 6.5h1.8L13.3 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.1 13.2h5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15.2 17V9.8c0-1.7 1.1-2.8 2.7-2.8 1.5 0 2.6 1 2.6 2.6V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.2 12.8h5.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.2 20.2h15.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
             // Manzana
             'vocabulary' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7.2c0-2 .9-3.7 2.4-4.7-.2 2.1.5 3.7 2.1 4.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 21.2c-2.2 0-6.5-1.7-7.6-5.5C3.2 12.2 5 8.6 8.2 8.2c1.2-.1 2.3.3 3.1 1.1.8-.8 1.9-1.2 3.1-1.1 3.2.4 5 4 3.8 7.5-1.1 3.8-5.4 5.5-7.6 5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
             default => '',
