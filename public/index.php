@@ -349,6 +349,24 @@ $router->get('/admin', static function (): void {
 AdminRoutes::register($router);
 PartnerRoutes::register($router);
 
+$router->get('/media', static function (): void {
+    $relative = (string) ($_GET['f'] ?? '');
+    $path = \App\Support\Uploader::absolutePath($relative);
+    if ($path === null || !is_file($path)) {
+        http_response_code(404);
+        echo 'Archivo no encontrado.';
+        exit;
+    }
+
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path) ?: 'application/octet-stream';
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . (string) filesize($path));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, max-age=86400');
+    readfile($path);
+    exit;
+});
+
 $router->get('/admin/salud', static function (): void {
     Auth::requireAdmin();
 

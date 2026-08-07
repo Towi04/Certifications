@@ -107,3 +107,15 @@ $linkedCourses = $linkedCourses ?? [];
         </form>
     <?php endif; ?>
 </section>
+
+<?php if ($item): ?>
+<?php
+$assets = $assets ?? [];
+$assetTypes = $assetTypes ?? \App\Catalog\CatalogRepository::assetTypesFor('certification');
+$ownerType = 'certification';
+$ownerId = (int) $item['id'];
+$redirect = '/admin/certifications/edit?id=' . $ownerId;
+require __DIR__ . '/../_assets.php';
+?>
+<?php endif; ?>
+

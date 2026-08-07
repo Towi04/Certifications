@@ -57,4 +57,12 @@ $certifications = $certifications ?? [];
         </table>
     </div>
 </section>
+<?php
+$assets = $assets ?? [];
+$assetTypes = $assetTypes ?? \App\Catalog\CatalogRepository::assetTypesFor('agreement');
+$ownerType = 'agreement';
+$ownerId = (int) $item['id'];
+$redirect = '/admin/agreements/edit?id=' . $ownerId;
+require __DIR__ . '/../_assets.php';
+?>
 <?php endif; ?>

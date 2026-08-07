@@ -333,3 +333,34 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   text-transform: uppercase; color: var(--blue);
 }
 .stack { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.sheet-visual {
+  display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
+  margin: 0 0 1.25rem;
+}
+.sheet-cover {
+  width: min(100%, 640px); max-height: 280px; object-fit: cover;
+  border-radius: 16px; border: 1px solid rgba(49, 82, 133, 0.15);
+}
+.sheet-logo {
+  width: 96px; height: 96px; object-fit: contain;
+  background: #fff; border-radius: 14px; padding: 0.5rem;
+  border: 1px solid rgba(49, 82, 133, 0.15);
+}
+.asset-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1.25rem;
+}
+.asset-thumb {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 110px; padding: 0.5rem;
+  border-radius: 12px; border: 1px solid rgba(49, 82, 133, 0.15);
+  background: rgba(255,255,255,0.85); text-decoration: none; color: var(--blue);
+  font-size: 0.85rem; font-weight: 600;
+}
+.asset-thumb img {
+  width: 100%; height: 110px; object-fit: contain;
+}
+.assets-panel h3 { margin-top: 0; }

@@ -39,10 +39,34 @@ $item = $item ?? null;
         <label>Organización<input name="organization" value="<?= e($item['organization'] ?? '') ?>"></label>
         <label>Teléfono<input name="phone" value="<?= e($item['phone'] ?? '') ?>"></label>
         <label>Notas<textarea name="notes" rows="3"><?= e($item['notes'] ?? '') ?></textarea></label>
+        <label>Motivo de asignación<input name="assignment_reason" placeholder="Renovación 2026, ascenso, etc."></label>
         <div class="actions">
             <button class="btn" type="submit">Guardar</button>
             <a class="btn btn-ghost" href="/admin/partners">Volver</a>
         </div>
     </form>
-    <p class="muted">Al guardar, el rol del usuario pasa a <code>partner</code> (excepto si es admin).</p>
+    <p class="muted">Al guardar, el rol del usuario pasa a <code>partner</code> (excepto si es admin). Si cambias el convenio, se registra historial.</p>
 </section>
+
+<?php if (!empty($history)): ?>
+<section class="note">
+    <h3>Historial de convenios</h3>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Convenio</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
+            <tbody>
+            <?php foreach ($history as $h): ?>
+                <tr>
+                    <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
+                    <td><?= e($h['assigned_at']) ?></td>
+                    <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
+                    <td><?= e($h['reason'] ?? '—') ?></td>
+                    <td><?= e($h['created_by_name'] ?? '—') ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+<?php endif; ?>
+

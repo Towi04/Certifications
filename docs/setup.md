@@ -92,3 +92,15 @@ Si falla, el error ahora dice si la clave del formulario no coincide con la del 
 | OpenPay 1002 / invalid key | `OPENPAY_PRIVATE_KEY` incorrecta o aún placeholder |
 | SMTP auth fail | Contraseña del correo o puerto/encryption |
 | CSS no carga | Document Root / rewrite de `assets/` |
+
+## 8. Catálogo Teacher Referral (Fase 1)
+
+1. Entra como admin → `/admin` o `/admin/settings` (checklist de integraciones).
+2. Carga: Proveedores → Protocolos → Cursos → Certificaciones (márcalas **publicadas**).
+3. En cada certificación/proveedor/convenio puedes subir **assets** (logos, muestra de certificado, PDF temario).
+4. Crea o edita el **convenio anual** del nivel TR y asigna precios partner.
+5. En **Partners**, asigna un usuario registrado a nivel + convenio (queda historial).
+6. Ese usuario entra y ve `/partner` con sus precios de convenio y la ficha dinámica.
+
+Archivos se guardan en `storage/uploads/` y se sirven por `/media?f=…`.
+

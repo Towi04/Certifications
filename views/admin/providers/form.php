@@ -11,3 +11,14 @@
         <div class="actions"><button class="btn" type="submit">Guardar</button><a class="btn btn-ghost" href="/admin/providers">Volver</a></div>
     </form>
 </section>
+<?php if ($item): ?>
+<?php
+$assets = $assets ?? [];
+$assetTypes = $assetTypes ?? \App\Catalog\CatalogRepository::assetTypesFor('provider');
+$ownerType = 'provider';
+$ownerId = (int) $item['id'];
+$redirect = '/admin/providers/edit?id=' . $ownerId;
+require __DIR__ . '/../_assets.php';
+?>
+<?php endif; ?>
+
