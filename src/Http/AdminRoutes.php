@@ -15,6 +15,10 @@ final class AdminRoutes
     {
         $repo = static fn (): CatalogRepository => new CatalogRepository();
 
+        $providerTabUrl = static function (int $id, string $tab): string {
+            return '/admin/providers/edit?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
         $router->get('/admin/providers', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/providers/index', [
@@ -30,8 +34,12 @@ final class AdminRoutes
             view('admin/providers/form', [
                 'title' => 'Nuevo proveedor',
                 'item' => null,
+                'tab' => 'proveedor',
                 'agreements' => [],
                 'certifications' => [],
+                'contacts' => [],
+                'venues' => [],
+                'notes' => [],
                 'error' => flash('error'),
                 'info' => flash('info'),
             ]);
@@ -46,106 +54,231 @@ final class AdminRoutes
                 header('Location: /admin/providers');
                 exit;
             }
+            $repo()->ensureLegacyContactMigrated($id);
+            $allowedTabs = ['proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'certificaciones', 'notas'];
+            $tab = (string) ($_GET['tab'] ?? 'proveedor');
+            if (!in_array($tab, $allowedTabs, true)) {
+                $tab = 'proveedor';
+            }
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
+                'tab' => $tab,
                 'agreements' => $repo()->providerAgreements($id),
                 'certifications' => $repo()->certificationsByProvider($id),
+                'contacts' => $repo()->providerContacts($id),
+                'venues' => $repo()->providerVenues($id),
+                'notes' => $repo()->providerNotes($id),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
         });
 
-        $router->post('/admin/providers/save', static function () use ($repo): void {
+        $router->post('/admin/providers/toggle-active', static function () use ($repo): void {
             Auth::requireAdmin();
-            $id = (int) ($_POST['id'] ?? 0) ?: null;
-            $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
-            $name = trim((string) ($_POST['name'] ?? ''));
-            if ($code === '' || $name === '') {
-                flash('error', 'Código y nombre son obligatorios.');
-                header('Location: ' . ($id ? '/admin/providers/edit?id=' . $id : '/admin/providers/create'));
+            $id = (int) ($_POST['id'] ?? 0);
+            $item = $repo()->provider($id);
+            if (!$item) {
+                flash('error', 'Proveedor no encontrado.');
+                header('Location: /admin/providers');
                 exit;
             }
+            $newActive = !(int) $item['is_active'];
+            $repo()->setProviderActive($id, $newActive);
+            flash('info', $newActive ? 'Proveedor activado.' : 'Proveedor desactivado.');
+            header('Location: /admin/providers');
+            exit;
+        });
 
-            $authType = (string) ($_POST['auth_proof_type'] ?? 'none');
-            if (!in_array($authType, ['none', 'url', 'document'], true)) {
-                $authType = 'none';
-            }
+        $router->post('/admin/providers/save', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            $tab = (string) ($_POST['tab'] ?? 'proveedor');
+            $existing = $id ? $repo()->provider($id) : null;
 
             try {
-                $existing = $id ? $repo()->provider($id) : null;
-                $logoPath = $existing['logo_path'] ?? null;
-                $authPath = $existing['auth_proof_path'] ?? null;
+                $code = strtoupper(trim((string) ($_POST['code'] ?? ($existing['code'] ?? ''))));
+                $name = trim((string) ($_POST['name'] ?? ($existing['name'] ?? '')));
+                if ($code === '' || $name === '') {
+                    throw new \RuntimeException('Código y nombre son obligatorios.');
+                }
 
-                if (!empty($_FILES['logo']['name'])) {
-                    $logoPath = Uploader::store($_FILES['logo'], 'providers/logos');
-                    if (!empty($existing['logo_path'])) {
-                        Uploader::delete((string) $existing['logo_path']);
+                $iconPath = $existing['logo_icon_path'] ?? $existing['logo_path'] ?? null;
+                $fullPath = $existing['logo_full_path'] ?? null;
+                $authType = $existing['auth_proof_type'] ?? 'none';
+                $authUrl = $existing['auth_proof_url'] ?? null;
+                $authPath = $existing['auth_proof_path'] ?? null;
+                $website = $existing['website_url'] ?? null;
+                $isActive = $existing ? (int) $existing['is_active'] : 1;
+
+                if ($tab === 'proveedor' || !$existing) {
+                    $website = trim((string) ($_POST['website_url'] ?? '')) ?: null;
+                    if (!empty($_FILES['logo_icon']['name'])) {
+                        $newIcon = Uploader::store($_FILES['logo_icon'], 'providers/icons');
+                        if ($iconPath) {
+                            Uploader::delete((string) $iconPath);
+                        }
+                        $iconPath = $newIcon;
+                    }
+                    if (!empty($_FILES['logo_full']['name'])) {
+                        $newFull = Uploader::store($_FILES['logo_full'], 'providers/full');
+                        if ($fullPath) {
+                            Uploader::delete((string) $fullPath);
+                        }
+                        $fullPath = $newFull;
                     }
                 }
 
-                $authUrl = null;
-                if ($authType === 'url') {
-                    $authUrl = trim((string) ($_POST['auth_proof_url'] ?? '')) ?: null;
-                    if ($authUrl === null) {
-                        throw new \RuntimeException('Indica el enlace de distribuidor autorizado, o elige otra opción.');
+                if ($tab === 'autorizacion') {
+                    $authType = (string) ($_POST['auth_proof_type'] ?? 'none');
+                    if (!in_array($authType, ['none', 'url', 'document'], true)) {
+                        $authType = 'none';
                     }
-                    if ($authPath) {
-                        Uploader::delete((string) $authPath);
-                        $authPath = null;
-                    }
-                } elseif ($authType === 'document') {
-                    if (!empty($_FILES['auth_proof_file']['name'])) {
-                        $authPath = Uploader::store($_FILES['auth_proof_file'], 'providers/auth');
-                        if (!empty($existing['auth_proof_path'])) {
-                            Uploader::delete((string) $existing['auth_proof_path']);
+                    if ($authType === 'url') {
+                        $authUrl = trim((string) ($_POST['auth_proof_url'] ?? '')) ?: null;
+                        if ($authUrl === null) {
+                            throw new \RuntimeException('Indica el enlace de distribuidor autorizado.');
                         }
+                        if ($authPath) {
+                            Uploader::delete((string) $authPath);
+                            $authPath = null;
+                        }
+                    } elseif ($authType === 'document') {
+                        if (!empty($_FILES['auth_proof_file']['name'])) {
+                            $newPath = Uploader::store($_FILES['auth_proof_file'], 'providers/auth');
+                            if ($authPath) {
+                                Uploader::delete((string) $authPath);
+                            }
+                            $authPath = $newPath;
+                        }
+                        if (!$authPath) {
+                            throw new \RuntimeException('Sube el documento de autorización.');
+                        }
+                        $authUrl = null;
+                    } else {
+                        if ($authPath) {
+                            Uploader::delete((string) $authPath);
+                        }
+                        $authPath = null;
+                        $authUrl = null;
                     }
-                    if (!$authPath) {
-                        throw new \RuntimeException('Sube el documento de autorización, o elige otra opción.');
-                    }
-                    $authUrl = null;
-                } else {
-                    if ($authPath) {
-                        Uploader::delete((string) $authPath);
-                    }
-                    $authPath = null;
-                    $authUrl = null;
                 }
 
                 $savedId = $repo()->saveProvider([
                     'code' => $code,
                     'name' => $name,
-                    'website_url' => trim((string) ($_POST['website_url'] ?? '')) ?: null,
-                    'logo_path' => $logoPath,
-                    'contact_name' => trim((string) ($_POST['contact_name'] ?? '')) ?: null,
-                    'contact_email' => trim((string) ($_POST['contact_email'] ?? '')) ?: null,
-                    'contact_phone' => trim((string) ($_POST['contact_phone'] ?? '')) ?: null,
-                    'contact_whatsapp' => trim((string) ($_POST['contact_whatsapp'] ?? '')) ?: null,
+                    'website_url' => $website,
+                    'logo_path' => $iconPath,
+                    'logo_icon_path' => $iconPath,
+                    'logo_full_path' => $fullPath,
                     'auth_proof_type' => $authType,
                     'auth_proof_url' => $authUrl,
                     'auth_proof_path' => $authPath,
-                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                    'is_active' => $isActive,
                 ], $id);
 
-                flash('info', 'Proveedor guardado.');
-                header('Location: /admin/providers/edit?id=' . $savedId);
+                flash('info', 'Guardado correctamente.');
+                $nextTab = in_array($tab, ['proveedor', 'autorizacion'], true) ? $tab : 'proveedor';
+                header('Location: ' . $providerTabUrl($savedId, $nextTab));
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                header('Location: ' . ($id ? '/admin/providers/edit?id=' . $id : '/admin/providers/create'));
+                header('Location: ' . ($id ? $providerTabUrl($id, $tab) : '/admin/providers/create'));
                 exit;
             }
         });
 
-        $router->post('/admin/providers/agreement', static function () use ($repo): void {
+        $router->post('/admin/providers/contact', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $name = trim((string) ($_POST['name'] ?? ''));
+            if ($providerId < 1 || $name === '') {
+                flash('error', 'El nombre del contacto es obligatorio.');
+                header('Location: ' . $providerTabUrl($providerId, 'contactos'));
+                exit;
+            }
+            try {
+                $repo()->addProviderContact([
+                    'provider_id' => $providerId,
+                    'role' => (string) ($_POST['role'] ?? 'general'),
+                    'name' => $name,
+                    'email' => trim((string) ($_POST['email'] ?? '')) ?: null,
+                    'phone' => trim((string) ($_POST['phone'] ?? '')) ?: null,
+                    'whatsapp' => trim((string) ($_POST['whatsapp'] ?? '')) ?: null,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'is_primary' => isset($_POST['is_primary']),
+                ]);
+                flash('info', 'Contacto agregado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'contactos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/contact/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $contactId = (int) ($_POST['contact_id'] ?? 0);
+            $repo()->deleteProviderContact($providerId, $contactId);
+            flash('info', 'Contacto eliminado.');
+            header('Location: ' . $providerTabUrl($providerId, 'contactos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/venue', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $name = trim((string) ($_POST['name'] ?? ''));
+            $address = trim((string) ($_POST['address_line'] ?? ''));
+            $city = trim((string) ($_POST['city'] ?? ''));
+            if ($providerId < 1 || $name === '' || $address === '' || $city === '') {
+                flash('error', 'Nombre, dirección y ciudad son obligatorios.');
+                header('Location: ' . $providerTabUrl($providerId, 'sedes'));
+                exit;
+            }
+            try {
+                $repo()->addProviderVenue([
+                    'provider_id' => $providerId,
+                    'name' => $name,
+                    'address_line' => $address,
+                    'address_line2' => trim((string) ($_POST['address_line2'] ?? '')) ?: null,
+                    'neighborhood' => trim((string) ($_POST['neighborhood'] ?? '')) ?: null,
+                    'city' => $city,
+                    'state' => trim((string) ($_POST['state'] ?? '')) ?: null,
+                    'postal_code' => trim((string) ($_POST['postal_code'] ?? '')) ?: null,
+                    'country' => trim((string) ($_POST['country'] ?? 'México')) ?: 'México',
+                    'contact_name' => trim((string) ($_POST['contact_name'] ?? '')) ?: null,
+                    'contact_phone' => trim((string) ($_POST['contact_phone'] ?? '')) ?: null,
+                    'contact_email' => trim((string) ($_POST['contact_email'] ?? '')) ?: null,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'is_active' => 1,
+                ]);
+                flash('info', 'Sede agregada.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'sedes'));
+            exit;
+        });
+
+        $router->post('/admin/providers/venue/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $venueId = (int) ($_POST['venue_id'] ?? 0);
+            $repo()->deleteProviderVenue($providerId, $venueId);
+            flash('info', 'Sede eliminada.');
+            header('Location: ' . $providerTabUrl($providerId, 'sedes'));
+            exit;
+        });
+
+        $router->post('/admin/providers/agreement', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $label = trim((string) ($_POST['label'] ?? ''));
             if ($providerId < 1 || $label === '') {
                 flash('error', 'Indica una etiqueta para el convenio.');
-                header('Location: /admin/providers/edit?id=' . $providerId);
+                header('Location: ' . $providerTabUrl($providerId, 'convenio'));
                 exit;
             }
             try {
@@ -161,28 +294,28 @@ final class AdminRoutes
                     'year' => $year !== '' ? (int) $year : null,
                     'file_path' => $path,
                     'signed_on' => $signedOn !== '' ? $signedOn : null,
-                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'notes' => null,
                     'is_current' => isset($_POST['is_current']),
                 ]);
                 flash('info', 'Convenio subido.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/providers/edit?id=' . $providerId);
+            header('Location: ' . $providerTabUrl($providerId, 'convenio'));
             exit;
         });
 
-        $router->post('/admin/providers/agreement/current', static function () use ($repo): void {
+        $router->post('/admin/providers/agreement/current', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $agreementId = (int) ($_POST['agreement_id'] ?? 0);
             $repo()->setCurrentProviderAgreement($providerId, $agreementId);
             flash('info', 'Convenio marcado como vigente.');
-            header('Location: /admin/providers/edit?id=' . $providerId);
+            header('Location: ' . $providerTabUrl($providerId, 'convenio'));
             exit;
         });
 
-        $router->post('/admin/providers/agreement/delete', static function () use ($repo): void {
+        $router->post('/admin/providers/agreement/delete', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $agreementId = (int) ($_POST['agreement_id'] ?? 0);
@@ -191,29 +324,58 @@ final class AdminRoutes
                 Uploader::delete((string) $row['file_path']);
                 flash('info', 'Convenio eliminado.');
             }
-            header('Location: /admin/providers/edit?id=' . $providerId);
+            header('Location: ' . $providerTabUrl($providerId, 'convenio'));
             exit;
         });
 
-        $router->post('/admin/providers/certification', static function () use ($repo): void {
+        $router->post('/admin/providers/certifications', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
-            $name = trim((string) ($_POST['name'] ?? ''));
-            if ($providerId < 1 || $name === '') {
-                flash('error', 'Escribe el nombre de la certificación.');
-                header('Location: /admin/providers/edit?id=' . $providerId);
+            $names = $_POST['names'] ?? [];
+            if (!is_array($names)) {
+                $names = [];
+            }
+            if ($providerId < 1) {
+                flash('error', 'Proveedor inválido.');
+                header('Location: /admin/providers');
                 exit;
             }
             try {
-                $certId = $repo()->createCertificationStub($providerId, $name);
-                flash('info', 'Certificación agregada. Completa el detalle en Certificaciones cuando quieras.');
-                header('Location: /admin/providers/edit?id=' . $providerId . '#certs');
-                exit;
+                $created = $repo()->createCertificationStubs($providerId, $names);
+                flash('info', $created > 0
+                    ? "Se agregaron {$created} certificaciones."
+                    : 'No se agregó ninguna (filas vacías).');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                header('Location: /admin/providers/edit?id=' . $providerId);
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'certificaciones'));
+            exit;
+        });
+
+        $router->post('/admin/providers/note', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $body = trim((string) ($_POST['body'] ?? ''));
+            if ($providerId < 1 || $body === '') {
+                flash('error', 'Escribe la nota.');
+                header('Location: ' . $providerTabUrl($providerId, 'notas'));
                 exit;
             }
+            $user = Auth::user();
+            $repo()->addProviderNote($providerId, $body, $user ? (int) $user['id'] : null);
+            flash('info', 'Nota agregada.');
+            header('Location: ' . $providerTabUrl($providerId, 'notas'));
+            exit;
+        });
+
+        $router->post('/admin/providers/note/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $noteId = (int) ($_POST['note_id'] ?? 0);
+            $repo()->deleteProviderNote($providerId, $noteId);
+            flash('info', 'Nota eliminada.');
+            header('Location: ' . $providerTabUrl($providerId, 'notas'));
+            exit;
         });
 
         $router->get('/admin/protocols', static function () use ($repo): void {

@@ -43,23 +43,20 @@ final class CatalogRepository
             $data['code'],
             $data['name'],
             $data['website_url'],
-            $data['logo_path'],
-            $data['contact_name'],
-            $data['contact_email'],
-            $data['contact_phone'],
-            $data['contact_whatsapp'],
-            $data['auth_proof_type'],
-            $data['auth_proof_url'],
-            $data['auth_proof_path'],
-            $data['notes'],
-            $data['is_active'],
+            $data['logo_path'] ?? $data['logo_icon_path'] ?? null,
+            $data['logo_icon_path'] ?? null,
+            $data['logo_full_path'] ?? null,
+            $data['auth_proof_type'] ?? 'none',
+            $data['auth_proof_url'] ?? null,
+            $data['auth_proof_path'] ?? null,
+            $data['is_active'] ?? 1,
         ];
 
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE providers SET code=?, name=?, website_url=?, logo_path=?,
-                 contact_name=?, contact_email=?, contact_phone=?, contact_whatsapp=?,
-                 auth_proof_type=?, auth_proof_url=?, auth_proof_path=?, notes=?, is_active=?
+                 logo_icon_path=?, logo_full_path=?,
+                 auth_proof_type=?, auth_proof_url=?, auth_proof_path=?, is_active=?
                  WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
@@ -68,12 +65,170 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO providers (
-                code, name, website_url, logo_path, contact_name, contact_email, contact_phone,
-                contact_whatsapp, auth_proof_type, auth_proof_url, auth_proof_path, notes, is_active
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                code, name, website_url, logo_path, logo_icon_path, logo_full_path,
+                auth_proof_type, auth_proof_url, auth_proof_path, is_active
+             ) VALUES (?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function setProviderActive(int $id, bool $active): void
+    {
+        $this->pdo->prepare('UPDATE providers SET is_active = ? WHERE id = ?')
+            ->execute([$active ? 1 : 0, $id]);
+    }
+
+    public function providerIconPath(?array $provider): ?string
+    {
+        if (!$provider) {
+            return null;
+        }
+        return $provider['logo_icon_path'] ?? $provider['logo_path'] ?? null;
+    }
+
+    public function providerFullLogoPath(?array $provider): ?string
+    {
+        if (!$provider) {
+            return null;
+        }
+        return $provider['logo_full_path'] ?? $provider['logo_icon_path'] ?? $provider['logo_path'] ?? null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerContacts(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_contacts WHERE provider_id = ? ORDER BY is_primary DESC, role, name'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function ensureLegacyContactMigrated(int $providerId): void
+    {
+        if ($this->providerContacts($providerId)) {
+            return;
+        }
+        $p = $this->provider($providerId);
+        if (!$p || empty($p['contact_name'])) {
+            return;
+        }
+        $this->addProviderContact([
+            'provider_id' => $providerId,
+            'role' => 'general',
+            'name' => $p['contact_name'],
+            'email' => $p['contact_email'] ?? null,
+            'phone' => $p['contact_phone'] ?? null,
+            'whatsapp' => $p['contact_whatsapp'] ?? null,
+            'notes' => null,
+            'is_primary' => 1,
+        ]);
+    }
+
+    public function addProviderContact(array $data): int
+    {
+        if (!empty($data['is_primary'])) {
+            $this->pdo->prepare(
+                'UPDATE provider_contacts SET is_primary = 0 WHERE provider_id = ?'
+            )->execute([$data['provider_id']]);
+        }
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_contacts (provider_id, role, name, email, phone, whatsapp, notes, is_primary)
+             VALUES (?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['provider_id'],
+            $data['role'],
+            $data['name'],
+            $data['email'],
+            $data['phone'],
+            $data['whatsapp'],
+            $data['notes'],
+            !empty($data['is_primary']) ? 1 : 0,
+        ]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteProviderContact(int $providerId, int $contactId): void
+    {
+        $this->pdo->prepare(
+            'DELETE FROM provider_contacts WHERE id = ? AND provider_id = ?'
+        )->execute([$contactId, $providerId]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerVenues(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_venues WHERE provider_id = ? ORDER BY name'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function addProviderVenue(array $data): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_venues (
+                provider_id, name, address_line, address_line2, neighborhood, city, state,
+                postal_code, country, contact_name, contact_phone, contact_email, notes, is_active
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['provider_id'],
+            $data['name'],
+            $data['address_line'],
+            $data['address_line2'],
+            $data['neighborhood'],
+            $data['city'],
+            $data['state'],
+            $data['postal_code'],
+            $data['country'],
+            $data['contact_name'],
+            $data['contact_phone'],
+            $data['contact_email'],
+            $data['notes'],
+            $data['is_active'] ?? 1,
+        ]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteProviderVenue(int $providerId, int $venueId): void
+    {
+        $this->pdo->prepare(
+            'DELETE FROM provider_venues WHERE id = ? AND provider_id = ?'
+        )->execute([$venueId, $providerId]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerNotes(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT n.*, u.name AS author_name, u.email AS author_email
+             FROM provider_notes n
+             LEFT JOIN users u ON u.id = n.created_by
+             WHERE n.provider_id = ?
+             ORDER BY n.created_at DESC'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function addProviderNote(int $providerId, string $body, ?int $userId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_notes (provider_id, body, created_by) VALUES (?,?,?)'
+        );
+        $stmt->execute([$providerId, $body, $userId]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteProviderNote(int $providerId, int $noteId): void
+    {
+        $this->pdo->prepare(
+            'DELETE FROM provider_notes WHERE id = ? AND provider_id = ?'
+        )->execute([$noteId, $providerId]);
     }
 
     /** @return list<array<string, mixed>> */
@@ -139,13 +294,14 @@ final class CatalogRepository
     {
         $baseSlug = \App\Support\Str::slug($name);
         $slug = $baseSlug;
-        $code = strtoupper(substr(preg_replace('/[^A-Z0-9]+/', '_', strtoupper($baseSlug)) ?: 'CERT', 0, 48));
+        $codeBase = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', strtoupper($baseSlug)) ?: 'CERT');
+        $codeBase = substr($codeBase, 0, 48);
+        $code = $codeBase;
         $n = 1;
         while ($this->certificationCodeExists($code) || $this->certificationSlugExists($slug)) {
             $n++;
             $slug = $baseSlug . '-' . $n;
-            $code = strtoupper(substr(($baseSlug ?: 'cert'), 0, 40)) . '_' . $n;
-            $code = strtoupper(preg_replace('/[^A-Z0-9_]/', '_', $code) ?: ('CERT_' . $n));
+            $code = substr($codeBase, 0, 40) . '_' . $n;
         }
 
         return $this->saveCertification([
@@ -171,6 +327,21 @@ final class CatalogRepository
             'is_published' => 0,
             'sort_order' => 0,
         ]);
+    }
+
+    /** @param list<string> $names */
+    public function createCertificationStubs(int $providerId, array $names): int
+    {
+        $created = 0;
+        foreach ($names as $name) {
+            $name = trim($name);
+            if ($name === '') {
+                continue;
+            }
+            $this->createCertificationStub($providerId, $name);
+            $created++;
+        }
+        return $created;
     }
 
     private function certificationCodeExists(string $code): bool
