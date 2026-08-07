@@ -45,6 +45,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 
 - `sql/migration_providers_v2.sql` (si aún no tienes contactos/sedes nuevas)
 - `sql/migration_venues_subcentros.sql` (tipo `fixed` vs `subcentro` + dirección opcional)
+- `sql/migration_certifications_form.sql` (examen de nivel, habilidades, rango, CENNI/modalidad)
 
 ## 4. Moodle
 

@@ -25,7 +25,7 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
     <div>
         <p class="eyebrow"><?= e($item['provider_name']) ?></p>
         <h1><?= e($item['name']) ?></h1>
-        <p class="muted"><?= e($item['short_description'] ?? '') ?></p>
+        <p class="muted"><?php if (!empty($item['short_description'])): ?><span class="prose prose-inline"><?= $item['short_description'] ?></span><?php endif; ?></p>
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/partner">Volver al catálogo</a>
@@ -64,10 +64,25 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
         <div>
             <h2>Ficha</h2>
             <ul class="facts">
-                <li><strong>Código:</strong> <?= e($item['code']) ?></li>
-                <li><strong>Modalidad:</strong> <?= e($item['modality']) ?></li>
+                <li><strong>Modalidad:</strong> <?= e(\App\Catalog\CatalogRepository::modalities()[$item['modality']] ?? ucfirst((string)$item['modality'])) ?></li>
                 <li><strong>Duración:</strong> <?= e($item['duration_label'] ?? '—') ?></li>
                 <li><strong>Audiencia:</strong> <?= e($item['audience'] ?? '—') ?></li>
+                <li><strong>Rango:</strong> <?= e($item['score_range'] ?? '—') ?></li>
+                <?php if (!empty($item['is_level_exam'])): ?>
+                    <?php
+                    $skills = [];
+                    if (!empty($item['skills_json'])) {
+                        $decoded = is_string($item['skills_json']) ? json_decode($item['skills_json'], true) : $item['skills_json'];
+                        if (is_array($decoded)) {
+                            $catalog = \App\Catalog\CatalogRepository::certificationSkills();
+                            foreach ($decoded as $sk) {
+                                $skills[] = $catalog[$sk] ?? $sk;
+                            }
+                        }
+                    }
+                    ?>
+                    <li><strong>Habilidades:</strong> <?= $skills ? e(implode(', ', $skills)) : '—' ?></li>
+                <?php endif; ?>
                 <li><strong>Protocolo:</strong> <?= e($item['protocol_name'] ?? '—') ?></li>
             </ul>
         </div>
@@ -76,8 +91,14 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
             <ul class="facts">
                 <li><strong>CENNI:</strong>
                     <?php if ((int)$item['cenni_eligible']): ?>
-                        Sí · <?= e($item['cenni_doc_type']) ?>
-                        <?= (int)$item['cenni_included'] ? ' · incluido' : ' · ' . e(\App\Support\Str::money(isset($item['cenni_fee']) ? (float)$item['cenni_fee'] : null)) ?>
+                        <?php
+                        $cenniLabels = \App\Catalog\CatalogRepository::cenniDocTypes();
+                        $docLabel = $cenniLabels[$item['cenni_doc_type']] ?? $item['cenni_doc_type'];
+                        $fee = isset($item['cenni_fee']) ? (float) $item['cenni_fee'] : 0.0;
+                        $included = $fee <= 0 || (int) ($item['cenni_included'] ?? 0) === 1;
+                        ?>
+                        Sí · <?= e((string)$docLabel) ?>
+                        <?= $included ? ' · incluido' : ' · ' . e(\App\Support\Str::money($fee)) ?>
                     <?php else: ?>
                         No elegible
                     <?php endif; ?>

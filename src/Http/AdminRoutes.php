@@ -845,25 +845,82 @@ final class AdminRoutes
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
             $name = trim((string) ($_POST['name'] ?? ''));
-            $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
-            $providerId = (int) ($_POST['provider_id'] ?? 0);
-            if ($name === '' || $code === '' || $providerId < 1) {
-                flash('error', 'Nombre, código y proveedor son obligatorios.');
+            $existing = $id ? $repo()->certification($id) : null;
+            if ($name === '') {
+                flash('error', 'El nombre es obligatorio.');
                 header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
                 exit;
             }
 
-            $slug = trim((string) ($_POST['slug'] ?? ''));
-            if ($slug === '') {
-                $slug = Str::slug($name);
+            $providerId = $existing
+                ? (int) $existing['provider_id']
+                : (int) ($_POST['provider_id'] ?? 0);
+            if ($providerId < 1) {
+                flash('error', 'Selecciona el proveedor (o créala desde Proveedores).');
+                header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
+                exit;
+            }
+
+            if ($existing) {
+                $code = (string) $existing['code'];
+                $slug = (string) $existing['slug'];
             } else {
-                $slug = Str::slug($slug);
+                $alloc = $repo()->allocateCertificationCodeSlug($name);
+                $code = $alloc['code'];
+                $slug = $alloc['slug'];
+            }
+
+            $modality = (string) ($_POST['modality'] ?? 'online');
+            if (!in_array($modality, ['online', 'paper'], true)) {
+                $modality = 'online';
+            }
+
+            $isLevelExam = isset($_POST['is_level_exam']) ? 1 : 0;
+            $skills = [];
+            if ($isLevelExam) {
+                $rawSkills = $_POST['skills'] ?? [];
+                if (!is_array($rawSkills)) {
+                    $rawSkills = [];
+                }
+                $allowedSkills = array_keys(CatalogRepository::certificationSkills());
+                foreach ($rawSkills as $skill) {
+                    $skill = (string) $skill;
+                    if (in_array($skill, $allowedSkills, true)) {
+                        $skills[] = $skill;
+                    }
+                }
+            }
+
+            $cenniEligible = isset($_POST['cenni_eligible']) ? 1 : 0;
+            $cenniDocType = 'none';
+            $cenniFee = null;
+            $cenniIncluded = 0;
+            if ($cenniEligible) {
+                $cenniDocType = (string) ($_POST['cenni_doc_type'] ?? 'constancia');
+                if (!isset(CatalogRepository::cenniDocTypes()[$cenniDocType])) {
+                    $cenniDocType = 'constancia';
+                }
+                $cenniFeeRaw = trim((string) ($_POST['cenni_fee'] ?? '0'));
+                $cenniFee = $cenniFeeRaw !== '' ? (float) $cenniFeeRaw : 0.0;
+                $cenniIncluded = $cenniFee <= 0 ? 1 : 0;
+            }
+
+            $conocerEligible = isset($_POST['conocer_eligible']) ? 1 : 0;
+            $conocerFee = null;
+            if ($conocerEligible) {
+                $conocerFeeRaw = trim((string) ($_POST['conocer_fee'] ?? ''));
+                $conocerFee = $conocerFeeRaw !== '' ? (float) $conocerFeeRaw : 0.0;
             }
 
             $publicPrice = trim((string) ($_POST['public_price'] ?? ''));
-            $cenniFee = trim((string) ($_POST['cenni_fee'] ?? ''));
-            $conocerFee = trim((string) ($_POST['conocer_fee'] ?? ''));
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            $intent = (string) ($_POST['intent'] ?? 'save');
+            // Guardar no oculta; Publicar marca visible. Ocultar = ojo en listados.
+            if ($intent === 'publish') {
+                $isPublished = 1;
+            } else {
+                $isPublished = $existing ? (int) ($existing['is_published'] ?? 0) : 0;
+            }
 
             try {
                 $savedId = $repo()->saveCertification([
@@ -872,24 +929,27 @@ final class AdminRoutes
                     'code' => $code,
                     'slug' => $slug,
                     'name' => $name,
-                    'modality' => (string) ($_POST['modality'] ?? 'online'),
+                    'modality' => $modality,
                     'short_description' => trim((string) ($_POST['short_description'] ?? '')) ?: null,
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
                     'syllabus_html' => trim((string) ($_POST['syllabus_html'] ?? '')) ?: null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,
                     'audience' => trim((string) ($_POST['audience'] ?? '')) ?: null,
+                    'is_level_exam' => $isLevelExam,
+                    'skills_json' => $isLevelExam ? $skills : null,
+                    'score_range' => trim((string) ($_POST['score_range'] ?? '')) ?: null,
                     'public_price' => $publicPrice !== '' ? (float) $publicPrice : null,
-                    'currency' => (string) ($_POST['currency'] ?? 'MXN'),
-                    'cenni_eligible' => isset($_POST['cenni_eligible']) ? 1 : 0,
-                    'cenni_doc_type' => (string) ($_POST['cenni_doc_type'] ?? 'none'),
-                    'cenni_included' => isset($_POST['cenni_included']) ? 1 : 0,
-                    'cenni_fee' => $cenniFee !== '' ? (float) $cenniFee : null,
-                    'conocer_eligible' => isset($_POST['conocer_eligible']) ? 1 : 0,
-                    'conocer_fee' => $conocerFee !== '' ? (float) $conocerFee : null,
-                    'is_published' => isset($_POST['is_published']) ? 1 : 0,
+                    'currency' => (string) ($_POST['currency'] ?? 'MXN') ?: 'MXN',
+                    'cenni_eligible' => $cenniEligible,
+                    'cenni_doc_type' => $cenniDocType,
+                    'cenni_included' => $cenniIncluded,
+                    'cenni_fee' => $cenniFee,
+                    'conocer_eligible' => $conocerEligible,
+                    'conocer_fee' => $conocerFee,
+                    'is_published' => $isPublished,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ], $id);
-                flash('info', 'Certificación guardada.');
+                flash('info', $intent === 'publish' ? 'Certificación publicada.' : 'Certificación guardada.');
                 header('Location: /admin/certifications/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
@@ -897,6 +957,27 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
                 exit;
             }
+        });
+
+        $router->post('/admin/certifications/toggle-published', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $item = $repo()->certification($id);
+            if (!$item) {
+                flash('error', 'Certificación no encontrada.');
+                header('Location: /admin/certifications');
+                exit;
+            }
+            $newPublished = !((int) ($item['is_published'] ?? 0) === 1);
+            $repo()->setCertificationPublished($id, $newPublished);
+            flash('info', $newPublished ? 'Certificación publicada.' : 'Certificación ocultada.');
+            $redirect = trim((string) ($_POST['redirect'] ?? ''));
+            if ($redirect !== '' && str_starts_with($redirect, '/admin/')) {
+                header('Location: ' . $redirect);
+            } else {
+                header('Location: /admin/certifications');
+            }
+            exit;
         });
 
         $router->post('/admin/certifications/attach-course', static function () use ($repo): void {
@@ -915,7 +996,7 @@ final class AdminRoutes
                     $certificationId,
                     $courseId,
                     $relationType,
-                    $bundlePrice !== '' ? (float) $bundlePrice : null,
+                    ($relationType === 'bundle_discount' && $bundlePrice !== '') ? (float) $bundlePrice : null,
                     trim((string) ($_POST['notes'] ?? '')) ?: null
                 );
                 flash('info', 'Curso vinculado.');
