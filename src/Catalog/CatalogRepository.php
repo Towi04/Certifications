@@ -161,10 +161,22 @@ final class CatalogRepository
     public function providerVenues(int $providerId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT * FROM provider_venues WHERE provider_id = ? ORDER BY name'
+            'SELECT * FROM provider_venues
+             WHERE provider_id = ?
+             ORDER BY is_active DESC, city ASC, state ASC, name ASC'
         );
         $stmt->execute([$providerId]);
         return $stmt->fetchAll();
+    }
+
+    public function providerVenue(int $providerId, int $venueId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_venues WHERE id = ? AND provider_id = ?'
+        );
+        $stmt->execute([$venueId, $providerId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     public function addProviderVenue(array $data): int
@@ -192,6 +204,39 @@ final class CatalogRepository
             $data['is_active'] ?? 1,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function updateProviderVenue(int $venueId, array $data): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE provider_venues SET
+                name=?, address_line=?, address_line2=?, neighborhood=?, city=?, state=?,
+                postal_code=?, country=?, contact_name=?, contact_phone=?, contact_email=?, notes=?
+             WHERE id=? AND provider_id=?'
+        );
+        $stmt->execute([
+            $data['name'],
+            $data['address_line'],
+            $data['address_line2'],
+            $data['neighborhood'],
+            $data['city'],
+            $data['state'],
+            $data['postal_code'],
+            $data['country'],
+            $data['contact_name'],
+            $data['contact_phone'],
+            $data['contact_email'],
+            $data['notes'],
+            $venueId,
+            $data['provider_id'],
+        ]);
+    }
+
+    public function setProviderVenueActive(int $providerId, int $venueId, bool $active): void
+    {
+        $this->pdo->prepare(
+            'UPDATE provider_venues SET is_active = ? WHERE id = ? AND provider_id = ?'
+        )->execute([$active ? 1 : 0, $venueId, $providerId]);
     }
 
     public function deleteProviderVenue(int $providerId, int $venueId): void
