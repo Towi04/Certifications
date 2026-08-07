@@ -630,6 +630,8 @@ final class CatalogRepository
             'courses' => (int) $this->pdo->query('SELECT COUNT(*) FROM courses')->fetchColumn(),
             'partners' => (int) $this->pdo->query('SELECT COUNT(*) FROM partners')->fetchColumn(),
             'agreements' => (int) $this->pdo->query('SELECT COUNT(*) FROM agreements')->fetchColumn(),
+            'protocols' => (int) $this->pdo->query('SELECT COUNT(*) FROM protocols')->fetchColumn(),
+            'tiers' => (int) $this->pdo->query('SELECT COUNT(*) FROM partner_tiers')->fetchColumn(),
         ];
     }
 }

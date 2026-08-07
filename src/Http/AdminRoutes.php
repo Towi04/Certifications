@@ -8,7 +8,6 @@ use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
 use App\Support\Str;
 use App\Support\Uploader;
-use App\Support\IntegrationSettings;
 
 final class AdminRoutes
 {
@@ -590,15 +589,6 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/partners/edit?id=' . $id : '/admin/partners/create'));
                 exit;
             }
-        });
-
-        $router->get('/admin/settings', static function (): void {
-            Auth::requireAdmin();
-            view('admin/settings', [
-                'title' => 'Integraciones',
-                'checklist' => IntegrationSettings::checklist(),
-                'user' => Auth::user(),
-            ]);
         });
 
         $router->post('/admin/assets/upload', static function () use ($repo): void {

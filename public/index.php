@@ -7,7 +7,6 @@ use App\Catalog\CatalogRepository;
 use App\Http\AdminRoutes;
 use App\Http\PartnerRoutes;
 use App\Http\Router;
-use App\Integrations\HealthChecker;
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
@@ -365,49 +364,6 @@ $router->get('/media', static function (): void {
     header('Cache-Control: private, max-age=86400');
     readfile($path);
     exit;
-});
-
-$router->get('/admin/salud', static function (): void {
-    Auth::requireAdmin();
-
-    try {
-        $checker = new HealthChecker();
-        $runSmtp = isset($_GET['smtp']) && $_GET['smtp'] === '1';
-        $results = [
-            $checker->checkDatabase(),
-            $checker->checkMoodle(),
-            $checker->checkOpenPay(),
-            $checker->checkStorage(),
-        ];
-
-        if ($runSmtp) {
-            $results[] = $checker->checkSmtp();
-        } else {
-            $results[] = [
-                'name' => 'SMTP',
-                'ok' => null,
-                'message' => 'No ejecutado automáticamente (envía correo real). Usa el botón “Probar SMTP”.',
-                'meta' => ['skipped' => true],
-            ];
-        }
-
-        view('admin/health', [
-            'title' => 'Salud del sistema',
-            'results' => $results,
-            'user' => Auth::user(),
-        ]);
-    } catch (Throwable $e) {
-        error_log('[PDV][salud] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-        view('admin/health', [
-            'title' => 'Salud del sistema',
-            'results' => [[
-                'name' => 'Panel',
-                'ok' => false,
-                'message' => 'Error al ejecutar salud: ' . $e->getMessage(),
-            ]],
-            'user' => Auth::user(),
-        ]);
-    }
 });
 
 $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'] ?? '/');

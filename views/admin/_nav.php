@@ -10,7 +10,6 @@
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/admin">Panel</a>
-        <a class="btn btn-ghost" href="/admin/salud">Salud</a>
     </div>
 </section>
 
@@ -22,7 +21,6 @@
     <a href="/admin/tiers">Niveles TR</a>
     <a href="/admin/agreements">Convenios anuales</a>
     <a href="/admin/partners">Partners</a>
-    <a href="/admin/settings">Integraciones</a>
 </nav>
 
 <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
