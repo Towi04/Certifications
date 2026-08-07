@@ -553,6 +553,34 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/providers/account/reveal', static function () use ($repo): void {
+            Auth::requireAdmin();
+            header('Content-Type: application/json; charset=UTF-8');
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $accountId = (int) ($_POST['account_id'] ?? 0);
+            $systemPassword = (string) ($_POST['system_password'] ?? '');
+            if (!Auth::verifyCurrentPassword($systemPassword)) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'error' => 'Contraseña del sistema incorrecta.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $account = $repo()->providerAccount($providerId, $accountId);
+            if (!$account) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Cuenta no encontrada.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            try {
+                $plain = SecretBox::decrypt((string) ($account['password_enc'] ?? ''));
+            } catch (\Throwable $e) {
+                http_response_code(500);
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'password' => $plain], JSON_UNESCAPED_UNICODE);
+            exit;
+        });
+
         $router->post('/admin/providers/note', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
