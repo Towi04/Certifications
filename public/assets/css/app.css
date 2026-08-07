@@ -704,6 +704,7 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 }
 .logo-mini-wide { width: 140px !important; height: 56px !important; }
 .pill-ok { background: #e5f5ec; color: var(--ok); }
+.pill-muted { background: rgba(49, 82, 133, 0.1); color: var(--muted); }
 .row-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 .venue-cards { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
 .venue-card {

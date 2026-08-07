@@ -342,12 +342,8 @@ final class CatalogRepository
 
     public function addProviderAgreement(array $data): int
     {
-        if (!empty($data['is_current'])) {
-            $this->pdo->prepare(
-                'UPDATE provider_agreements SET is_current = 0 WHERE provider_id = ?'
-            )->execute([$data['provider_id']]);
-        }
-
+        // Varios convenios pueden quedar vigentes a la vez (p. ej. ITEP supervisor + centro,
+        // o UKS base + extensión CENEVAL). No se descontinúan los anteriores al subir uno nuevo.
         $stmt = $this->pdo->prepare(
             'INSERT INTO provider_agreements (provider_id, label, year, file_path, signed_on, notes, is_current)
              VALUES (?,?,?,?,?,?,?)'
@@ -359,19 +355,16 @@ final class CatalogRepository
             $data['file_path'],
             $data['signed_on'],
             $data['notes'],
-            $data['is_current'] ? 1 : 0,
+            !empty($data['is_current']) ? 1 : 0,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function setCurrentProviderAgreement(int $providerId, int $agreementId): void
+    public function setProviderAgreementActive(int $providerId, int $agreementId, bool $active): void
     {
         $this->pdo->prepare(
-            'UPDATE provider_agreements SET is_current = 0 WHERE provider_id = ?'
-        )->execute([$providerId]);
-        $this->pdo->prepare(
-            'UPDATE provider_agreements SET is_current = 1 WHERE id = ? AND provider_id = ?'
-        )->execute([$agreementId, $providerId]);
+            'UPDATE provider_agreements SET is_current = ? WHERE id = ? AND provider_id = ?'
+        )->execute([$active ? 1 : 0, $agreementId, $providerId]);
     }
 
     public function deleteProviderAgreement(int $providerId, int $agreementId): ?array
