@@ -410,6 +410,17 @@ final class Auth
         }
     }
 
+    public static function requirePartner(): void
+    {
+        self::requireLogin();
+        $user = self::user();
+        if ($user === null || !in_array($user['role'], ['partner', 'admin'], true)) {
+            http_response_code(403);
+            echo 'Acceso denegado. Esta área es para Teacher Referral.';
+            exit;
+        }
+    }
+
     /** Crea el admin inicial desde .env solo si ese correo aún no existe. */
     public static function ensureBootstrapAdmin(): void
     {

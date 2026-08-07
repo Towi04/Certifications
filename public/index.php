@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use App\Auth\Auth;
+use App\Catalog\CatalogRepository;
+use App\Http\AdminRoutes;
+use App\Http\PartnerRoutes;
 use App\Http\Router;
 use App\Integrations\HealthChecker;
 
@@ -68,12 +71,27 @@ $runLogin = static function (bool $fromGet = false): void {
     }
 
     $user = Auth::user();
-    if ($user && ($user['role'] ?? '') === 'admin') {
+    $role = $user['role'] ?? '';
+    if ($role === 'admin') {
         header('Location: /admin');
+    } elseif ($role === 'partner') {
+        header('Location: /partner');
     } else {
         header('Location: /');
     }
     exit;
+};
+
+$postLoginPath = static function (): string {
+    $user = Auth::user();
+    $role = $user['role'] ?? '';
+    if ($role === 'admin') {
+        return '/admin';
+    }
+    if ($role === 'partner') {
+        return '/partner';
+    }
+    return '/';
 };
 
 $router->get('/', static function (): void {
@@ -86,10 +104,9 @@ $router->post('/login', static function () use ($runLogin): void {
     $runLogin(false);
 });
 
-$router->get('/login', static function () use ($runLogin): void {
+$router->get('/login', static function () use ($runLogin, $postLoginPath): void {
     if (Auth::check()) {
-        $user = Auth::user();
-        header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
+        header('Location: ' . $postLoginPath());
         exit;
     }
 
@@ -316,11 +333,21 @@ $router->post('/profile', static function (): void {
 
 $router->get('/admin', static function (): void {
     Auth::requireAdmin();
+    $counts = [];
+    try {
+        $counts = (new CatalogRepository())->counts();
+    } catch (Throwable $e) {
+        error_log('[PDV] dashboard counts: ' . $e->getMessage());
+    }
     view('admin/dashboard', [
         'title' => 'Administración',
         'user' => Auth::user(),
+        'counts' => $counts,
     ]);
 });
+
+AdminRoutes::register($router);
+PartnerRoutes::register($router);
 
 $router->get('/admin/salud', static function (): void {
     Auth::requireAdmin();

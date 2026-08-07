@@ -24,6 +24,9 @@
                 <?php if (\App\Auth\Auth::check()): ?>
                     <?php $u = \App\Auth\Auth::user(); ?>
                     <a href="/profile">Perfil</a>
+                    <?php if ($u && in_array($u['role'], ['partner', 'admin'], true)): ?>
+                        <a href="/partner">Catálogo TR</a>
+                    <?php endif; ?>
                     <?php if ($u && $u['role'] === 'admin'): ?>
                         <a href="/admin">Admin</a>
                         <a href="/admin/salud">Salud</a>
