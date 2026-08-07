@@ -16,6 +16,7 @@
 <nav class="admin-nav">
     <a href="/admin/providers">Proveedores</a>
     <a href="/admin/protocols">Protocolos</a>
+    <a href="/admin/cases">Casos</a>
     <a href="/admin/courses">Cursos</a>
     <a href="/admin/certifications">Certificaciones</a>
     <a href="/admin/tiers">Niveles TR</a>

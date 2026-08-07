@@ -1,10 +1,20 @@
-<?php require __DIR__ . '/../_nav.php'; $item = $item ?? null; ?>
+<?php require __DIR__ . '/../_nav.php'; $item = $item ?? null; $protocols = $protocols ?? []; ?>
 <section class="note">
     <h2><?= e($title) ?></h2>
     <form method="post" action="/admin/courses/save" class="stack form-grid">
         <?php if ($item): ?><input type="hidden" name="id" value="<?= (int)$item['id'] ?>"><?php endif; ?>
         <label>Código<input name="code" required value="<?= e($item['code'] ?? '') ?>"></label>
         <label>Nombre<input name="name" required value="<?= e($item['name'] ?? '') ?>"></label>
+        <label>Protocolo (opcional)
+            <select name="protocol_id">
+                <option value="">— Sin protocolo —</option>
+                <?php foreach ($protocols as $pr): ?>
+                    <option value="<?= (int)$pr['id'] ?>" <?= (int)($item['protocol_id'] ?? 0) === (int)$pr['id'] ? 'selected' : '' ?>>
+                        <?= e($pr['code']) ?> · <?= e($pr['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
         <label>Plataforma
             <select name="platform_type">
                 <?php foreach (['moodle','xperienceed','ethinking','external','internal','none'] as $p): ?>

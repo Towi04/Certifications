@@ -55,12 +55,18 @@ final class PartnerRoutes
                 $partnerPrice = $repo()->certificationTierPrice((int) $item['id'], $tierId);
             }
 
+            $protocolSteps = [];
+            if (!empty($item['protocol_id'])) {
+                $protocolSteps = $repo()->protocolSteps((int) $item['protocol_id'], true);
+            }
+
             view('partner/show', [
                 'title' => $item['name'],
                 'user' => $user,
                 'partner' => $partner,
                 'item' => $item,
                 'partnerPrice' => $partnerPrice,
+                'protocolSteps' => $protocolSteps,
                 'courses' => $repo()->certificationCourses((int) $item['id']),
                 'assets' => $repo()->assets('certification', (int) $item['id']),
                 'providerAssets' => $repo()->assets('provider', (int) $item['provider_id']),

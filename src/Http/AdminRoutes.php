@@ -644,8 +644,12 @@ final class AdminRoutes
             view('admin/protocols/form', [
                 'title' => 'Nuevo protocolo',
                 'item' => null,
+                'steps' => [],
                 'providers' => $repo()->providers(true),
+                'phases' => CatalogRepository::protocolPhases(),
+                'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -661,8 +665,12 @@ final class AdminRoutes
             view('admin/protocols/form', [
                 'title' => 'Editar protocolo',
                 'item' => $item,
+                'steps' => $repo()->protocolSteps($id),
                 'providers' => $repo()->providers(true),
+                'phases' => CatalogRepository::protocolPhases(),
+                'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -677,7 +685,7 @@ final class AdminRoutes
                 exit;
             }
             try {
-                $repo()->saveProtocol([
+                $savedId = $repo()->saveProtocol([
                     'provider_id' => (int) ($_POST['provider_id'] ?? 0) ?: null,
                     'code' => $code,
                     'name' => $name,
@@ -690,14 +698,165 @@ final class AdminRoutes
                     'uses_inventory' => isset($_POST['uses_inventory']) ? 1 : 0,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
-                flash('info', 'Protocolo guardado.');
-                header('Location: /admin/protocols');
+                flash('info', 'Protocolo guardado. Ahora define los pasos del flujo.');
+                header('Location: /admin/protocols/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
                 header('Location: ' . ($id ? '/admin/protocols/edit?id=' . $id : '/admin/protocols/create'));
                 exit;
             }
+        });
+
+        $router->post('/admin/protocols/steps/save', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            $stepId = (int) ($_POST['step_id'] ?? 0) ?: null;
+            $title = trim((string) ($_POST['title'] ?? ''));
+            if ($protocolId <= 0 || $title === '') {
+                flash('error', 'Protocolo y título del paso son obligatorios.');
+                header('Location: /admin/protocols');
+                exit;
+            }
+            if (!$repo()->protocol($protocolId)) {
+                flash('error', 'Protocolo no encontrado.');
+                header('Location: /admin/protocols');
+                exit;
+            }
+
+            $phase = (string) ($_POST['phase'] ?? 'pre_exam');
+            if (!isset(CatalogRepository::protocolPhases()[$phase])) {
+                $phase = 'pre_exam';
+            }
+            $responsible = (string) ($_POST['responsible'] ?? 'student');
+            if (!isset(CatalogRepository::protocolResponsibles()[$responsible])) {
+                $responsible = 'student';
+            }
+            $orderRaw = trim((string) ($_POST['sort_order'] ?? ''));
+            $sortOrder = $orderRaw !== '' ? (int) $orderRaw : $repo()->nextProtocolStepOrder($protocolId);
+            $triggerRaw = trim((string) ($_POST['trigger_days_after_exam'] ?? ''));
+
+            try {
+                $repo()->saveProtocolStep([
+                    'protocol_id' => $protocolId,
+                    'sort_order' => $sortOrder,
+                    'phase' => $phase,
+                    'title' => $title,
+                    'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
+                    'responsible' => $responsible,
+                    'trigger_days_after_exam' => $triggerRaw !== '' ? (int) $triggerRaw : null,
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $stepId);
+                flash('info', 'Paso guardado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/protocols/edit?id=' . $protocolId);
+            exit;
+        });
+
+        $router->post('/admin/protocols/steps/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            $stepId = (int) ($_POST['step_id'] ?? 0);
+            try {
+                if ($stepId > 0) {
+                    $repo()->deleteProtocolStep($stepId);
+                    flash('info', 'Paso eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo eliminar (puede estar en uso en un caso): ' . $e->getMessage());
+            }
+            header('Location: /admin/protocols/edit?id=' . $protocolId);
+            exit;
+        });
+
+        $router->get('/admin/cases', static function () use ($repo): void {
+            Auth::requireAdmin();
+            view('admin/cases/index', [
+                'title' => 'Casos de certificación',
+                'items' => $repo()->certificationCases(),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/cases/create', static function () use ($repo): void {
+            Auth::requireAdmin();
+            view('admin/cases/form', [
+                'title' => 'Abrir caso',
+                'certifications' => $repo()->certifications(),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/cases/save', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $certId = (int) ($_POST['certification_id'] ?? 0);
+            $name = trim((string) ($_POST['student_name'] ?? ''));
+            $email = strtolower(trim((string) ($_POST['student_email'] ?? '')));
+            if ($certId <= 0 || $name === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                flash('error', 'Certificación, nombre y correo válido son obligatorios.');
+                header('Location: /admin/cases/create');
+                exit;
+            }
+            try {
+                $examDate = trim((string) ($_POST['exam_date'] ?? ''));
+                $caseId = $repo()->openCertificationCase([
+                    'certification_id' => $certId,
+                    'student_name' => $name,
+                    'student_email' => $email,
+                    'exam_date' => $examDate !== '' ? $examDate : null,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                ]);
+                flash('info', 'Caso abierto. El alumno inicia en el paso 1 del protocolo.');
+                header('Location: /admin/cases/view?id=' . $caseId);
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: /admin/cases/create');
+                exit;
+            }
+        });
+
+        $router->get('/admin/cases/view', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $repo()->certificationCase($id);
+            if (!$item) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /admin/cases');
+                exit;
+            }
+            view('admin/cases/show', [
+                'title' => 'Caso #' . $id,
+                'item' => $item,
+                'steps' => $repo()->certificationCaseSteps($id),
+                'phases' => CatalogRepository::protocolPhases(),
+                'responsibles' => CatalogRepository::protocolResponsibles(),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/cases/complete-step', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $caseStepId = (int) ($_POST['case_step_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $repo()->completeCaseStep(
+                    $caseId,
+                    $caseStepId,
+                    $user ? (int) $user['id'] : null,
+                    trim((string) ($_POST['notes'] ?? '')) ?: null
+                );
+                flash('info', 'Paso marcado como hecho. Se avanzó al siguiente.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
         });
 
         $router->get('/admin/courses', static function () use ($repo): void {
@@ -710,11 +869,12 @@ final class AdminRoutes
             ]);
         });
 
-        $router->get('/admin/courses/create', static function (): void {
+        $router->get('/admin/courses/create', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/courses/form', [
                 'title' => 'Nuevo curso',
                 'item' => null,
+                'protocols' => $repo()->protocols(true),
                 'error' => flash('error'),
             ]);
         });
@@ -731,6 +891,7 @@ final class AdminRoutes
             view('admin/courses/form', [
                 'title' => 'Editar curso',
                 'item' => $item,
+                'protocols' => $repo()->protocols(true),
                 'error' => flash('error'),
             ]);
         });
@@ -747,7 +908,9 @@ final class AdminRoutes
             }
             try {
                 $moodleId = trim((string) ($_POST['moodle_course_id'] ?? ''));
+                $protocolId = (int) ($_POST['protocol_id'] ?? 0);
                 $repo()->saveCourse([
+                    'protocol_id' => $protocolId > 0 ? $protocolId : null,
                     'code' => $code,
                     'name' => $name,
                     'platform_type' => (string) ($_POST['platform_type'] ?? 'moodle'),
