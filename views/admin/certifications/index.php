@@ -32,14 +32,32 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
     </form>
     <div class="table-wrap">
         <table class="data-table">
-            <thead><tr><th>Nombre</th><th>Proveedor</th><th>Código</th><th>Precio público</th><th></th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Proveedor</th>
+                    <th>Modalidad</th>
+                    <th>Habilidades</th>
+                    <th>Precio público</th>
+                    <th></th>
+                </tr>
+            </thead>
             <tbody>
             <?php foreach ($items as $item): ?>
                 <?php $pub = (int)$item['is_published'] === 1; ?>
                 <tr class="<?= $pub ? '' : 'is-row-inactive' ?>">
                     <td><?= e($item['name']) ?></td>
                     <td><?= e($item['provider_name']) ?></td>
-                    <td><code><?= e($item['code']) ?></code></td>
+                    <td><?= \App\Support\CertIcons::modalityHtml((string)($item['modality'] ?? '')) ?></td>
+                    <td>
+                        <?php
+                        $skillsIcons = \App\Support\CertIcons::skillsHtml(
+                            $item['skills_json'] ?? null,
+                            !empty($item['is_level_exam'])
+                        );
+                        echo $skillsIcons !== '' ? $skillsIcons : '<span class="muted">—</span>';
+                        ?>
+                    </td>
                     <td><?= e(\App\Support\Str::money(isset($item['public_price']) ? (float)$item['public_price'] : null, $item['currency'] ?? 'MXN')) ?></td>
                     <td>
                         <div class="icon-actions">
@@ -57,7 +75,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="5" class="muted">No hay certificaciones. Agrégalas desde Proveedores.</td></tr>
+                <tr><td colspan="6" class="muted">No hay certificaciones. Agrégalas desde Proveedores.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

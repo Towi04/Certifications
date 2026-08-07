@@ -238,6 +238,8 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .form-grid input,
 .form-grid select,
 .form-grid textarea {
+  width: 100%;
+  box-sizing: border-box;
   font: inherit; font-weight: 400;
   padding: 0.55rem 0.7rem;
   border: 1px solid rgba(49, 82, 133, 0.25);
@@ -245,12 +247,21 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   background: #fff;
 }
 .form-grid .actions { grid-column: 1 / -1; display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: center; }
-.form-grid .field-wide { grid-column: 1 / -1; }
+.form-grid .field-wide { grid-column: 1 / -1; min-width: 0; }
 .form-grid textarea.html-editor {
-  min-height: 10rem;
+  min-height: 18rem;
+  width: 100%;
+  resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.92rem;
   line-height: 1.5;
+}
+.html-field {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .html-field-head {
   display: flex;
@@ -274,8 +285,17 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   background: var(--blue);
   color: #fff;
 }
+.html-field .html-editor,
+.html-field .html-preview {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 18rem;
+}
+.html-field--long .html-editor,
+.html-field--long .html-preview {
+  min-height: 24rem;
+}
 .html-preview {
-  min-height: 10rem;
   border: 1px solid rgba(49, 82, 133, 0.18);
   border-radius: 12px;
   padding: 0.85rem 1rem;
@@ -284,6 +304,49 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 }
 .html-preview[hidden] { display: none !important; }
 .html-field textarea[hidden] { display: none !important; }
+
+.cert-meta-icons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  vertical-align: middle;
+}
+.cert-meta-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  color: var(--blue);
+  background: rgba(49, 82, 133, 0.08);
+  border-radius: 8px;
+}
+.cert-meta-icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+.cert-meta-emoji {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.cert-meta-icon--modality {
+  background: rgba(245, 223, 37, 0.28);
+}
+.cert-meta-icons--lg .cert-meta-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+}
+.cert-meta-icons--lg .cert-meta-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+.cert-meta-icons--lg .cert-meta-emoji {
+  font-size: 1.15rem;
+}
+.data-table .cert-meta-icons { gap: 0.3rem; }
 .skills-fieldset {
   border: 1px solid rgba(49, 82, 133, 0.15);
   border-radius: 12px;
@@ -396,6 +459,13 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .catalog-card h2 a:hover { color: var(--blue); }
 .catalog-card .price { margin: 0.75rem 0 0.35rem; }
 .catalog-card .meta-line { margin: 0; font-size: 0.82rem; color: var(--muted); }
+.catalog-card .catalog-meta-icons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
 
 .product-sheet { max-width: 880px; }
 .product-sheet .price-block {

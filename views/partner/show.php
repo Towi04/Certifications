@@ -64,7 +64,10 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
         <div>
             <h2>Ficha</h2>
             <ul class="facts">
-                <li><strong>Modalidad:</strong> <?= e(\App\Catalog\CatalogRepository::modalities()[$item['modality']] ?? ucfirst((string)$item['modality'])) ?></li>
+                <li><strong>Modalidad:</strong>
+                    <?= \App\Support\CertIcons::modalityHtml((string)($item['modality'] ?? ''), 'cert-meta-icons--lg') ?>
+                    <span class="muted"><?= e(\App\Catalog\CatalogRepository::modalities()[$item['modality']] ?? ucfirst((string)$item['modality'])) ?></span>
+                </li>
                 <li><strong>Duración:</strong> <?= e($item['duration_label'] ?? '—') ?></li>
                 <li><strong>Audiencia:</strong> <?= e($item['audience'] ?? '—') ?></li>
                 <?php
@@ -96,18 +99,15 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
                 <?php endif; ?>
                 <?php if (!empty($item['is_level_exam'])): ?>
                     <?php
-                    $skills = [];
-                    if (!empty($item['skills_json'])) {
-                        $decoded = is_string($item['skills_json']) ? json_decode($item['skills_json'], true) : $item['skills_json'];
-                        if (is_array($decoded)) {
-                            $catalog = \App\Catalog\CatalogRepository::certificationSkills();
-                            foreach ($decoded as $sk) {
-                                $skills[] = $catalog[$sk] ?? $sk;
-                            }
-                        }
-                    }
+                    $skillsIcons = \App\Support\CertIcons::skillsHtml(
+                        $item['skills_json'] ?? null,
+                        true,
+                        'cert-meta-icons--lg'
+                    );
                     ?>
-                    <li><strong>Habilidades:</strong> <?= $skills ? e(implode(', ', $skills)) : '—' ?></li>
+                    <?php if ($skillsIcons !== ''): ?>
+                        <li><strong>Habilidades:</strong> <?= $skillsIcons ?></li>
+                    <?php endif; ?>
                 <?php endif; ?>
                 <li><strong>Protocolo:</strong> <?= e($item['protocol_name'] ?? '—') ?></li>
             </ul>
