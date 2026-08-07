@@ -47,6 +47,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_venues_subcentros.sql` (tipo `fixed` vs `subcentro` + dirección opcional)
 - `sql/migration_certifications_form.sql` (examen de nivel, habilidades, rango, CENNI/modalidad)
 - `sql/migration_provider_brand_website.sql` (sitio del convenio vs sitio de la marca pública)
+- `sql/migration_provider_accounts.sql` (cuentas/portales con usuario y contraseña cifrada)
 
 ### Subida de PDFs de convenio
 

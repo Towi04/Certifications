@@ -331,6 +331,91 @@ final class CatalogRepository
     }
 
     /** @return list<array<string, mixed>> */
+    public function providerAccounts(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_accounts
+             WHERE provider_id = ?
+             ORDER BY is_active DESC, label ASC, id ASC'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function providerAccount(int $providerId, int $accountId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_accounts WHERE id = ? AND provider_id = ?'
+        );
+        $stmt->execute([$accountId, $providerId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function addProviderAccount(array $data): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_accounts
+                (provider_id, label, portal_url, username, password_enc, notes, is_active)
+             VALUES (?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['provider_id'],
+            $data['label'],
+            $data['portal_url'],
+            $data['username'],
+            $data['password_enc'],
+            $data['notes'],
+            $data['is_active'] ?? 1,
+        ]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function updateProviderAccount(int $accountId, array $data): void
+    {
+        if (array_key_exists('password_enc', $data) && $data['password_enc'] !== null) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE provider_accounts SET
+                    label=?, portal_url=?, username=?, password_enc=?, notes=?, is_active=?
+                 WHERE id=? AND provider_id=?'
+            );
+            $stmt->execute([
+                $data['label'],
+                $data['portal_url'],
+                $data['username'],
+                $data['password_enc'],
+                $data['notes'],
+                $data['is_active'] ?? 1,
+                $accountId,
+                $data['provider_id'],
+            ]);
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE provider_accounts SET
+                label=?, portal_url=?, username=?, notes=?, is_active=?
+             WHERE id=? AND provider_id=?'
+        );
+        $stmt->execute([
+            $data['label'],
+            $data['portal_url'],
+            $data['username'],
+            $data['notes'],
+            $data['is_active'] ?? 1,
+            $accountId,
+            $data['provider_id'],
+        ]);
+    }
+
+    public function deleteProviderAccount(int $providerId, int $accountId): void
+    {
+        $this->pdo->prepare(
+            'DELETE FROM provider_accounts WHERE id = ? AND provider_id = ?'
+        )->execute([$accountId, $providerId]);
+    }
+
+    /** @return list<array<string, mixed>> */
     public function providerAgreements(int $providerId): array
     {
         $stmt = $this->pdo->prepare(

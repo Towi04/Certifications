@@ -6,6 +6,7 @@ namespace App\Http;
 
 use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
+use App\Support\SecretBox;
 use App\Support\Str;
 use App\Support\Uploader;
 
@@ -39,6 +40,7 @@ final class AdminRoutes
                 'certifications' => [],
                 'contacts' => [],
                 'venues' => [],
+                'accounts' => [],
                 'notes' => [],
                 'error' => flash('error'),
                 'info' => flash('info'),
@@ -55,7 +57,7 @@ final class AdminRoutes
                 exit;
             }
             $repo()->ensureLegacyContactMigrated($id);
-            $allowedTabs = ['proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'certificaciones', 'notas'];
+            $allowedTabs = ['proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas', 'certificaciones', 'notas'];
             $tab = (string) ($_GET['tab'] ?? 'proveedor');
             if (!in_array($tab, $allowedTabs, true)) {
                 $tab = 'proveedor';
@@ -70,7 +72,12 @@ final class AdminRoutes
             if ($tab === 'contactos' && $editContactId > 0) {
                 $editContact = $repo()->providerContact($id, $editContactId);
             }
-            $showForm = isset($_GET['form']) || $editVenue !== null || $editContact !== null;
+            $editAccount = null;
+            $editAccountId = (int) ($_GET['edit_account'] ?? 0);
+            if ($tab === 'cuentas' && $editAccountId > 0) {
+                $editAccount = $repo()->providerAccount($id, $editAccountId);
+            }
+            $showForm = isset($_GET['form']) || $editVenue !== null || $editContact !== null || $editAccount !== null;
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
@@ -79,8 +86,10 @@ final class AdminRoutes
                 'certifications' => $repo()->certificationsByProvider($id),
                 'contacts' => $repo()->providerContacts($id),
                 'venues' => $repo()->providerVenues($id),
+                'accounts' => $repo()->providerAccounts($id),
                 'editVenue' => $editVenue,
                 'editContact' => $editContact,
+                'editAccount' => $editAccount,
                 'showForm' => $showForm,
                 'notes' => $repo()->providerNotes($id),
                 'info' => flash('info'),
@@ -477,6 +486,70 @@ final class AdminRoutes
             $repo()->setCertificationPublished($certificationId, $newPublished);
             flash('info', $newPublished ? 'Certificación publicada.' : 'Certificación ocultada.');
             header('Location: ' . $providerTabUrl($providerId, 'certificaciones'));
+            exit;
+        });
+
+        $router->post('/admin/providers/account', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $accountId = (int) ($_POST['account_id'] ?? 0) ?: null;
+            $label = trim((string) ($_POST['label'] ?? ''));
+            $username = trim((string) ($_POST['username'] ?? ''));
+            $password = (string) ($_POST['password'] ?? '');
+            $redirectForm = static function () use ($providerTabUrl, $providerId, $accountId): void {
+                $loc = $providerTabUrl($providerId, 'cuentas') . ($accountId ? '&edit_account=' . $accountId : '&form=1');
+                header('Location: ' . $loc);
+                exit;
+            };
+            if ($providerId < 1 || $label === '' || $username === '') {
+                flash('error', 'Portal/etiqueta y usuario son obligatorios.');
+                $redirectForm();
+            }
+            try {
+                $payload = [
+                    'provider_id' => $providerId,
+                    'label' => $label,
+                    'portal_url' => trim((string) ($_POST['portal_url'] ?? '')) ?: null,
+                    'username' => $username,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ];
+                if ($accountId) {
+                    $existing = $repo()->providerAccount($providerId, $accountId);
+                    if (!$existing) {
+                        throw new \RuntimeException('Cuenta no encontrada.');
+                    }
+                    if (trim($password) !== '') {
+                        $payload['password_enc'] = SecretBox::encrypt($password);
+                    } else {
+                        $payload['password_enc'] = null; // no cambiar
+                    }
+                    $repo()->updateProviderAccount($accountId, $payload);
+                    flash('info', 'Cuenta actualizada.');
+                } else {
+                    if (trim($password) === '') {
+                        throw new \RuntimeException('La contraseña es obligatoria al crear la cuenta.');
+                    }
+                    $payload['password_enc'] = SecretBox::encrypt($password);
+                    $payload['is_active'] = 1;
+                    $repo()->addProviderAccount($payload);
+                    flash('info', 'Cuenta agregada.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                $redirectForm();
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'cuentas'));
+            exit;
+        });
+
+        $router->post('/admin/providers/account/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $accountId = (int) ($_POST['account_id'] ?? 0);
+            $repo()->deleteProviderAccount($providerId, $accountId);
+            flash('info', 'Cuenta eliminada.');
+            header('Location: ' . $providerTabUrl($providerId, 'cuentas'));
             exit;
         });
 

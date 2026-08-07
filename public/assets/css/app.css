@@ -705,6 +705,33 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .logo-mini-wide { width: 140px !important; height: 56px !important; }
 .pill-ok { background: #e5f5ec; color: var(--ok); }
 .pill-muted { background: rgba(49, 82, 133, 0.1); color: var(--muted); }
+.account-cards { display: grid; gap: 0.85rem; margin-top: 0.5rem; }
+.account-card {
+  border: 1px solid rgba(49, 82, 133, 0.12);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  background: rgba(49, 82, 133, 0.03);
+}
+.account-card.is-inactive { opacity: 0.65; border-style: dashed; }
+.account-card header {
+  display: flex; justify-content: space-between; gap: 0.75rem;
+  align-items: flex-start; margin-bottom: 0.55rem;
+}
+.account-creds {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem 1rem; margin: 0;
+}
+.account-creds dt { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.15rem; }
+.account-creds dd { margin: 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.account-creds code {
+  font-size: 0.92rem;
+  background: #fff;
+  border: 1px solid rgba(49, 82, 133, 0.12);
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+}
+@media (max-width: 640px) {
+  .account-creds { grid-template-columns: 1fr; }
+}
 .row-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 .venue-cards { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
 .venue-card {
