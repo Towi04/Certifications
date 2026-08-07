@@ -45,7 +45,7 @@ $item = $item ?? null;
             <a class="btn btn-ghost" href="/admin/partners">Volver</a>
         </div>
     </form>
-    <p class="muted">Al guardar, el rol del usuario pasa a <code>partner</code> (excepto si es admin). Si cambias el convenio, se registra historial.</p>
+    <p class="muted">Crea primero el usuario con rol Partner TR en <a href="/admin/users">Usuarios</a>. Luego asígnalo aquí a un nivel y convenio. Al guardar, el rol se mantiene como <code>partner</code>.</p>
 </section>
 
 <?php if (!empty($history)): ?>

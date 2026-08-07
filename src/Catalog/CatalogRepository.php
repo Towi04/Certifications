@@ -1134,7 +1134,8 @@ final class CatalogRepository
                 FROM users u
                 LEFT JOIN partners p ON p.user_id = u.id
                 WHERE (p.id IS NULL OR u.id = ?)
-                  AND u.role IN (\'partner\', \'student\', \'admin\')
+                  AND u.is_active = 1
+                  AND u.role IN (\'partner\', \'student\')
                 ORDER BY u.name, u.email';
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$currentUserId ?? 0]);
@@ -1345,6 +1346,7 @@ final class CatalogRepository
             'agreements' => (int) $this->pdo->query('SELECT COUNT(*) FROM agreements')->fetchColumn(),
             'protocols' => (int) $this->pdo->query('SELECT COUNT(*) FROM protocols')->fetchColumn(),
             'tiers' => (int) $this->pdo->query('SELECT COUNT(*) FROM partner_tiers')->fetchColumn(),
+            'users' => (int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
         ];
     }
 }

@@ -50,6 +50,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_provider_brand_website.sql` (sitio del convenio vs sitio de la marca pública)
 - `sql/migration_provider_accounts.sql` (cuentas/portales con usuario y contraseña cifrada)
 - `sql/migration_provider_accounts_sites.sql` (permite sitios sin usuario/contraseña)
+- `sql/migration_admin_users_roles.sql` (roles Administrador/Asistente/Gestor/Partner TR + teléfono/nombre)
 
 ### Subida de PDFs de convenio
 

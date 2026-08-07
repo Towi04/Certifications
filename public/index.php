@@ -71,7 +71,7 @@ $runLogin = static function (bool $fromGet = false): void {
 
     $user = Auth::user();
     $role = $user['role'] ?? '';
-    if ($role === 'admin') {
+    if (Auth::isStaffRole($role)) {
         header('Location: /admin');
     } elseif ($role === 'partner') {
         header('Location: /partner');
@@ -84,7 +84,7 @@ $runLogin = static function (bool $fromGet = false): void {
 $postLoginPath = static function (): string {
     $user = Auth::user();
     $role = $user['role'] ?? '';
-    if ($role === 'admin') {
+    if (Auth::isStaffRole($role)) {
         return '/admin';
     }
     if ($role === 'partner') {
