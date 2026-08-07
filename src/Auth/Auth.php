@@ -16,12 +16,8 @@ final class Auth
             return;
         }
 
-        $sessionDir = BASE_PATH . '/storage/sessions';
-        if (!is_dir($sessionDir)) {
-            @mkdir($sessionDir, 0755, true);
-        }
-
-        if (is_dir($sessionDir) && is_writable($sessionDir)) {
+        $sessionDir = self::resolveSessionDirectory();
+        if ($sessionDir !== '') {
             session_save_path($sessionDir);
         }
 
@@ -31,6 +27,45 @@ final class Auth
             'cookie_samesite' => 'Lax',
             'use_strict_mode' => true,
         ]);
+
+        self::writeDebugLog('session_started path=' . session_save_path() . ' session_id=' . session_id());
+    }
+
+    private static function resolveSessionDirectory(): string
+    {
+        $candidates = [
+            BASE_PATH . '/storage/sessions',
+            rtrim((string) sys_get_temp_dir(), DIRECTORY_SEPARATOR) . '/doceo-pdv-sessions',
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+            if (!is_dir($candidate)) {
+                @mkdir($candidate, 0755, true);
+            }
+            if (is_dir($candidate) && is_writable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    private static function writeDebugLog(string $message): void
+    {
+        $logFile = BASE_PATH . '/storage/logs/login-debug.log';
+        $dir = dirname($logFile);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        if (!is_dir($dir) || !is_writable($dir)) {
+            return;
+        }
+
+        $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+        @file_put_contents($logFile, $line, FILE_APPEND);
     }
 
     private static function normalizeIdentifier(string $identifier): string
@@ -84,24 +119,29 @@ final class Auth
 
     public static function attempt(string $identifier, string $password): bool
     {
+        $normalized = self::normalizeIdentifier($identifier);
+        self::writeDebugLog('login_attempt identifier=' . $normalized . ' password_len=' . strlen($password));
+
         $pdo = Connection::get();
         $query = 'SELECT id, email, username, password_hash, role, name, is_active '
             . 'FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(username)) = ? LIMIT 1';
         $stmt = $pdo->prepare($query);
-        $normalized = self::normalizeIdentifier($identifier);
         $stmt->execute([$normalized, $normalized]);
         $user = $stmt->fetch();
 
         if (!$user) {
+            self::writeDebugLog('login_failed reason=user_not_found identifier=' . $normalized);
             return false;
         }
 
         if (!(int) $user['is_active']) {
+            self::writeDebugLog('login_failed reason=user_inactive identifier=' . $normalized . ' user_id=' . ((int) $user['id']));
             return false;
         }
 
         $hash = trim((string) $user['password_hash']);
         if (!password_verify($password, $hash)) {
+            self::writeDebugLog('login_failed reason=password_mismatch identifier=' . $normalized . ' user_id=' . ((int) $user['id']));
             return false;
         }
 
@@ -117,6 +157,8 @@ final class Auth
             'role' => (string) $user['role'],
             'name' => (string) $user['name'],
         ];
+
+        self::writeDebugLog('login_success user_id=' . ((int) $user['id']) . ' role=' . ((string) $user['role']) . ' session_id=' . session_id());
 
         return true;
     }
