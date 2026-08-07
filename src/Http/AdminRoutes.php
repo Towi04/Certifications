@@ -114,14 +114,14 @@ final class AdminRoutes
                 if ($tab === 'proveedor' || !$existing) {
                     $website = trim((string) ($_POST['website_url'] ?? '')) ?: null;
                     if (!empty($_FILES['logo_icon']['name'])) {
-                        $newIcon = Uploader::store($_FILES['logo_icon'], 'providers/icons');
+                        $newIcon = Uploader::storeImage($_FILES['logo_icon'], 'providers/icons', 320, 320);
                         if ($iconPath) {
                             Uploader::delete((string) $iconPath);
                         }
                         $iconPath = $newIcon;
                     }
                     if (!empty($_FILES['logo_full']['name'])) {
-                        $newFull = Uploader::store($_FILES['logo_full'], 'providers/full');
+                        $newFull = Uploader::storeImage($_FILES['logo_full'], 'providers/full', 900, 400);
                         if ($fullPath) {
                             Uploader::delete((string) $fullPath);
                         }
@@ -198,9 +198,21 @@ final class AdminRoutes
                 exit;
             }
             try {
+                $role = (string) ($_POST['role'] ?? 'general');
+                $allowedRoles = ['ventas', 'soporte', 'finanzas', 'general', 'otro'];
+                if (!in_array($role, $allowedRoles, true)) {
+                    $role = 'general';
+                }
+                if ($role === 'otro') {
+                    $custom = trim((string) ($_POST['role_custom'] ?? ''));
+                    if ($custom === '') {
+                        throw new \RuntimeException('Especifica el nombre del rol (Otro).');
+                    }
+                    $role = $custom;
+                }
                 $repo()->addProviderContact([
                     'provider_id' => $providerId,
-                    'role' => (string) ($_POST['role'] ?? 'general'),
+                    'role' => $role,
                     'name' => $name,
                     'email' => trim((string) ($_POST['email'] ?? '')) ?: null,
                     'phone' => trim((string) ($_POST['phone'] ?? '')) ?: null,

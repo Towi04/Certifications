@@ -29,36 +29,37 @@ $tabs = $item ? [
 ] : ['proveedor' => 'Proveedor'];
 ?>
 
-<div class="provider-edit">
-    <aside class="provider-side">
-        <div class="provider-side-head">
+<section class="provider-edit">
+    <header class="provider-edit-head">
+        <div class="provider-edit-identity">
             <?php if ($icon): ?>
-                <img src="/media?f=<?= e(rawurlencode($icon)) ?>" alt="">
+                <img class="provider-edit-logo" src="/media?f=<?= e(rawurlencode($icon)) ?>" alt="" width="56" height="56" style="width:56px;height:56px;object-fit:contain">
             <?php else: ?>
-                <span class="provider-side-fallback"><?= e(mb_substr($item['name'] ?? 'P', 0, 1)) ?></span>
+                <span class="provider-edit-fallback"><?= e(mb_substr($item['name'] ?? 'P', 0, 1)) ?></span>
             <?php endif; ?>
             <div>
-                <strong><?= e($item['name'] ?? 'Nuevo proveedor') ?></strong>
-                <?php if ($item): ?><small><code><?= e($item['code']) ?></code></small><?php endif; ?>
+                <h2><?= e($item['name'] ?? 'Nuevo proveedor') ?></h2>
+                <?php if ($item): ?><p class="muted"><code><?= e($item['code']) ?></code></p><?php endif; ?>
             </div>
         </div>
-        <nav class="provider-side-nav">
-            <?php foreach ($tabs as $key => $label): ?>
-                <?php if ($item): ?>
-                    <a class="<?= $tab === $key ? 'is-active' : '' ?>" href="/admin/providers/edit?id=<?= $id ?>&tab=<?= e($key) ?>"><?= e($label) ?></a>
-                <?php else: ?>
-                    <span class="is-active"><?= e($label) ?></span>
-                <?php endif; ?>
-            <?php endforeach; ?>
-        </nav>
         <a class="btn btn-ghost" href="/admin/providers">Volver al listado</a>
-    </aside>
+    </header>
+
+    <nav class="provider-tabs" aria-label="Secciones del proveedor">
+        <?php foreach ($tabs as $key => $label): ?>
+            <?php if ($item): ?>
+                <a class="provider-tab <?= $tab === $key ? 'is-active' : '' ?>" href="/admin/providers/edit?id=<?= $id ?>&tab=<?= e($key) ?>"><?= e($label) ?></a>
+            <?php else: ?>
+                <span class="provider-tab is-active"><?= e($label) ?></span>
+            <?php endif; ?>
+        <?php endforeach; ?>
+    </nav>
 
     <div class="provider-panels">
         <?php if ($tab === 'proveedor'): ?>
             <section class="provider-panel">
-                <h2><?= $item ? 'Datos del proveedor' : 'Nuevo proveedor' ?></h2>
-                <form method="post" action="/admin/providers/save" enctype="multipart/form-data" class="stack form-grid">
+                <h3><?= $item ? 'Datos del proveedor' : 'Nuevo proveedor' ?></h3>
+                <form method="post" action="/admin/providers/save" enctype="multipart/form-data" class="form-grid">
                     <?php if ($item): ?><input type="hidden" name="id" value="<?= $id ?>"><?php endif; ?>
                     <input type="hidden" name="tab" value="proveedor">
                     <label>Código<input name="code" required value="<?= e($item['code'] ?? '') ?>"></label>
@@ -66,13 +67,17 @@ $tabs = $item ? [
                     <label>Sitio web<input type="url" name="website_url" value="<?= e($item['website_url'] ?? '') ?>" placeholder="https://"></label>
                     <label>Logo icono / escudo
                         <input type="file" name="logo_icon" accept="image/*">
-                        <small class="muted">Solo marca, para fichas y menús.</small>
-                        <?php if ($icon): ?><img class="logo-mini" src="/media?f=<?= e(rawurlencode($icon)) ?>" alt=""><?php endif; ?>
+                        <small class="muted">Se redimensiona automáticamente (máx. 320×320).</small>
+                        <?php if ($icon): ?>
+                            <img class="logo-mini" src="/media?f=<?= e(rawurlencode($icon)) ?>" alt="" width="56" height="56" style="width:56px;height:56px;object-fit:contain">
+                        <?php endif; ?>
                     </label>
                     <label>Logo completo (con nombre)
                         <input type="file" name="logo_full" accept="image/*">
-                        <small class="muted">Para correos y documentos.</small>
-                        <?php if ($fullLogo): ?><img class="logo-mini logo-mini-wide" src="/media?f=<?= e(rawurlencode($fullLogo)) ?>" alt=""><?php endif; ?>
+                        <small class="muted">Para correos (máx. 900×400).</small>
+                        <?php if ($fullLogo): ?>
+                            <img class="logo-mini logo-mini-wide" src="/media?f=<?= e(rawurlencode($fullLogo)) ?>" alt="" width="140" height="56" style="width:140px;height:56px;object-fit:contain">
+                        <?php endif; ?>
                     </label>
                     <div class="actions"><button class="btn" type="submit">Guardar</button></div>
                 </form>
@@ -84,8 +89,8 @@ $tabs = $item ? [
 
         <?php if ($item && $tab === 'contactos'): ?>
             <section class="provider-panel">
-                <h2>Contactos</h2>
-                <p class="muted">Puedes tener varios: ventas, soporte, finanzas, etc.</p>
+                <h3>Contactos</h3>
+                <p class="muted">Varios contactos: ventas, soporte, finanzas, etc.</p>
                 <?php if ($contacts): ?>
                     <div class="table-wrap">
                         <table class="data-table">
@@ -113,14 +118,17 @@ $tabs = $item ? [
                     <p class="muted">Sin contactos aún.</p>
                 <?php endif; ?>
 
-                <form method="post" action="/admin/providers/contact" class="stack form-grid" style="margin-top:1rem">
+                <form method="post" action="/admin/providers/contact" class="form-grid" style="margin-top:1rem">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
                     <label>Rol
-                        <select name="role">
+                        <select name="role" id="contactRole">
                             <?php foreach ($roles as $k => $label): ?>
                                 <option value="<?= e($k) ?>"><?= e($label) ?></option>
                             <?php endforeach; ?>
                         </select>
+                    </label>
+                    <label id="roleCustomField" style="display:none">Nombre del rol
+                        <input name="role_custom" placeholder="Ej. Logística, Académico…">
                     </label>
                     <label>Nombre<input name="name" required></label>
                     <label>Correo<input type="email" name="email"></label>
@@ -131,12 +139,21 @@ $tabs = $item ? [
                     <div class="actions"><button class="btn" type="submit">Agregar contacto</button></div>
                 </form>
             </section>
+            <script>
+            (() => {
+              const sel = document.getElementById('contactRole');
+              const custom = document.getElementById('roleCustomField');
+              const sync = () => { custom.style.display = sel.value === 'otro' ? '' : 'none'; };
+              sel.addEventListener('change', sync);
+              sync();
+            })();
+            </script>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'sedes'): ?>
             <section class="provider-panel">
-                <h2>Sedes (paper-based)</h2>
-                <p class="muted">Dirección completa para recolección de certificados físicos y contacto para agendar.</p>
+                <h3>Sedes (paper-based)</h3>
+                <p class="muted">Dirección completa para recolección de certificados y contacto para agendar.</p>
                 <?php if ($venues): ?>
                     <div class="venue-cards">
                         <?php foreach ($venues as $v): ?>
@@ -168,7 +185,7 @@ $tabs = $item ? [
                     <p class="muted">Sin sedes. Útil sobre todo para Cambridge paper-based.</p>
                 <?php endif; ?>
 
-                <form method="post" action="/admin/providers/venue" class="stack form-grid" style="margin-top:1rem">
+                <form method="post" action="/admin/providers/venue" class="form-grid" style="margin-top:1rem">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
                     <label>Nombre de la sede<input name="name" required placeholder="Sede Centro / Campus Norte"></label>
                     <label>Calle y número<input name="address_line" required></label>
@@ -189,9 +206,9 @@ $tabs = $item ? [
 
         <?php if ($item && $tab === 'autorizacion'): ?>
             <section class="provider-panel">
-                <h2>Distribuidor autorizado</h2>
+                <h3>Distribuidor autorizado</h3>
                 <p class="muted">Opcional: enlace en su web, documento, o sin comprobante.</p>
-                <form method="post" action="/admin/providers/save" enctype="multipart/form-data" class="stack form-grid">
+                <form method="post" action="/admin/providers/save" enctype="multipart/form-data" class="form-grid">
                     <input type="hidden" name="id" value="<?= $id ?>">
                     <input type="hidden" name="tab" value="autorizacion">
                     <input type="hidden" name="code" value="<?= e($item['code']) ?>">
@@ -232,7 +249,7 @@ $tabs = $item ? [
 
         <?php if ($item && $tab === 'convenio'): ?>
             <section class="provider-panel">
-                <h2>Convenios firmados (PDF)</h2>
+                <h3>Convenios firmados (PDF)</h3>
                 <?php if ($agreements): ?>
                     <div class="table-wrap">
                         <table class="data-table">
@@ -267,7 +284,7 @@ $tabs = $item ? [
                     <p class="muted">Aún no hay convenios.</p>
                 <?php endif; ?>
 
-                <form method="post" action="/admin/providers/agreement" enctype="multipart/form-data" class="stack form-grid" style="margin-top:1rem">
+                <form method="post" action="/admin/providers/agreement" enctype="multipart/form-data" class="form-grid" style="margin-top:1rem">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
                     <label>Etiqueta<input name="label" required placeholder="Convenio 2026"></label>
                     <label>Año<input type="number" name="year" value="<?= e(date('Y')) ?>"></label>
@@ -281,7 +298,7 @@ $tabs = $item ? [
 
         <?php if ($item && $tab === 'certificaciones'): ?>
             <section class="provider-panel">
-                <h2>Certificaciones</h2>
+                <h3>Certificaciones</h3>
                 <p class="muted">Agrega varias a la vez (solo nombre). El detalle se completa en Certificaciones.</p>
                 <?php if ($certifications): ?>
                     <div class="table-wrap">
@@ -340,11 +357,11 @@ $tabs = $item ? [
 
         <?php if ($item && $tab === 'notas'): ?>
             <section class="provider-panel">
-                <h2>Notas</h2>
+                <h3>Notas</h3>
                 <p class="muted">Bitácora interna: cada nota guarda fecha y quién la escribió.</p>
-                <form method="post" action="/admin/providers/note" class="stack">
+                <form method="post" action="/admin/providers/note" class="form-grid">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <label>Nueva nota<textarea name="body" rows="3" required placeholder="Escribe la nota…"></textarea></label>
+                    <label style="grid-column:1/-1">Nueva nota<textarea name="body" rows="3" required placeholder="Escribe la nota…"></textarea></label>
                     <div class="actions"><button class="btn" type="submit">Agregar nota</button></div>
                 </form>
                 <div class="notes-timeline">
@@ -367,4 +384,4 @@ $tabs = $item ? [
             </section>
         <?php endif; ?>
     </div>
-</div>
+</section>
