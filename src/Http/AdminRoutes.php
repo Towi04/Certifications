@@ -65,6 +65,12 @@ final class AdminRoutes
             if ($tab === 'sedes' && $editVenueId > 0) {
                 $editVenue = $repo()->providerVenue($id, $editVenueId);
             }
+            $editContact = null;
+            $editContactId = (int) ($_GET['edit_contact'] ?? 0);
+            if ($tab === 'contactos' && $editContactId > 0) {
+                $editContact = $repo()->providerContact($id, $editContactId);
+            }
+            $showForm = isset($_GET['form']) || $editVenue !== null || $editContact !== null;
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
@@ -74,6 +80,8 @@ final class AdminRoutes
                 'contacts' => $repo()->providerContacts($id),
                 'venues' => $repo()->providerVenues($id),
                 'editVenue' => $editVenue,
+                'editContact' => $editContact,
+                'showForm' => $showForm,
                 'notes' => $repo()->providerNotes($id),
                 'info' => flash('info'),
                 'error' => flash('error'),
@@ -106,7 +114,7 @@ final class AdminRoutes
                 $code = strtoupper(trim((string) ($_POST['code'] ?? ($existing['code'] ?? ''))));
                 $name = trim((string) ($_POST['name'] ?? ($existing['name'] ?? '')));
                 if ($code === '' || $name === '') {
-                    throw new \RuntimeException('Código y nombre son obligatorios.');
+                    throw new \RuntimeException('"Convenio con" y "Certificaciones de" son obligatorios.');
                 }
 
                 $iconPath = $existing['logo_icon_path'] ?? $existing['logo_path'] ?? null;
@@ -197,11 +205,16 @@ final class AdminRoutes
         $router->post('/admin/providers/contact', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $contactId = (int) ($_POST['contact_id'] ?? 0) ?: null;
             $name = trim((string) ($_POST['name'] ?? ''));
+            $redirectForm = static function () use ($providerTabUrl, $providerId, $contactId): void {
+                $loc = $providerTabUrl($providerId, 'contactos') . ($contactId ? '&edit_contact=' . $contactId : '&form=1');
+                header('Location: ' . $loc);
+                exit;
+            };
             if ($providerId < 1 || $name === '') {
                 flash('error', 'El nombre del contacto es obligatorio.');
-                header('Location: ' . $providerTabUrl($providerId, 'contactos'));
-                exit;
+                $redirectForm();
             }
             try {
                 $role = (string) ($_POST['role'] ?? 'general');
@@ -216,7 +229,7 @@ final class AdminRoutes
                     }
                     $role = $custom;
                 }
-                $repo()->addProviderContact([
+                $payload = [
                     'provider_id' => $providerId,
                     'role' => $role,
                     'name' => $name,
@@ -225,10 +238,20 @@ final class AdminRoutes
                     'whatsapp' => trim((string) ($_POST['whatsapp'] ?? '')) ?: null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
                     'is_primary' => isset($_POST['is_primary']),
-                ]);
-                flash('info', 'Contacto agregado.');
+                ];
+                if ($contactId) {
+                    if (!$repo()->providerContact($providerId, $contactId)) {
+                        throw new \RuntimeException('Contacto no encontrado.');
+                    }
+                    $repo()->updateProviderContact($contactId, $payload);
+                    flash('info', 'Contacto actualizado.');
+                } else {
+                    $repo()->addProviderContact($payload);
+                    flash('info', 'Contacto agregado.');
+                }
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
+                $redirectForm();
             }
             header('Location: ' . $providerTabUrl($providerId, 'contactos'));
             exit;
@@ -431,6 +454,23 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
+            header('Location: ' . $providerTabUrl($providerId, 'certificaciones'));
+            exit;
+        });
+
+        $router->post('/admin/providers/certification/toggle-published', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $certificationId = (int) ($_POST['certification_id'] ?? 0);
+            if ($providerId < 1 || $certificationId < 1 || !$repo()->certificationBelongsToProvider($certificationId, $providerId)) {
+                flash('error', 'Certificación no encontrada.');
+                header('Location: ' . $providerTabUrl($providerId, 'certificaciones'));
+                exit;
+            }
+            $cert = $repo()->certification($certificationId);
+            $newPublished = !((int) ($cert['is_published'] ?? 0) === 1);
+            $repo()->setCertificationPublished($certificationId, $newPublished);
+            flash('info', $newPublished ? 'Certificación publicada.' : 'Certificación ocultada.');
             header('Location: ' . $providerTabUrl($providerId, 'certificaciones'));
             exit;
         });

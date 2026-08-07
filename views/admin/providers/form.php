@@ -7,6 +7,9 @@ $certifications = $certifications ?? [];
 $contacts = $contacts ?? [];
 $venues = $venues ?? [];
 $notes = $notes ?? [];
+$editVenue = $editVenue ?? null;
+$editContact = $editContact ?? null;
+$showForm = (bool) ($showForm ?? false);
 $authType = $item['auth_proof_type'] ?? 'none';
 $icon = $item['logo_icon_path'] ?? $item['logo_path'] ?? null;
 $fullLogo = $item['logo_full_path'] ?? null;
@@ -27,6 +30,14 @@ $tabs = $item ? [
     'certificaciones' => 'Certificaciones',
     'notas' => 'Notas',
 ] : ['proveedor' => 'Proveedor'];
+
+$iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+$iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+$iconPhone = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3h3l1.5 4-2 1.5a12 12 0 0 0 5.5 5.5L16.5 12.5 20.5 14v3a2 2 0 0 1-2.2 2A15 15 0 0 1 5 7.2 2 2 0 0 1 7 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+$iconWa = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5a8 8 0 0 0-6.9 12.1L4.5 20.5l5-1.4A8 8 0 1 0 12 3.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 9.4c.3-.6.5-.6.8-.6h.6c.2 0 .4.1.5.4l.7 1.7c.1.2 0 .4-.1.6l-.4.5c-.1.1-.1.3 0 .4.4.7 1.1 1.4 1.9 1.9.1.1.3.1.4 0l.5-.4c.2-.1.4-.2.6-.1l1.7.7c.3.1.4.3.4.5v.6c0 .3 0 .5-.6.8-.5.3-1.2.4-1.9.2A8.5 8.5 0 0 1 9 11.3c-.2-.7-.1-1.4.2-1.9Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+$iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>';
+$iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+$iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 ?>
 
 <section class="provider-edit">
@@ -39,7 +50,9 @@ $tabs = $item ? [
             <?php endif; ?>
             <div>
                 <h2><?= e($item['name'] ?? 'Nuevo proveedor') ?></h2>
-                <?php if ($item): ?><p class="muted"><code><?= e($item['code']) ?></code></p><?php endif; ?>
+                <?php if ($item): ?>
+                    <p class="muted">Convenio con: <code><?= e($item['code']) ?></code> <span class="admin-only-hint">(solo admin)</span></p>
+                <?php endif; ?>
             </div>
         </div>
         <a class="btn btn-ghost" href="/admin/providers">Volver al listado</a>
@@ -59,11 +72,21 @@ $tabs = $item ? [
         <?php if ($tab === 'proveedor'): ?>
             <section class="provider-panel">
                 <h3><?= $item ? 'Datos del proveedor' : 'Nuevo proveedor' ?></h3>
+                <p class="muted">
+                    Trabajamos como preparation center de un intermediario (<strong>Convenio con</strong>).
+                    Alumnos y Teacher Referral solo ven <strong>Certificaciones de</strong> (la marca que ofrecemos).
+                </p>
                 <form method="post" action="/admin/providers/save" enctype="multipart/form-data" class="form-grid">
                     <?php if ($item): ?><input type="hidden" name="id" value="<?= $id ?>"><?php endif; ?>
                     <input type="hidden" name="tab" value="proveedor">
-                    <label>Código<input name="code" required value="<?= e($item['code'] ?? '') ?>"></label>
-                    <label>Nombre<input name="name" required value="<?= e($item['name'] ?? '') ?>"></label>
+                    <label>Convenio con
+                        <input name="code" required value="<?= e($item['code'] ?? '') ?>" placeholder="Ej. Creative Solutions, ETC Iberoamérica, Lingua Franca">
+                        <small class="muted">Partner interno. No se muestra a alumnos ni TR.</small>
+                    </label>
+                    <label>Certificaciones de
+                        <input name="name" required value="<?= e($item['name'] ?? '') ?>" placeholder="Ej. Cambridge, Certiport, TOEFL (IIE)">
+                        <small class="muted">Nombre público que ven alumnos y Teacher Referral.</small>
+                    </label>
                     <label>Sitio web<input type="url" name="website_url" value="<?= e($item['website_url'] ?? '') ?>" placeholder="https://"></label>
                     <label>Logo icono / escudo
                         <input type="file" name="logo_icon" accept="image/*">
@@ -88,202 +111,268 @@ $tabs = $item ? [
         <?php endif; ?>
 
         <?php if ($item && $tab === 'contactos'): ?>
+            <?php
+            $knownRoles = array_keys($roles);
+            $editRole = $editContact['role'] ?? 'general';
+            $editRoleIsCustom = $editContact && !in_array($editRole, $knownRoles, true);
+            $contactFormOpen = $showForm || $editContact;
+            ?>
             <section class="provider-panel">
-                <h3>Contactos</h3>
-                <p class="muted">Varios contactos: ventas, soporte, finanzas, etc.</p>
-                <?php if ($contacts): ?>
-                    <div class="table-wrap">
-                        <table class="data-table">
-                            <thead><tr><th>Rol</th><th>Nombre</th><th>Correo</th><th>Tel / WA</th><th></th></tr></thead>
-                            <tbody>
-                            <?php foreach ($contacts as $c): ?>
-                                <tr>
-                                    <td><?= e($roles[$c['role']] ?? $c['role']) ?><?= (int)$c['is_primary'] ? ' · principal' : '' ?></td>
-                                    <td><?= e($c['name']) ?></td>
-                                    <td><?= e($c['email'] ?? '—') ?></td>
-                                    <td><?= e($c['phone'] ?? '—') ?><?= !empty($c['whatsapp']) ? ' / WA ' . e($c['whatsapp']) : '' ?></td>
-                                    <td>
-                                        <form method="post" action="/admin/providers/contact/delete" class="inline-form" onsubmit="return confirm('¿Eliminar contacto?');">
-                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                            <input type="hidden" name="contact_id" value="<?= (int)$c['id'] ?>">
-                                            <button type="submit" class="linkish">Eliminar</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Contactos</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">Ventas, soporte, finanzas, etc.</p>
                     </div>
-                <?php else: ?>
-                    <p class="muted">Sin contactos aún.</p>
-                <?php endif; ?>
+                    <?php if (!$contactFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=contactos&form=1">Agregar contacto</a>
+                    <?php endif; ?>
+                </div>
 
-                <form method="post" action="/admin/providers/contact" class="form-grid" style="margin-top:1rem">
-                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <label>Rol
-                        <select name="role" id="contactRole">
-                            <?php foreach ($roles as $k => $label): ?>
-                                <option value="<?= e($k) ?>"><?= e($label) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <label id="roleCustomField" style="display:none">Nombre del rol
-                        <input name="role_custom" placeholder="Ej. Logística, Académico…">
-                    </label>
-                    <label>Nombre<input name="name" required></label>
-                    <label>Correo<input type="email" name="email"></label>
-                    <label>Teléfono<input name="phone"></label>
-                    <label>WhatsApp<input name="whatsapp"></label>
-                    <label>Nota corta<input name="notes" placeholder="Opcional"></label>
-                    <label class="check"><input type="checkbox" name="is_primary"> Contacto principal</label>
-                    <div class="actions"><button class="btn" type="submit">Agregar contacto</button></div>
-                </form>
+                <?php if ($contactFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 style="margin:0"><?= $editContact ? 'Editar contacto' : 'Nuevo contacto' ?></h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=contactos">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/contact" class="form-grid" style="margin-top:0.75rem">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <?php if ($editContact): ?><input type="hidden" name="contact_id" value="<?= (int)$editContact['id'] ?>"><?php endif; ?>
+                            <label>Rol
+                                <select name="role" id="contactRole">
+                                    <?php foreach ($roles as $k => $label): ?>
+                                        <option value="<?= e($k) ?>" <?= (!$editRoleIsCustom && $editRole === $k) || ($editRoleIsCustom && $k === 'otro') ? 'selected' : '' ?>><?= e($label) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label id="roleCustomField" style="<?= $editRoleIsCustom ? '' : 'display:none' ?>">Nombre del rol
+                                <input name="role_custom" value="<?= e($editRoleIsCustom ? $editRole : '') ?>" placeholder="Ej. Logística, Académico…">
+                            </label>
+                            <label>Nombre<input name="name" required value="<?= e($editContact['name'] ?? '') ?>"></label>
+                            <label>Correo<input type="email" name="email" value="<?= e($editContact['email'] ?? '') ?>"></label>
+                            <label>Teléfono<input name="phone" value="<?= e($editContact['phone'] ?? '') ?>"></label>
+                            <label>WhatsApp<input name="whatsapp" value="<?= e($editContact['whatsapp'] ?? '') ?>"></label>
+                            <label>Nota corta<input name="notes" value="<?= e($editContact['notes'] ?? '') ?>" placeholder="Opcional"></label>
+                            <label class="check"><input type="checkbox" name="is_primary" <?= !empty($editContact['is_primary']) ? 'checked' : '' ?>> Contacto principal</label>
+                            <div class="actions"><button class="btn" type="submit"><?= $editContact ? 'Guardar cambios' : 'Agregar contacto' ?></button></div>
+                        </form>
+                    </div>
+                    <script>
+                    (() => {
+                      const sel = document.getElementById('contactRole');
+                      const custom = document.getElementById('roleCustomField');
+                      const sync = () => { custom.style.display = sel.value === 'otro' ? '' : 'none'; };
+                      sel.addEventListener('change', sync);
+                      sync();
+                    })();
+                    </script>
+                <?php else: ?>
+                    <?php if ($contacts): ?>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Rol</th><th>Nombre</th><th>Correo</th><th>Tel / WA</th><th></th></tr></thead>
+                                <tbody>
+                                <?php foreach ($contacts as $c): ?>
+                                    <?php
+                                    $tel = tel_url($c['phone'] ?? null);
+                                    $wa = wa_me_url($c['whatsapp'] ?? ($c['phone'] ?? null));
+                                    $hasWa = phone_digits($c['whatsapp'] ?? '') !== '' || phone_digits($c['phone'] ?? '') !== '';
+                                    ?>
+                                    <tr>
+                                        <td><?= e($roles[$c['role']] ?? $c['role']) ?><?= (int)$c['is_primary'] ? ' · principal' : '' ?></td>
+                                        <td><?= e($c['name']) ?></td>
+                                        <td><?= e($c['email'] ?? '—') ?></td>
+                                        <td><?= e($c['phone'] ?? '—') ?><?= !empty($c['whatsapp']) ? ' / WA ' . e($c['whatsapp']) : '' ?></td>
+                                        <td>
+                                            <div class="icon-actions">
+                                                <?php if ($tel): ?>
+                                                    <a class="icon-btn" href="<?= e($tel) ?>" title="Llamar" aria-label="Llamar"><?= $iconPhone ?></a>
+                                                <?php else: ?>
+                                                    <span class="icon-btn is-disabled" title="Sin teléfono" aria-disabled="true"><?= $iconPhone ?></span>
+                                                <?php endif; ?>
+                                                <?php if ($hasWa && $wa): ?>
+                                                    <a class="icon-btn icon-btn-wa" href="<?= e($wa) ?>" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp"><?= $iconWa ?></a>
+                                                <?php else: ?>
+                                                    <span class="icon-btn is-disabled" title="Sin WhatsApp" aria-disabled="true"><?= $iconWa ?></span>
+                                                <?php endif; ?>
+                                                <a class="icon-btn" href="/admin/providers/edit?id=<?= $id ?>&tab=contactos&edit_contact=<?= (int)$c['id'] ?>" title="Editar" aria-label="Editar"><?= $iconEdit ?></a>
+                                                <form method="post" action="/admin/providers/contact/delete" class="inline-form" onsubmit="return confirm('¿Eliminar contacto?');">
+                                                    <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                                    <input type="hidden" name="contact_id" value="<?= (int)$c['id'] ?>">
+                                                    <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php else: ?>
+                        <p class="muted">Sin contactos aún.</p>
+                    <?php endif; ?>
+                <?php endif; ?>
             </section>
-            <script>
-            (() => {
-              const sel = document.getElementById('contactRole');
-              const custom = document.getElementById('roleCustomField');
-              const sync = () => { custom.style.display = sel.value === 'otro' ? '' : 'none'; };
-              sel.addEventListener('change', sync);
-              sync();
-            })();
-            </script>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'sedes'): ?>
             <?php
-            $editVenue = $editVenue ?? null;
             $editType = $editVenue['venue_type'] ?? 'fixed';
+            $venueFormOpen = $showForm || $editVenue;
             ?>
             <section class="provider-panel">
-                <h3>Sedes y subcentros</h3>
-                <p class="muted">
-                    <strong>Sede fija:</strong> lugar conocido con dirección (ej. 2 sedes CDMX).<br>
-                    <strong>Subcentro:</strong> solo ciudad/estado; el lugar exacto se define al agendar cada aplicación
-                    (el alumno lo recibirá en el registro — pendiente).
-                </p>
-                <?php if ($venues): ?>
-                    <div class="venue-cards">
-                        <?php foreach ($venues as $v): ?>
-                            <?php
-                            $vActive = (int)($v['is_active'] ?? 1) === 1;
-                            $isSub = ($v['venue_type'] ?? 'fixed') === 'subcentro';
-                            ?>
-                            <article class="venue-card <?= $vActive ? '' : 'is-inactive' ?> <?= $isSub ? 'is-subcentro' : 'is-fixed' ?>">
-                                <header>
-                                    <div>
-                                        <span class="venue-type-pill"><?= $isSub ? 'Subcentro' : 'Sede fija' ?></span>
-                                        <strong><?= e(trim($v['city'] . ($v['state'] ? ', ' . $v['state'] : ''))) ?></strong>
-                                        <?php if (!$isSub): ?>
-                                            <p class="muted venue-place"><?= e($v['name']) ?></p>
-                                        <?php elseif (!empty($v['name'])): ?>
-                                            <p class="muted venue-place"><?= e($v['name']) ?></p>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="venue-card-actions">
-                                        <a class="linkish" href="/admin/providers/edit?id=<?= $id ?>&tab=sedes&edit_venue=<?= (int)$v['id'] ?>">Editar</a>
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Sedes y subcentros</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">
+                            Sede fija = dirección conocida · Subcentro = ciudad/estado (lugar por aplicación)
+                        </p>
+                    </div>
+                    <?php if (!$venueFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=sedes&form=1">Agregar sede / subcentro</a>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($venueFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 class="venue-form-title" style="margin:0"><?= $editVenue ? 'Editar' : 'Agregar' ?> sede / subcentro</h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=sedes">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/venue" class="form-grid" style="margin-top:0.75rem" id="venueForm">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <?php if ($editVenue): ?><input type="hidden" name="venue_id" value="<?= (int)$editVenue['id'] ?>"><?php endif; ?>
+                            <label>Tipo
+                                <select name="venue_type" id="venueType">
+                                    <option value="fixed" <?= $editType === 'fixed' ? 'selected' : '' ?>>Sede fija (con dirección)</option>
+                                    <option value="subcentro" <?= $editType === 'subcentro' ? 'selected' : '' ?>>Subcentro (ciudad/estado)</option>
+                                </select>
+                            </label>
+                            <label class="venue-fixed-only">Lugar (universidad / escuela)
+                                <input name="name" id="venueName" value="<?= e($editVenue['name'] ?? '') ?>" placeholder="Ej. Universidad X, Campus Norte">
+                            </label>
+                            <label class="venue-sub-only" style="display:none">Etiqueta del subcentro (opcional)
+                                <input name="name_sub" id="venueNameSub" value="<?= e(($editType === 'subcentro') ? ($editVenue['name'] ?? '') : '') ?>" placeholder="Se usa “Subcentro {estado}” si lo dejas vacío">
+                            </label>
+                            <label>Estado<input name="state" id="venueState" value="<?= e($editVenue['state'] ?? '') ?>" placeholder="Obligatorio en subcentro"></label>
+                            <label>Ciudad<input name="city" id="venueCity" required value="<?= e($editVenue['city'] ?? '') ?>"></label>
+                            <label class="venue-fixed-only">Calle y número<input name="address_line" id="venueAddress" value="<?= e($editVenue['address_line'] ?? '') ?>"></label>
+                            <label class="venue-fixed-only">Interior / referencia<input name="address_line2" value="<?= e($editVenue['address_line2'] ?? '') ?>"></label>
+                            <label class="venue-fixed-only">Colonia<input name="neighborhood" value="<?= e($editVenue['neighborhood'] ?? '') ?>"></label>
+                            <label class="venue-fixed-only">C.P.<input name="postal_code" value="<?= e($editVenue['postal_code'] ?? '') ?>"></label>
+                            <label>País<input name="country" value="<?= e($editVenue['country'] ?? 'México') ?>"></label>
+                            <label>Contacto<input name="contact_name" value="<?= e($editVenue['contact_name'] ?? '') ?>"></label>
+                            <label>Teléfono<input name="contact_phone" value="<?= e($editVenue['contact_phone'] ?? '') ?>"></label>
+                            <label>Correo<input type="email" name="contact_email" value="<?= e($editVenue['contact_email'] ?? '') ?>"></label>
+                            <label>Notas<textarea name="notes" rows="2" placeholder="Horarios, acceso, etc."><?= e($editVenue['notes'] ?? '') ?></textarea></label>
+                            <div class="actions">
+                                <button class="btn" type="submit"><?= $editVenue ? 'Guardar cambios' : 'Agregar' ?></button>
+                            </div>
+                        </form>
+                    </div>
+                    <script>
+                    (() => {
+                      const type = document.getElementById('venueType');
+                      const nameFixed = document.getElementById('venueName');
+                      const nameSub = document.getElementById('venueNameSub');
+                      const address = document.getElementById('venueAddress');
+                      const state = document.getElementById('venueState');
+                      const form = document.getElementById('venueForm');
+                      const sync = () => {
+                        const sub = type.value === 'subcentro';
+                        document.querySelectorAll('.venue-fixed-only').forEach((el) => { el.style.display = sub ? 'none' : ''; });
+                        document.querySelectorAll('.venue-sub-only').forEach((el) => { el.style.display = sub ? '' : 'none'; });
+                        if (nameFixed) nameFixed.required = !sub;
+                        if (address) address.required = !sub;
+                        if (state) state.required = sub;
+                      };
+                      type.addEventListener('change', sync);
+                      form.addEventListener('submit', () => {
+                        if (type.value === 'subcentro' && nameSub) {
+                          nameFixed.value = nameSub.value.trim();
+                        }
+                      });
+                      sync();
+                    })();
+                    </script>
+                <?php else: ?>
+                    <?php if ($venues): ?>
+                        <div class="venue-cards venue-accordion">
+                            <?php foreach ($venues as $v): ?>
+                                <?php
+                                $vActive = (int)($v['is_active'] ?? 1) === 1;
+                                $isSub = ($v['venue_type'] ?? 'fixed') === 'subcentro';
+                                $vid = (int)$v['id'];
+                                ?>
+                                <article class="venue-card accordion-item <?= $vActive ? '' : 'is-inactive' ?> <?= $isSub ? 'is-subcentro' : 'is-fixed' ?>">
+                                    <button type="button" class="accordion-trigger" aria-expanded="false" data-acc="<?= $vid ?>">
+                                        <span class="accordion-trigger-main">
+                                            <span class="venue-type-pill"><?= $isSub ? 'Subcentro' : 'Sede fija' ?></span>
+                                            <strong><?= e(trim($v['city'] . ($v['state'] ? ', ' . $v['state'] : ''))) ?></strong>
+                                            <?php if (!empty($v['name'])): ?>
+                                                <span class="muted venue-place"><?= e($v['name']) ?></span>
+                                            <?php endif; ?>
+                                        </span>
+                                        <span class="accordion-chevron"><?= $iconChevron ?></span>
+                                    </button>
+                                    <div class="venue-card-actions accordion-actions" onclick="event.stopPropagation()">
+                                        <a class="icon-btn" href="/admin/providers/edit?id=<?= $id ?>&tab=sedes&edit_venue=<?= $vid ?>" title="Editar" aria-label="Editar"><?= $iconEdit ?></a>
                                         <form method="post" action="/admin/providers/venue/toggle-active" class="inline-form"
                                               onsubmit="return confirm(<?= json_encode('¿Seguro que quieres ' . ($vActive ? 'desactivar' : 'activar') . ' ' . ($isSub ? 'el subcentro' : 'la sede') . ' de ' . $v['city'] . '?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
                                             <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                            <input type="hidden" name="venue_id" value="<?= (int)$v['id'] ?>">
-                                            <button type="submit" class="eye-btn" title="<?= $vActive ? 'Desactivar' : 'Activar' ?>" aria-label="<?= $vActive ? 'Desactivar' : 'Activar' ?>">
-                                                <?php if ($vActive): ?>
-                                                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>
-                                                <?php else: ?>
-                                                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-                                                <?php endif; ?>
+                                            <input type="hidden" name="venue_id" value="<?= $vid ?>">
+                                            <button type="submit" class="icon-btn eye-btn" title="<?= $vActive ? 'Desactivar' : 'Activar' ?>" aria-label="<?= $vActive ? 'Desactivar' : 'Activar' ?>">
+                                                <?= $vActive ? $iconEye : $iconEyeOff ?>
                                             </button>
                                         </form>
                                         <form method="post" action="/admin/providers/venue/delete" class="inline-form" onsubmit="return confirm('¿Eliminar de forma permanente?');">
                                             <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                            <input type="hidden" name="venue_id" value="<?= (int)$v['id'] ?>">
-                                            <button type="submit" class="linkish">Eliminar</button>
+                                            <input type="hidden" name="venue_id" value="<?= $vid ?>">
+                                            <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
                                         </form>
                                     </div>
-                                </header>
-                                <?php if ($isSub): ?>
-                                    <p class="venue-pending">Dirección por definir al agendar la aplicación</p>
-                                <?php else: ?>
-                                    <p>
-                                        <?= e($v['address_line'] ?? '') ?>
-                                        <?php if (!empty($v['address_line2'])): ?><br><?= e($v['address_line2']) ?><?php endif; ?>
-                                        <?php if (!empty($v['neighborhood'])): ?><br><?= e($v['neighborhood']) ?><?php endif; ?>
-                                        <?php if (!empty($v['postal_code'])): ?> · CP <?= e($v['postal_code']) ?><?php endif; ?>
-                                        <br><?= e($v['country'] ?? 'México') ?>
-                                    </p>
-                                <?php endif; ?>
-                                <p class="muted">
-                                    Contacto: <?= e($v['contact_name'] ?? '—') ?>
-                                    · <?= e($v['contact_phone'] ?? '—') ?>
-                                    <?php if (!empty($v['contact_email'])): ?> · <?= e($v['contact_email']) ?><?php endif; ?>
-                                </p>
-                            </article>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <p class="muted">Sin sedes ni subcentros. Ejemplo Cambridge: 2 sedes fijas en CDMX + subcentros por estado.</p>
+                                    <div class="accordion-panel" hidden>
+                                        <?php if ($isSub): ?>
+                                            <p class="venue-pending">Dirección por definir al agendar la aplicación</p>
+                                        <?php else: ?>
+                                            <p>
+                                                <?= e($v['address_line'] ?? '') ?>
+                                                <?php if (!empty($v['address_line2'])): ?><br><?= e($v['address_line2']) ?><?php endif; ?>
+                                                <?php if (!empty($v['neighborhood'])): ?><br><?= e($v['neighborhood']) ?><?php endif; ?>
+                                                <?php if (!empty($v['postal_code'])): ?> · CP <?= e($v['postal_code']) ?><?php endif; ?>
+                                                <br><?= e($v['country'] ?? 'México') ?>
+                                            </p>
+                                        <?php endif; ?>
+                                        <p class="muted">
+                                            Contacto: <?= e($v['contact_name'] ?? '—') ?>
+                                            · <?= e($v['contact_phone'] ?? '—') ?>
+                                            <?php if (!empty($v['contact_email'])): ?> · <?= e($v['contact_email']) ?><?php endif; ?>
+                                        </p>
+                                        <?php if (!empty($v['notes'])): ?>
+                                            <p class="muted"><?= nl2br(e($v['notes'])) ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                        <script>
+                        (() => {
+                          document.querySelectorAll('.venue-accordion .accordion-trigger').forEach((btn) => {
+                            btn.addEventListener('click', () => {
+                              const card = btn.closest('.accordion-item');
+                              const panel = card.querySelector('.accordion-panel');
+                              const open = btn.getAttribute('aria-expanded') === 'true';
+                              btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+                              panel.hidden = open;
+                              card.classList.toggle('is-open', !open);
+                            });
+                          });
+                        })();
+                        </script>
+                    <?php else: ?>
+                        <p class="muted">Sin sedes ni subcentros. Ejemplo Cambridge: 2 sedes fijas en CDMX + subcentros por estado.</p>
+                    <?php endif; ?>
                 <?php endif; ?>
-
-                <h4 class="venue-form-title"><?= $editVenue ? 'Editar' : 'Agregar' ?> sede / subcentro</h4>
-                <?php if ($editVenue): ?>
-                    <p class="muted"><a href="/admin/providers/edit?id=<?= $id ?>&tab=sedes">Cancelar edición</a></p>
-                <?php endif; ?>
-                <form method="post" action="/admin/providers/venue" class="form-grid" style="margin-top:0.5rem" id="venueForm">
-                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <?php if ($editVenue): ?><input type="hidden" name="venue_id" value="<?= (int)$editVenue['id'] ?>"><?php endif; ?>
-                    <label>Tipo
-                        <select name="venue_type" id="venueType">
-                            <option value="fixed" <?= $editType === 'fixed' ? 'selected' : '' ?>>Sede fija (con dirección)</option>
-                            <option value="subcentro" <?= $editType === 'subcentro' ? 'selected' : '' ?>>Subcentro (ciudad/estado)</option>
-                        </select>
-                    </label>
-                    <label class="venue-fixed-only">Lugar (universidad / escuela)
-                        <input name="name" id="venueName" value="<?= e($editVenue['name'] ?? '') ?>" placeholder="Ej. Universidad X, Campus Norte">
-                    </label>
-                    <label class="venue-sub-only" style="display:none">Etiqueta del subcentro (opcional)
-                        <input name="name_sub" id="venueNameSub" value="<?= e(($editType === 'subcentro') ? ($editVenue['name'] ?? '') : '') ?>" placeholder="Se usa “Subcentro {estado}” si lo dejas vacío">
-                    </label>
-                    <label>Estado<input name="state" id="venueState" value="<?= e($editVenue['state'] ?? '') ?>" placeholder="Obligatorio en subcentro"></label>
-                    <label>Ciudad<input name="city" id="venueCity" required value="<?= e($editVenue['city'] ?? '') ?>"></label>
-                    <label class="venue-fixed-only">Calle y número<input name="address_line" id="venueAddress" value="<?= e($editVenue['address_line'] ?? '') ?>"></label>
-                    <label class="venue-fixed-only">Interior / referencia<input name="address_line2" value="<?= e($editVenue['address_line2'] ?? '') ?>"></label>
-                    <label class="venue-fixed-only">Colonia<input name="neighborhood" value="<?= e($editVenue['neighborhood'] ?? '') ?>"></label>
-                    <label class="venue-fixed-only">C.P.<input name="postal_code" value="<?= e($editVenue['postal_code'] ?? '') ?>"></label>
-                    <label>País<input name="country" value="<?= e($editVenue['country'] ?? 'México') ?>"></label>
-                    <label>Contacto<input name="contact_name" value="<?= e($editVenue['contact_name'] ?? '') ?>"></label>
-                    <label>Teléfono<input name="contact_phone" value="<?= e($editVenue['contact_phone'] ?? '') ?>"></label>
-                    <label>Correo<input type="email" name="contact_email" value="<?= e($editVenue['contact_email'] ?? '') ?>"></label>
-                    <label>Notas<textarea name="notes" rows="2" placeholder="Horarios, acceso, etc."><?= e($editVenue['notes'] ?? '') ?></textarea></label>
-                    <div class="actions">
-                        <button class="btn" type="submit"><?= $editVenue ? 'Guardar cambios' : 'Agregar' ?></button>
-                    </div>
-                </form>
             </section>
-            <script>
-            (() => {
-              const type = document.getElementById('venueType');
-              const nameFixed = document.getElementById('venueName');
-              const nameSub = document.getElementById('venueNameSub');
-              const address = document.getElementById('venueAddress');
-              const state = document.getElementById('venueState');
-              const form = document.getElementById('venueForm');
-              const sync = () => {
-                const sub = type.value === 'subcentro';
-                document.querySelectorAll('.venue-fixed-only').forEach((el) => { el.style.display = sub ? 'none' : ''; });
-                document.querySelectorAll('.venue-sub-only').forEach((el) => { el.style.display = sub ? '' : 'none'; });
-                if (nameFixed) nameFixed.required = !sub;
-                if (address) address.required = !sub;
-                if (state) state.required = sub;
-              };
-              type.addEventListener('change', sync);
-              form.addEventListener('submit', () => {
-                if (type.value === 'subcentro' && nameSub) {
-                  nameFixed.value = nameSub.value.trim();
-                }
-              });
-              sync();
-            })();
-            </script>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'autorizacion'): ?>
@@ -354,7 +443,7 @@ $tabs = $item ? [
                                         <form method="post" action="/admin/providers/agreement/delete" class="inline-form" onsubmit="return confirm('¿Eliminar PDF?');">
                                             <input type="hidden" name="provider_id" value="<?= $id ?>">
                                             <input type="hidden" name="agreement_id" value="<?= (int)$a['id'] ?>">
-                                            <button type="submit" class="linkish">Eliminar</button>
+                                            <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
                                         </form>
                                     </td>
                                 </tr>
@@ -379,90 +468,139 @@ $tabs = $item ? [
         <?php endif; ?>
 
         <?php if ($item && $tab === 'certificaciones'): ?>
+            <?php $certFormOpen = $showForm; ?>
             <section class="provider-panel">
-                <h3>Certificaciones</h3>
-                <p class="muted">Agrega varias a la vez (solo nombre). El detalle se completa en Certificaciones.</p>
-                <?php if ($certifications): ?>
-                    <div class="table-wrap">
-                        <table class="data-table">
-                            <thead><tr><th>Nombre</th><th>Código</th><th>Publicada</th><th></th></tr></thead>
-                            <tbody>
-                            <?php foreach ($certifications as $c): ?>
-                                <tr>
-                                    <td><?= e($c['name']) ?></td>
-                                    <td><code><?= e($c['code']) ?></code></td>
-                                    <td><?= (int)$c['is_published'] ? 'Sí' : 'No' ?></td>
-                                    <td><a href="/admin/certifications/edit?id=<?= (int)$c['id'] ?>">Editar ficha</a></td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Certificaciones</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">Listado rápido. El detalle se completa en Certificaciones.</p>
                     </div>
-                <?php endif; ?>
+                    <?php if (!$certFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=certificaciones&form=1">Agregar certificaciones</a>
+                    <?php endif; ?>
+                </div>
 
-                <form method="post" action="/admin/providers/certifications" style="margin-top:1rem">
-                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <div class="table-wrap">
-                        <table class="data-table" id="bulkCertTable">
-                            <thead><tr><th>#</th><th>Nombre de la certificación</th></tr></thead>
-                            <tbody>
-                            <?php for ($i = 0; $i < 8; $i++): ?>
-                                <tr>
-                                    <td><?= $i + 1 ?></td>
-                                    <td><input name="names[]" placeholder="Ej. TOEFL ITP / IC3 GS6…" style="width:100%"></td>
-                                </tr>
-                            <?php endfor; ?>
-                            </tbody>
-                        </table>
+                <?php if ($certFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 style="margin:0">Agregar varias (solo nombre)</h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=certificaciones">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/certifications" style="margin-top:0.75rem">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <div class="table-wrap">
+                                <table class="data-table" id="bulkCertTable">
+                                    <thead><tr><th>#</th><th>Nombre de la certificación</th></tr></thead>
+                                    <tbody>
+                                    <?php for ($i = 0; $i < 8; $i++): ?>
+                                        <tr>
+                                            <td><?= $i + 1 ?></td>
+                                            <td><input name="names[]" placeholder="Ej. TOEFL ITP / IC3 GS6…" style="width:100%"></td>
+                                        </tr>
+                                    <?php endfor; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="actions" style="margin-top:0.75rem">
+                                <button type="button" class="btn btn-ghost" id="addCertRows">+ 5 filas</button>
+                                <button class="btn" type="submit">Guardar certificaciones</button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="actions" style="margin-top:0.75rem">
-                        <button type="button" class="btn btn-ghost" id="addCertRows">+ 5 filas</button>
-                        <button class="btn" type="submit">Guardar certificaciones</button>
-                    </div>
-                </form>
+                    <script>
+                    (() => {
+                      const tbody = document.querySelector('#bulkCertTable tbody');
+                      const btn = document.getElementById('addCertRows');
+                      btn?.addEventListener('click', () => {
+                        const start = tbody.querySelectorAll('tr').length;
+                        for (let i = 1; i <= 5; i++) {
+                          const tr = document.createElement('tr');
+                          tr.innerHTML = `<td>${start + i}</td><td><input name="names[]" placeholder="Nombre…" style="width:100%"></td>`;
+                          tbody.appendChild(tr);
+                        }
+                      });
+                    })();
+                    </script>
+                <?php else: ?>
+                    <?php if ($certifications): ?>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead><tr><th>Nombre</th><th>Código</th><th></th></tr></thead>
+                                <tbody>
+                                <?php foreach ($certifications as $c): ?>
+                                    <?php $pub = (int)$c['is_published'] === 1; ?>
+                                    <tr class="<?= $pub ? '' : 'is-row-inactive' ?>">
+                                        <td><?= e($c['name']) ?></td>
+                                        <td><code><?= e($c['code']) ?></code></td>
+                                        <td>
+                                            <div class="icon-actions">
+                                                <form method="post" action="/admin/providers/certification/toggle-published" class="inline-form"
+                                                      onsubmit="return confirm(<?= json_encode('¿' . ($pub ? 'Ocultar' : 'Publicar') . ' “' . $c['name'] . '”?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                                                    <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                                    <input type="hidden" name="certification_id" value="<?= (int)$c['id'] ?>">
+                                                    <button type="submit" class="icon-btn eye-btn" title="<?= $pub ? 'Ocultar (despublicar)' : 'Publicar' ?>" aria-label="<?= $pub ? 'Ocultar' : 'Publicar' ?>">
+                                                        <?= $pub ? $iconEye : $iconEyeOff ?>
+                                                    </button>
+                                                </form>
+                                                <a class="icon-btn" href="/admin/certifications/edit?id=<?= (int)$c['id'] ?>" title="Editar ficha" aria-label="Editar ficha"><?= $iconEdit ?></a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php else: ?>
+                        <p class="muted">Sin certificaciones aún.</p>
+                    <?php endif; ?>
+                <?php endif; ?>
             </section>
-            <script>
-            (() => {
-              const tbody = document.querySelector('#bulkCertTable tbody');
-              const btn = document.getElementById('addCertRows');
-              btn?.addEventListener('click', () => {
-                const start = tbody.querySelectorAll('tr').length;
-                for (let i = 1; i <= 5; i++) {
-                  const tr = document.createElement('tr');
-                  tr.innerHTML = `<td>${start + i}</td><td><input name="names[]" placeholder="Nombre…" style="width:100%"></td>`;
-                  tbody.appendChild(tr);
-                }
-              });
-            })();
-            </script>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'notas'): ?>
+            <?php $noteFormOpen = $showForm; ?>
             <section class="provider-panel">
-                <h3>Notas</h3>
-                <p class="muted">Bitácora interna: cada nota guarda fecha y quién la escribió.</p>
-                <form method="post" action="/admin/providers/note" class="form-grid">
-                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <label style="grid-column:1/-1">Nueva nota<textarea name="body" rows="3" required placeholder="Escribe la nota…"></textarea></label>
-                    <div class="actions"><button class="btn" type="submit">Agregar nota</button></div>
-                </form>
-                <div class="notes-timeline">
-                    <?php foreach ($notes as $n): ?>
-                        <article class="note-entry">
-                            <header>
-                                <strong><?= e($n['author_name'] ?? $n['author_email'] ?? 'Usuario') ?></strong>
-                                <time><?= e($n['created_at']) ?></time>
-                                <form method="post" action="/admin/providers/note/delete" class="inline-form" onsubmit="return confirm('¿Eliminar nota?');">
-                                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                    <input type="hidden" name="note_id" value="<?= (int)$n['id'] ?>">
-                                    <button type="submit" class="linkish">Eliminar</button>
-                                </form>
-                            </header>
-                            <p><?= nl2br(e($n['body'])) ?></p>
-                        </article>
-                    <?php endforeach; ?>
-                    <?php if (!$notes): ?><p class="muted">Sin notas aún.</p><?php endif; ?>
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Notas</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">Bitácora interna: fecha y autor en cada nota.</p>
+                    </div>
+                    <?php if (!$noteFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=notas&form=1">Nueva nota</a>
+                    <?php endif; ?>
                 </div>
+
+                <?php if ($noteFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 style="margin:0">Escribir nota</h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=notas">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/note" class="form-grid" style="margin-top:0.75rem">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <label style="grid-column:1/-1">Nota<textarea name="body" rows="4" required placeholder="Escribe la nota…"></textarea></label>
+                            <div class="actions"><button class="btn" type="submit">Guardar nota</button></div>
+                        </form>
+                    </div>
+                <?php else: ?>
+                    <div class="notes-timeline">
+                        <?php foreach ($notes as $n): ?>
+                            <article class="note-entry">
+                                <header>
+                                    <strong><?= e($n['author_name'] ?? $n['author_email'] ?? 'Usuario') ?></strong>
+                                    <time><?= e($n['created_at']) ?></time>
+                                    <form method="post" action="/admin/providers/note/delete" class="inline-form" onsubmit="return confirm('¿Eliminar nota?');">
+                                        <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                        <input type="hidden" name="note_id" value="<?= (int)$n['id'] ?>">
+                                        <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
+                                    </form>
+                                </header>
+                                <p><?= nl2br(e($n['body'])) ?></p>
+                            </article>
+                        <?php endforeach; ?>
+                        <?php if (!$notes): ?><p class="muted">Sin notas aún.</p><?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </section>
         <?php endif; ?>
     </div>

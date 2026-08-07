@@ -25,7 +25,7 @@
                     </span>
                     <span class="provider-tile-body">
                         <strong><?= e($item['name']) ?></strong>
-                        <small><code><?= e($item['code']) ?></code> · <?= (int)($item['certifications_count'] ?? 0) ?> certificaciones</small>
+                        <small>Convenio: <?= e($item['code']) ?> · <?= (int)($item['certifications_count'] ?? 0) ?> certificaciones</small>
                     </span>
                 </a>
                 <form method="post" action="/admin/providers/toggle-active" class="provider-tile-eye"
