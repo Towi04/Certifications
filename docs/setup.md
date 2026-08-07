@@ -72,30 +72,32 @@ Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max
 ## 6. SMTP
 
 - Host `mail.institutodoceo.com`, puerto **465**, SSL, auth.
-- En Salud del sistema usa el botón **Probar SMTP** (envía un correo real a `SMTP_FROM`).
+- Panel: `/admin/salud` → **Probar SMTP** (envía un correo real a `SMTP_FROM`).
+- El alta de usuarios y “Probar SMTP” usan el **mismo** `Mailer` y el mismo `.env`.
 
 ### Error `535 Incorrect authentication data`
 
-El usuario/contraseña SMTP no coinciden con la cuenta de correo en Neubox. El alta de usuario puede haberse guardado igual; el correo de activación no salió.
+Exim rechazó AUTH en ese momento. No implica que el formulario de usuarios esté mal: si el `.env` no cambió y antes funcionó, algo del lado correo/servidor puede haber cambiado (bloqueo cPHulk, política SMTP, cert, resolución de `mail.`).
 
-1. En cPanel → **Cuentas de correo**, confirma que existe `certificaciones@institutodoceo.com`.
-2. Restablece la contraseña de esa cuenta si hace falta.
-3. En el `.env` del servidor (raíz del proyecto), deja exactamente:
+1. Abre `/admin/salud?smtp=1` y mira el meta: `user` y `pass_len` (longitud leída; la clave no se muestra).
+2. Entra a **webmail** con `certificaciones@institutodoceo.com` y la misma contraseña.
+3. Si webmail OK pero SMTP 535, prueba en el `.env`:
+
+```env
+SMTP_HOST=localhost
+SMTP_PORT=465
+SMTP_ENCRYPTION=ssl
+```
+
+o:
 
 ```env
 SMTP_HOST=mail.institutodoceo.com
-SMTP_PORT=465
-SMTP_ENCRYPTION=ssl
-SMTP_USER=certificaciones@institutodoceo.com
-SMTP_PASS=la-contraseña-exacta-de-cpanel
-SMTP_FROM=certificaciones@institutodoceo.com
+SMTP_PORT=587
+SMTP_ENCRYPTION=tls
 ```
 
-4. Sin espacios raros ni comillas rotas. `SMTP_USER` debe ser el **correo completo**.
-5. Guarda el `.env` y en `/admin/salud` pulsa **Probar SMTP**.
-6. Si el usuario quedó pendiente, en Usuarios usa el icono de reenviar activación (no hace falta recrearlo).
-
-Si 465 falla, prueba puerto **587** con `SMTP_ENCRYPTION=tls` (STARTTLS), según lo que indique Neubox para ese dominio.
+4. Si el usuario quedó pendiente, en Usuarios **reenvía activación** (no hace falta recrearlo).
 
 ## 7. Verificación
 

@@ -17,7 +17,8 @@ final class Mailer
         $host = trim(Env::require('SMTP_HOST'));
         $port = (int) (Env::get('SMTP_PORT', '465') ?? '465');
         $user = trim(Env::require('SMTP_USER'));
-        $pass = trim(Env::require('SMTP_PASS'));
+        // No hacer trim de la contraseña: debe coincidir byte a byte con cPanel.
+        $pass = Env::require('SMTP_PASS');
         $from = trim(Env::get('SMTP_FROM', $user) ?? $user);
         $fromName = Env::get('SMTP_FROM_NAME', 'Instituto Doceo') ?? 'Instituto Doceo';
         $encryption = strtolower(trim(Env::get('SMTP_ENCRYPTION', 'ssl') ?? 'ssl'));
@@ -56,10 +57,48 @@ final class Mailer
      */
     private function connect(string $host, int $port, string $encryption)
     {
-        $remote = ($encryption === 'ssl' ? 'ssl://' : '') . $host . ':' . $port;
-        $fp = @stream_socket_client($remote, $errno, $errstr, 30, STREAM_CLIENT_CONNECT);
+        $remote = ($encryption === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+        $context = stream_context_create([
+            'ssl' => [
+                'crypto_method' => STREAM_CRYPTO_METHOD_TLS_CLIENT,
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'peer_name' => $host,
+                // Neubox a veces presenta cert del hostname del servidor, no del dominio del correo.
+                'allow_self_signed' => false,
+            ],
+        ]);
+
+        $fp = @stream_socket_client(
+            $remote,
+            $errno,
+            $errstr,
+            30,
+            STREAM_CLIENT_CONNECT,
+            $context
+        );
+
+        // Si el certificado no coincide (común en hosting compartido), reintentar sin verify estricto.
+        if ($fp === false && $encryption === 'ssl') {
+            $relaxed = stream_context_create([
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                    'allow_self_signed' => true,
+                ],
+            ]);
+            $fp = @stream_socket_client(
+                $remote,
+                $errno,
+                $errstr,
+                30,
+                STREAM_CLIENT_CONNECT,
+                $relaxed
+            );
+        }
+
         if ($fp === false) {
-            throw new \RuntimeException("No se pudo conectar a SMTP: {$errstr} ({$errno})");
+            throw new \RuntimeException("No se pudo conectar a SMTP ({$remote}): {$errstr} ({$errno})");
         }
 
         stream_set_timeout($fp, 30);
@@ -68,7 +107,8 @@ final class Mailer
 
         if ($encryption === 'tls') {
             $this->command($fp, 'STARTTLS', 220);
-            if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            $cryptoOk = @stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            if ($cryptoOk !== true) {
                 throw new \RuntimeException('No se pudo negociar STARTTLS.');
             }
             $this->command($fp, 'EHLO pdv.institutodoceo.com', 250);
@@ -78,13 +118,29 @@ final class Mailer
     }
 
     /**
-     * AUTH LOGIN; si falla con 535, reconecta e intenta AUTH PLAIN.
+     * AUTH PLAIN primero (un solo round-trip); si el servidor no lo acepta, AUTH LOGIN.
      *
      * @param resource $fp
-     * @return resource Socket autenticado (puede ser uno nuevo tras reconexión)
+     * @return resource
      */
     private function authenticate($fp, string $user, string $pass, string $host, int $port, string $encryption)
     {
+        $lastError = null;
+
+        try {
+            $plain = base64_encode("\0{$user}\0{$pass}");
+            $this->command($fp, 'AUTH PLAIN ' . $plain, 235);
+
+            return $fp;
+        } catch (\RuntimeException $e) {
+            $lastError = $e;
+            // 504/535/503 → probar LOGIN en sesión nueva
+        }
+
+        $newFp = $this->connect($host, $port, $encryption);
+        fclose($fp);
+        $fp = $newFp;
+
         try {
             $this->command($fp, 'AUTH LOGIN', 334);
             $this->command($fp, base64_encode($user), 334);
@@ -92,47 +148,37 @@ final class Mailer
 
             return $fp;
         } catch (\RuntimeException $loginError) {
-            if (!$this->isCredentialRejection($loginError->getMessage())) {
-                throw $this->wrapAuthError($loginError);
-            }
+            throw $this->wrapAuthError($loginError, $lastError);
         }
-
-        // Misma sesión puede quedar inutilizable tras 535: reconectar.
-        $newFp = $this->connect($host, $port, $encryption);
-        fclose($fp);
-        $fp = $newFp;
-
-        try {
-            $plain = base64_encode("\0{$user}\0{$pass}");
-            $this->command($fp, 'AUTH PLAIN ' . $plain, 235);
-        } catch (\RuntimeException $plainError) {
-            throw $this->wrapAuthError($plainError);
-        }
-
-        return $fp;
     }
 
-    private function isCredentialRejection(string $message): bool
-    {
-        return str_contains($message, '535')
-            || str_contains(strtolower($message), 'incorrect authentication')
-            || str_contains(strtolower($message), 'authentication failed');
-    }
-
-    private function wrapAuthError(\RuntimeException $e): \RuntimeException
+    private function wrapAuthError(\RuntimeException $e, ?\RuntimeException $previousAttempt = null): \RuntimeException
     {
         $detail = $e->getMessage();
-        if ($this->isCredentialRejection($detail) || str_contains($detail, '535')) {
-            return new \RuntimeException(
-                'SMTP: autenticación rechazada (535). Revisa SMTP_USER y SMTP_PASS en el .env del servidor '
-                . '(correo completo + contraseña exacta de cPanel → Cuentas de correo). '
-                . 'Prueba también en /admin/salud → Probar SMTP. Detalle: ' . $detail,
-                0,
-                $e
-            );
+        $is535 = str_contains($detail, '535')
+            || str_contains(strtolower($detail), 'incorrect authentication');
+
+        if (!$is535) {
+            return $e;
         }
 
-        return $e;
+        $user = trim((string) Env::get('SMTP_USER', ''));
+        $passLen = strlen((string) Env::get('SMTP_PASS', ''));
+        $host = trim((string) Env::get('SMTP_HOST', ''));
+        $port = (string) (Env::get('SMTP_PORT', '465') ?? '465');
+
+        $msg = 'SMTP: el servidor Exim rechazó la autenticación (535). '
+            . 'El alta de usuario y “Probar SMTP” usan el mismo Mailer/.env — no es un fallo del formulario de usuarios. '
+            . "Config leída: user={$user}, pass_len={$passLen}, host={$host}:{$port}. "
+            . 'Reprueba en /admin/salud?smtp=1. Si falla igual: entra a webmail con esa cuenta; '
+            . 'si webmail entra, prueba SMTP_HOST=localhost o puerto 587 con SMTP_ENCRYPTION=tls. '
+            . 'Detalle: ' . $detail;
+
+        if ($previousAttempt !== null) {
+            $msg .= ' | Intento previo: ' . $previousAttempt->getMessage();
+        }
+
+        return new \RuntimeException($msg, 0, $e);
     }
 
     private function encodeAddress(string $name, string $email): string
@@ -163,6 +209,10 @@ final class Mailer
             if (isset($line[3]) && $line[3] === ' ') {
                 break;
             }
+        }
+
+        if ($response === '') {
+            throw new \RuntimeException("SMTP esperaba {$expectCode}, recibió: (sin respuesta / timeout)");
         }
 
         $code = (int) substr($response, 0, 3);
