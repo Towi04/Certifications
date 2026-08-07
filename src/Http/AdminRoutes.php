@@ -941,6 +941,8 @@ final class AdminRoutes
                 'item' => null,
                 'providers' => $repo()->providers(true),
                 'protocols' => $repo()->protocols(true),
+                'tiers' => $repo()->partnerTiers(true),
+                'tierPrices' => [],
                 'error' => flash('error'),
             ]);
         });
@@ -959,6 +961,8 @@ final class AdminRoutes
                 'item' => $item,
                 'providers' => $repo()->providers(true),
                 'protocols' => $repo()->protocols(true),
+                'tiers' => $repo()->partnerTiers(true),
+                'tierPrices' => $repo()->certificationTierPrices($id),
                 'linkedCourses' => $repo()->certificationCourses($id),
                 'courses' => $repo()->courses(true),
                 'assets' => $repo()->assets('certification', $id),
@@ -1040,6 +1044,7 @@ final class AdminRoutes
             }
 
             $publicPrice = trim((string) ($_POST['public_price'] ?? ''));
+            $costPrice = trim((string) ($_POST['cost_price'] ?? ''));
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
             $intent = (string) ($_POST['intent'] ?? 'save');
             // Guardar no oculta; Publicar marca visible. Ocultar = ojo en listados.
@@ -1047,6 +1052,17 @@ final class AdminRoutes
                 $isPublished = 1;
             } else {
                 $isPublished = $existing ? (int) ($existing['is_published'] ?? 0) : 0;
+            }
+
+            $rawRanges = $_POST['score_ranges'] ?? [];
+            if (!is_array($rawRanges)) {
+                $rawRanges = [];
+            }
+            $scoreRanges = CatalogRepository::decodeScoreRanges($rawRanges);
+
+            $rawTierPrices = $_POST['tier_prices'] ?? [];
+            if (!is_array($rawTierPrices)) {
+                $rawTierPrices = [];
             }
 
             try {
@@ -1059,14 +1075,16 @@ final class AdminRoutes
                     'modality' => $modality,
                     'short_description' => trim((string) ($_POST['short_description'] ?? '')) ?: null,
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
-                    'syllabus_html' => trim((string) ($_POST['syllabus_html'] ?? '')) ?: null,
+                    'syllabus_html' => is_array($existing) ? ($existing['syllabus_html'] ?? null) : null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,
                     'audience' => trim((string) ($_POST['audience'] ?? '')) ?: null,
                     'is_level_exam' => $isLevelExam,
                     'skills_json' => $isLevelExam ? $skills : null,
-                    'score_range' => trim((string) ($_POST['score_range'] ?? '')) ?: null,
+                    'score_ranges_json' => $scoreRanges,
+                    'score_range' => CatalogRepository::formatScoreRangesSummary($scoreRanges),
                     'public_price' => $publicPrice !== '' ? (float) $publicPrice : null,
-                    'currency' => (string) ($_POST['currency'] ?? 'MXN') ?: 'MXN',
+                    'cost_price' => $costPrice !== '' ? (float) $costPrice : null,
+                    'currency' => 'MXN',
                     'cenni_eligible' => $cenniEligible,
                     'cenni_doc_type' => $cenniDocType,
                     'cenni_included' => $cenniIncluded,
@@ -1076,6 +1094,15 @@ final class AdminRoutes
                     'is_published' => $isPublished,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ], $id);
+
+                // Solo persistir precios de niveles activos conocidos
+                $allowedTiers = [];
+                foreach ($repo()->partnerTiers(true) as $tier) {
+                    $tid = (int) $tier['id'];
+                    $allowedTiers[$tid] = $rawTierPrices[$tid] ?? ($rawTierPrices[(string) $tid] ?? '');
+                }
+                $repo()->saveCertificationTierPrices($savedId, $allowedTiers);
+
                 flash('info', $intent === 'publish' ? 'Certificación publicada.' : 'Certificación guardada.');
                 header('Location: /admin/certifications/edit?id=' . $savedId);
                 exit;

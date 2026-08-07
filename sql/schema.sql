@@ -238,10 +238,12 @@ CREATE TABLE IF NOT EXISTS certifications (
   is_level_exam TINYINT(1) NOT NULL DEFAULT 0,
   skills_json JSON NULL,
   score_range VARCHAR(120) NULL,
+  score_ranges_json JSON NULL,
   public_price DECIMAL(12,2) NULL,
+  cost_price DECIMAL(12,2) NULL,
   currency CHAR(3) NOT NULL DEFAULT 'MXN',
   cenni_eligible TINYINT(1) NOT NULL DEFAULT 0,
-  cenni_doc_type ENUM('none', 'constancia', 'constancia_certificado_diploma') NOT NULL DEFAULT 'none',
+  cenni_doc_type ENUM('none', 'constancia', 'constancia_certificado', 'constancia_certificado_diploma') NOT NULL DEFAULT 'none',
   cenni_included TINYINT(1) NOT NULL DEFAULT 0,
   cenni_fee DECIMAL(12,2) NULL,
   conocer_eligible TINYINT(1) NOT NULL DEFAULT 0,
@@ -256,6 +258,19 @@ CREATE TABLE IF NOT EXISTS certifications (
   KEY idx_certifications_provider (provider_id),
   CONSTRAINT fk_certifications_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE RESTRICT,
   CONSTRAINT fk_certifications_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Precios TR por nivel (fuente de verdad). agreement_prices se conserva por compatibilidad histórica.
+CREATE TABLE IF NOT EXISTS certification_tier_prices (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  certification_id BIGINT UNSIGNED NOT NULL,
+  partner_tier_id BIGINT UNSIGNED NOT NULL,
+  price DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_cert_tier (certification_id, partner_tier_id),
+  CONSTRAINT fk_ctp_cert FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ctp_tier FOREIGN KEY (partner_tier_id) REFERENCES partner_tiers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS agreement_prices (

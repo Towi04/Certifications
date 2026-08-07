@@ -489,8 +489,65 @@ final class CatalogRepository
     {
         return [
             'constancia' => 'Constancia',
+            'constancia_certificado' => 'Constancia, Certificado',
             'constancia_certificado_diploma' => 'Constancia, Certificado y Diploma',
         ];
+    }
+
+    /**
+     * @param mixed $raw
+     * @return list<array{min: string, max: string, label: string}>
+     */
+    public static function decodeScoreRanges(mixed $raw): array
+    {
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+        $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $min = trim((string) ($row['min'] ?? ''));
+            $max = trim((string) ($row['max'] ?? ''));
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($min === '' && $max === '' && $label === '') {
+                continue;
+            }
+            $out[] = ['min' => $min, 'max' => $max, 'label' => $label];
+        }
+        return $out;
+    }
+
+    /** @param list<array{min?: string, max?: string, label?: string}> $ranges */
+    public static function encodeScoreRanges(array $ranges): ?string
+    {
+        $clean = self::decodeScoreRanges($ranges);
+        if ($clean === []) {
+            return null;
+        }
+        return json_encode($clean, JSON_UNESCAPED_UNICODE) ?: null;
+    }
+
+    /** Resumen legible para listados / fallback de score_range. */
+    public static function formatScoreRangesSummary(array $ranges): ?string
+    {
+        $parts = [];
+        foreach (self::decodeScoreRanges($ranges) as $r) {
+            $span = trim($r['min'] . ($r['min'] !== '' && $r['max'] !== '' ? ' – ' : '') . $r['max']);
+            if ($span !== '' && $r['label'] !== '') {
+                $parts[] = $span . ' = ' . $r['label'];
+            } elseif ($r['label'] !== '') {
+                $parts[] = $r['label'];
+            } elseif ($span !== '') {
+                $parts[] = $span;
+            }
+        }
+        return $parts !== [] ? implode('; ', $parts) : null;
     }
 
     /** @return array<string, string> */
@@ -542,7 +599,9 @@ final class CatalogRepository
             'is_level_exam' => 0,
             'skills_json' => null,
             'score_range' => null,
+            'score_ranges_json' => null,
             'public_price' => null,
+            'cost_price' => null,
             'currency' => 'MXN',
             'cenni_eligible' => 0,
             'cenni_doc_type' => 'none',
@@ -803,6 +862,59 @@ final class CatalogRepository
         $stmt->execute([$agreementId, $certificationId, $price, $currency]);
     }
 
+    /** @return array<int, float> partner_tier_id => price */
+    public function certificationTierPrices(int $certificationId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT partner_tier_id, price FROM certification_tier_prices WHERE certification_id = ?'
+        );
+        $stmt->execute([$certificationId]);
+        $out = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $out[(int) $row['partner_tier_id']] = (float) $row['price'];
+        }
+        return $out;
+    }
+
+    /** @param array<int|string, mixed> $prices tier_id => price string/float/null */
+    public function saveCertificationTierPrices(int $certificationId, array $prices): void
+    {
+        $upsert = $this->pdo->prepare(
+            'INSERT INTO certification_tier_prices (certification_id, partner_tier_id, price)
+             VALUES (?,?,?)
+             ON DUPLICATE KEY UPDATE price = VALUES(price)'
+        );
+        $delete = $this->pdo->prepare(
+            'DELETE FROM certification_tier_prices WHERE certification_id = ? AND partner_tier_id = ?'
+        );
+
+        foreach ($prices as $tierId => $raw) {
+            $tierId = (int) $tierId;
+            if ($tierId < 1) {
+                continue;
+            }
+            $value = is_string($raw) ? trim($raw) : $raw;
+            if ($value === null || $value === '') {
+                $delete->execute([$certificationId, $tierId]);
+                continue;
+            }
+            $upsert->execute([$certificationId, $tierId, (float) $value]);
+        }
+    }
+
+    public function certificationTierPrice(int $certificationId, int $partnerTierId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT ctp.*, \'MXN\' AS currency
+             FROM certification_tier_prices ctp
+             WHERE ctp.certification_id = ? AND ctp.partner_tier_id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$certificationId, $partnerTierId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
     /** @return list<array<string, mixed>> */
     public function certifications(?array $filters = null): array
     {
@@ -878,14 +990,28 @@ final class CatalogRepository
             $skillsJson = json_encode(array_values($skillsJson), JSON_UNESCAPED_UNICODE) ?: '[]';
         }
 
+        $scoreRangesJson = $data['score_ranges_json'] ?? null;
+        if (is_array($scoreRangesJson)) {
+            $scoreRangesJson = self::encodeScoreRanges($scoreRangesJson);
+        }
+        $scoreRangeSummary = $data['score_range'] ?? null;
+        if ($scoreRangeSummary === null && $scoreRangesJson !== null) {
+            $scoreRangeSummary = self::formatScoreRangesSummary(
+                self::decodeScoreRanges($scoreRangesJson)
+            );
+        }
+
         $fields = [
             $data['provider_id'], $data['protocol_id'], $data['code'], $data['slug'], $data['name'],
-            $data['modality'], $data['short_description'], $data['description_html'], $data['syllabus_html'],
+            $data['modality'], $data['short_description'], $data['description_html'], $data['syllabus_html'] ?? null,
             $data['duration_label'], $data['audience'],
             (int) ($data['is_level_exam'] ?? 0),
             $skillsJson,
-            $data['score_range'] ?? null,
-            $data['public_price'], $data['currency'],
+            $scoreRangeSummary,
+            $scoreRangesJson,
+            $data['public_price'],
+            $data['cost_price'] ?? null,
+            $data['currency'] ?? 'MXN',
             $data['cenni_eligible'], $data['cenni_doc_type'], $data['cenni_included'], $data['cenni_fee'],
             $data['conocer_eligible'], $data['conocer_fee'], $data['is_published'], $data['sort_order'],
         ];
@@ -894,8 +1020,8 @@ final class CatalogRepository
             $stmt = $this->pdo->prepare(
                 'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
                  short_description=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
-                 is_level_exam=?, skills_json=?, score_range=?,
-                 public_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
+                 is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
+                 public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
                  conocer_eligible=?, conocer_fee=?, is_published=?, sort_order=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
@@ -905,10 +1031,10 @@ final class CatalogRepository
         $stmt = $this->pdo->prepare(
             'INSERT INTO certifications (
                 provider_id, protocol_id, code, slug, name, modality, short_description, description_html,
-                syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range,
-                public_price, currency, cenni_eligible, cenni_doc_type,
+                syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
+                public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
                 cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -1177,14 +1303,15 @@ final class CatalogRepository
     }
 
     /** @return list<array<string, mixed>> */
-    public function publishedCertificationsForPartner(?int $agreementId, ?array $filters = null): array
+    public function publishedCertificationsForPartner(?int $partnerTierId, ?array $filters = null): array
     {
-        $sql = 'SELECT c.*, p.name AS provider_name, ap.price AS partner_price, ap.currency AS partner_currency
+        $sql = 'SELECT c.*, p.name AS provider_name, ctp.price AS partner_price, \'MXN\' AS partner_currency
                 FROM certifications c
                 JOIN providers p ON p.id = c.provider_id
-                LEFT JOIN agreement_prices ap ON ap.certification_id = c.id AND ap.agreement_id = ?
+                LEFT JOIN certification_tier_prices ctp
+                  ON ctp.certification_id = c.id AND ctp.partner_tier_id = ?
                 WHERE c.is_published = 1';
-        $params = [$agreementId];
+        $params = [$partnerTierId];
 
         if (!empty($filters['provider_id'])) {
             $sql .= ' AND c.provider_id = ?';

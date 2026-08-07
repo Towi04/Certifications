@@ -2,6 +2,8 @@
 require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
 $linkedCourses = $linkedCourses ?? [];
+$tiers = $tiers ?? [];
+$tierPrices = $tierPrices ?? [];
 $modalities = \App\Catalog\CatalogRepository::modalities();
 $skillsCatalog = \App\Catalog\CatalogRepository::certificationSkills();
 $cenniTypes = \App\Catalog\CatalogRepository::cenniDocTypes();
@@ -14,6 +16,14 @@ if (!empty($item['skills_json'])) {
     if (is_array($decoded)) {
         $selectedSkills = array_map('strval', $decoded);
     }
+}
+$scoreRanges = \App\Catalog\CatalogRepository::decodeScoreRanges($item['score_ranges_json'] ?? null);
+if ($scoreRanges === [] && !empty($item['score_range'])) {
+    // Compatibilidad: un solo texto antiguo como etiqueta
+    $scoreRanges = [['min' => '', 'max' => '', 'label' => (string) $item['score_range']]];
+}
+if ($scoreRanges === []) {
+    $scoreRanges = [['min' => '', 'max' => '', 'label' => '']];
 }
 $isLevel = !empty($item['is_level_exam']);
 $cenniOn = !empty($item['cenni_eligible']);
@@ -82,7 +92,6 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </div>
             <textarea name="short_description" rows="8" class="html-editor" placeholder="Puedes usar HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;&lt;li&gt;…"><?= e($item['short_description'] ?? '') ?></textarea>
             <div class="html-preview prose" hidden></div>
-            <small class="muted">Texto con formato HTML (negritas, listas, párrafos, etc.). Usa &lt;/&gt; para previsualizar.</small>
         </div>
         <div class="field-wide html-field" data-html-field>
             <div class="html-field-head">
@@ -91,11 +100,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </div>
             <textarea name="description_html" rows="12" class="html-editor" placeholder="Descripción larga con HTML"><?= e($item['description_html'] ?? '') ?></textarea>
             <div class="html-preview prose" hidden></div>
-            <small class="muted">Escribe HTML para aplicar formatos. Usa &lt;/&gt; para ver el resultado.</small>
         </div>
-        <label class="field-wide">Temario (HTML)
-            <textarea name="syllabus_html" rows="10" class="html-editor"><?= e($item['syllabus_html'] ?? '') ?></textarea>
-        </label>
 
         <label>Duración<input name="duration_label" value="<?= e($item['duration_label'] ?? '') ?>" placeholder="Ej. 2 h 30 min"></label>
         <label>Audiencia<input name="audience" value="<?= e($item['audience'] ?? '') ?>"></label>
@@ -116,13 +121,54 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </div>
         </fieldset>
 
-        <label class="field-wide">Rango de puntaje / nivel
-            <input name="score_range" value="<?= e($item['score_range'] ?? '') ?>" placeholder="Ej. 0–120, A1–C2, 420–677, B1+">
-            <small class="muted">Rango que puede obtener el candidato (obligatorio al publicar fichas completas).</small>
+        <fieldset class="field-wide score-ranges-fieldset">
+            <legend>Rangos de puntaje / nivel</legend>
+            <p class="muted score-ranges-hint">Agrega varios rangos, por ejemplo 16–25 = Nivel A1 o 700–1000 = Aprobado.</p>
+            <div id="scoreRangesList" class="score-ranges-list">
+                <?php foreach ($scoreRanges as $i => $range): ?>
+                    <div class="score-range-row" data-score-row>
+                        <label>Desde
+                            <input name="score_ranges[<?= (int)$i ?>][min]" value="<?= e($range['min']) ?>" placeholder="0" inputmode="decimal">
+                        </label>
+                        <label>Hasta
+                            <input name="score_ranges[<?= (int)$i ?>][max]" value="<?= e($range['max']) ?>" placeholder="100" inputmode="decimal">
+                        </label>
+                        <label class="score-range-label">Resultado / nivel
+                            <input name="score_ranges[<?= (int)$i ?>][label]" value="<?= e($range['label']) ?>" placeholder="Nivel A1 / Aprobado / Banda 1">
+                        </label>
+                        <button type="button" class="icon-btn score-range-remove" title="Quitar rango" aria-label="Quitar rango">×</button>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <button type="button" class="btn btn-ghost" id="addScoreRange">+ Agregar rango</button>
+        </fieldset>
+
+        <label>Precio público (MXN)
+            <input type="number" step="0.01" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>">
+        </label>
+        <label>Costo Doceo (MXN)
+            <input type="number" step="0.01" name="cost_price" value="<?= e((string)($item['cost_price'] ?? '')) ?>" placeholder="Lo que nos cuesta">
+            <small class="muted">Costo interno; no se muestra a partners.</small>
         </label>
 
-        <label>Precio público<input type="number" step="0.01" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>"></label>
-        <label>Moneda<input name="currency" value="<?= e($item['currency'] ?? 'MXN') ?>"></label>
+        <fieldset class="field-wide tier-prices-fieldset">
+            <legend>Precios por nivel TR (MXN)</legend>
+            <p class="muted">Al crear un nivel nuevo en Niveles TR, aparecerá aquí automáticamente en todas las certificaciones.</p>
+            <?php if ($tiers): ?>
+                <div class="tier-prices-grid">
+                    <?php foreach ($tiers as $tier): ?>
+                        <?php $tid = (int) $tier['id']; ?>
+                        <label><?= e($tier['name']) ?>
+                            <input type="number" step="0.01" name="tier_prices[<?= $tid ?>]"
+                                   value="<?= e(isset($tierPrices[$tid]) ? (string) $tierPrices[$tid] : '') ?>"
+                                   placeholder="Sin precio">
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="muted">Aún no hay niveles TR activos. Créalos en Admin → Niveles TR.</p>
+            <?php endif; ?>
+        </fieldset>
 
         <label class="check field-wide">
             <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>
@@ -259,6 +305,51 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
   };
   rel?.addEventListener('change', syncRel);
   syncRel();
+
+  const list = document.getElementById('scoreRangesList');
+  const addBtn = document.getElementById('addScoreRange');
+  const reindexRows = () => {
+    if (!list) return;
+    [...list.querySelectorAll('[data-score-row]')].forEach((row, i) => {
+      row.querySelectorAll('input').forEach((input) => {
+        const field = (input.getAttribute('name') || '').match(/\[(min|max|label)\]$/);
+        if (field) input.setAttribute('name', `score_ranges[${i}][${field[1]}]`);
+      });
+    });
+  };
+  const bindRemove = (row) => {
+    row.querySelector('.score-range-remove')?.addEventListener('click', () => {
+      const rows = list?.querySelectorAll('[data-score-row]') || [];
+      if (rows.length <= 1) {
+        row.querySelectorAll('input').forEach((input) => { input.value = ''; });
+        return;
+      }
+      row.remove();
+      reindexRows();
+    });
+  };
+  list?.querySelectorAll('[data-score-row]').forEach(bindRemove);
+  addBtn?.addEventListener('click', () => {
+    if (!list) return;
+    const i = list.querySelectorAll('[data-score-row]').length;
+    const row = document.createElement('div');
+    row.className = 'score-range-row';
+    row.setAttribute('data-score-row', '');
+    row.innerHTML = `
+      <label>Desde
+        <input name="score_ranges[${i}][min]" value="" placeholder="0" inputmode="decimal">
+      </label>
+      <label>Hasta
+        <input name="score_ranges[${i}][max]" value="" placeholder="100" inputmode="decimal">
+      </label>
+      <label class="score-range-label">Resultado / nivel
+        <input name="score_ranges[${i}][label]" value="" placeholder="Nivel A1 / Aprobado / Banda 1">
+      </label>
+      <button type="button" class="icon-btn score-range-remove" title="Quitar rango" aria-label="Quitar rango">×</button>
+    `;
+    list.appendChild(row);
+    bindRemove(row);
+  });
 
   document.querySelectorAll('[data-html-field]').forEach((wrap) => {
     const btn = wrap.querySelector('.html-preview-toggle');
