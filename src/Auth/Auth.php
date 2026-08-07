@@ -421,6 +421,23 @@ final class Auth
         }
     }
 
+    /** Verifica la contraseña del usuario actualmente autenticado. */
+    public static function verifyCurrentPassword(string $password): bool
+    {
+        $user = self::user();
+        if ($user === null || $password === '') {
+            return false;
+        }
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([(int) $user['id']]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return false;
+        }
+        return password_verify($password, trim((string) $row['password_hash']));
+    }
+
     /** Crea el admin inicial desde .env solo si ese correo aún no existe. */
     public static function ensureBootstrapAdmin(): void
     {

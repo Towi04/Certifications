@@ -41,6 +41,7 @@ $iconWa = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 
 $iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>';
 $iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+$iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M4 16V6a2 2 0 0 1 2-2h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 ?>
 
 <section class="provider-edit">
@@ -535,7 +536,10 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                                 <input name="username" required value="<?= e($editAccount['username'] ?? '') ?>" autocomplete="off">
                             </label>
                             <label>Contraseña
-                                <input type="password" name="password" <?= $editAccount ? '' : 'required' ?> autocomplete="new-password" placeholder="<?= $editAccount ? 'Dejar vacío para no cambiar' : '' ?>">
+                                <span class="password-field">
+                                    <input type="password" name="password" id="accountPasswordInput" <?= $editAccount ? '' : 'required' ?> autocomplete="new-password" placeholder="<?= $editAccount ? 'Dejar vacío para no cambiar' : '' ?>">
+                                    <button type="button" class="icon-btn password-toggle js-toggle-input-pass" title="Mostrar/ocultar" aria-label="Mostrar u ocultar contraseña"><?= $iconEye ?></button>
+                                </span>
                                 <?php if ($editAccount): ?>
                                     <small class="muted">Vacío = conservar la actual.</small>
                                 <?php endif; ?>
@@ -551,20 +555,29 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                             </div>
                         </form>
                     </div>
+                    <script>
+                    (() => {
+                      const btn = document.querySelector('.js-toggle-input-pass');
+                      const input = document.getElementById('accountPasswordInput');
+                      if (!btn || !input) return;
+                      const eye = <?= json_encode($iconEye) ?>;
+                      const eyeOff = <?= json_encode($iconEyeOff) ?>;
+                      btn.addEventListener('click', () => {
+                        const show = input.type === 'password';
+                        input.type = show ? 'text' : 'password';
+                        btn.innerHTML = show ? eyeOff : eye;
+                        btn.title = show ? 'Ocultar' : 'Mostrar';
+                      });
+                    })();
+                    </script>
                 <?php else: ?>
                     <?php if ($accounts): ?>
-                        <div class="account-cards">
+                        <div class="account-cards" id="accountCards"
+                             data-reveal-url="/admin/providers/account/reveal"
+                             data-provider-id="<?= $id ?>">
                             <?php foreach ($accounts as $acc): ?>
-                                <?php
-                                $accActive = (int)($acc['is_active'] ?? 1) === 1;
-                                $plainPass = '';
-                                try {
-                                    $plainPass = \App\Support\SecretBox::decrypt((string)($acc['password_enc'] ?? ''));
-                                } catch (\Throwable $e) {
-                                    $plainPass = '— (no se pudo descifrar)';
-                                }
-                                ?>
-                                <article class="account-card <?= $accActive ? '' : 'is-inactive' ?>">
+                                <?php $accActive = (int)($acc['is_active'] ?? 1) === 1; ?>
+                                <article class="account-card <?= $accActive ? '' : 'is-inactive' ?>" data-account-id="<?= (int)$acc['id'] ?>">
                                     <header>
                                         <div>
                                             <strong><?= e($acc['label']) ?></strong>
@@ -586,13 +599,17 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                                     <dl class="account-creds">
                                         <div>
                                             <dt>Usuario</dt>
-                                            <dd><code class="js-copy" data-copy="<?= e($acc['username']) ?>"><?= e($acc['username']) ?></code></dd>
+                                            <dd>
+                                                <code class="js-username"><?= e($acc['username']) ?></code>
+                                                <button type="button" class="icon-btn js-copy-user" title="Copiar usuario" aria-label="Copiar usuario"><?= $iconCopy ?></button>
+                                            </dd>
                                         </div>
                                         <div>
                                             <dt>Contraseña</dt>
                                             <dd>
-                                                <code class="secret-mask js-secret" data-secret="<?= e($plainPass) ?>">••••••••</code>
-                                                <button type="button" class="linkish js-toggle-secret">Mostrar</button>
+                                                <code class="secret-mask js-secret">••••••••</code>
+                                                <button type="button" class="icon-btn js-toggle-secret" title="Mostrar contraseña" aria-label="Mostrar contraseña" aria-pressed="false"><?= $iconEye ?></button>
+                                                <button type="button" class="icon-btn js-copy-pass" title="Copiar contraseña" aria-label="Copiar contraseña"><?= $iconCopy ?></button>
                                             </dd>
                                         </div>
                                     </dl>
@@ -605,16 +622,159 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                                 </article>
                             <?php endforeach; ?>
                         </div>
+
+                        <div class="modal-backdrop" id="revealPassModal" hidden>
+                            <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="revealPassTitle">
+                                <h3 id="revealPassTitle">Confirma tu contraseña</h3>
+                                <p class="muted">Para ver o copiar la contraseña del portal, introduce tu contraseña del sistema.</p>
+                                <form id="revealPassForm" class="stack" autocomplete="off">
+                                    <label>Contraseña del sistema
+                                        <input type="password" name="system_password" id="revealSystemPass" required autocomplete="current-password">
+                                    </label>
+                                    <p class="form-error" id="revealPassError" hidden></p>
+                                    <div class="actions">
+                                        <button class="btn" type="submit">Continuar</button>
+                                        <button class="btn btn-ghost" type="button" id="revealPassCancel">Cancelar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
                         <script>
                         (() => {
-                          document.querySelectorAll('.js-toggle-secret').forEach((btn) => {
-                            btn.addEventListener('click', () => {
-                              const code = btn.parentElement.querySelector('.js-secret');
-                              if (!code) return;
-                              const shown = code.classList.toggle('is-revealed');
-                              code.textContent = shown ? (code.dataset.secret || '') : '••••••••';
-                              btn.textContent = shown ? 'Ocultar' : 'Mostrar';
+                          const root = document.getElementById('accountCards');
+                          if (!root) return;
+                          const eye = <?= json_encode($iconEye) ?>;
+                          const eyeOff = <?= json_encode($iconEyeOff) ?>;
+                          const modal = document.getElementById('revealPassModal');
+                          const form = document.getElementById('revealPassForm');
+                          const input = document.getElementById('revealSystemPass');
+                          const err = document.getElementById('revealPassError');
+                          let pending = null; // { accountId, action: 'reveal'|'copy', card }
+
+                          const hideModal = () => {
+                            modal.hidden = true;
+                            form.reset();
+                            err.hidden = true;
+                            err.textContent = '';
+                            pending = null;
+                          };
+
+                          const showModal = (payload) => {
+                            pending = payload;
+                            err.hidden = true;
+                            modal.hidden = false;
+                            setTimeout(() => input.focus(), 50);
+                          };
+
+                          const copyText = async (text) => {
+                            try {
+                              await navigator.clipboard.writeText(text);
+                              return true;
+                            } catch (e) {
+                              const ta = document.createElement('textarea');
+                              ta.value = text;
+                              document.body.appendChild(ta);
+                              ta.select();
+                              const ok = document.execCommand('copy');
+                              ta.remove();
+                              return ok;
+                            }
+                          };
+
+                          const revealRequest = async (accountId, systemPassword) => {
+                            const body = new FormData();
+                            body.append('provider_id', root.dataset.providerId);
+                            body.append('account_id', String(accountId));
+                            body.append('system_password', systemPassword);
+                            const res = await fetch(root.dataset.revealUrl, {
+                              method: 'POST',
+                              body,
+                              credentials: 'same-origin',
+                              headers: { 'Accept': 'application/json' }
                             });
+                            const data = await res.json().catch(() => ({ ok: false, error: 'Respuesta inválida' }));
+                            if (!res.ok || !data.ok) {
+                              throw new Error(data.error || 'No se pudo revelar la contraseña.');
+                            }
+                            return data.password || '';
+                          };
+
+                          const applyReveal = (card, password) => {
+                            const code = card.querySelector('.js-secret');
+                            const btn = card.querySelector('.js-toggle-secret');
+                            code.textContent = password;
+                            code.dataset.revealed = password;
+                            code.classList.add('is-revealed');
+                            btn.innerHTML = eyeOff;
+                            btn.title = 'Ocultar contraseña';
+                            btn.setAttribute('aria-pressed', 'true');
+                          };
+
+                          const hideSecret = (card) => {
+                            const code = card.querySelector('.js-secret');
+                            const btn = card.querySelector('.js-toggle-secret');
+                            code.textContent = '••••••••';
+                            delete code.dataset.revealed;
+                            code.classList.remove('is-revealed');
+                            btn.innerHTML = eye;
+                            btn.title = 'Mostrar contraseña';
+                            btn.setAttribute('aria-pressed', 'false');
+                          };
+
+                          root.addEventListener('click', async (e) => {
+                            const card = e.target.closest('.account-card');
+                            if (!card) return;
+                            const accountId = card.dataset.accountId;
+
+                            if (e.target.closest('.js-copy-user')) {
+                              const user = card.querySelector('.js-username')?.textContent || '';
+                              await copyText(user);
+                              return;
+                            }
+
+                            if (e.target.closest('.js-toggle-secret')) {
+                              const code = card.querySelector('.js-secret');
+                              if (code.dataset.revealed) {
+                                hideSecret(card);
+                                return;
+                              }
+                              showModal({ accountId, action: 'reveal', card });
+                              return;
+                            }
+
+                            if (e.target.closest('.js-copy-pass')) {
+                              const code = card.querySelector('.js-secret');
+                              if (code.dataset.revealed) {
+                                await copyText(code.dataset.revealed);
+                                return;
+                              }
+                              showModal({ accountId, action: 'copy', card });
+                            }
+                          });
+
+                          document.getElementById('revealPassCancel')?.addEventListener('click', hideModal);
+                          modal?.addEventListener('click', (e) => {
+                            if (e.target === modal) hideModal();
+                          });
+
+                          form?.addEventListener('submit', async (e) => {
+                            e.preventDefault();
+                            if (!pending) return;
+                            err.hidden = true;
+                            try {
+                              const password = await revealRequest(pending.accountId, input.value);
+                              if (pending.action === 'reveal') {
+                                applyReveal(pending.card, password);
+                              } else if (pending.action === 'copy') {
+                                applyReveal(pending.card, password);
+                                await copyText(password);
+                              }
+                              hideModal();
+                            } catch (ex) {
+                              err.textContent = ex.message || 'Error';
+                              err.hidden = false;
+                            }
                           });
                         })();
                         </script>
