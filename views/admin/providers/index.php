@@ -18,7 +18,7 @@
                 <a class="provider-tile-main" href="/admin/providers/edit?id=<?= (int)$item['id'] ?>">
                     <span class="provider-tile-icon">
                         <?php if ($icon): ?>
-                            <img src="/media?f=<?= e(rawurlencode($icon)) ?>" alt="">
+                            <img src="/media?f=<?= e(rawurlencode($icon)) ?>" alt="" width="56" height="56" style="width:56px;height:56px;object-fit:contain;display:block">
                         <?php else: ?>
                             <span class="provider-tile-fallback"><?= e(mb_substr($item['name'], 0, 1)) ?></span>
                         <?php endif; ?>
@@ -29,7 +29,7 @@
                     </span>
                 </a>
                 <form method="post" action="/admin/providers/toggle-active" class="provider-tile-eye"
-                      onsubmit="return confirm(<?= e(json_encode('¿Seguro que quieres ' . ($active ? 'desactivar' : 'activar') . ' a ' . $item['name'] . '?')) ?>);">
+                      onsubmit="return confirm(<?= json_encode('¿Seguro que quieres ' . ($active ? 'desactivar' : 'activar') . ' a ' . $item['name'] . '?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
                     <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
                     <button type="submit" class="eye-btn" title="<?= $active ? 'Desactivar' : 'Activar' ?>" aria-label="<?= $active ? 'Desactivar' : 'Activar' ?>">
                         <?php if ($active): ?>
