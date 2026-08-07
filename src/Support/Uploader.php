@@ -104,14 +104,17 @@ final class Uploader
         }
     }
 
+    private const MAX_BYTES = 20 * 1024 * 1024;
+
     /**
      * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int} $file
      * @return array{0:string,1:string,2:string} tmp, ext, original
      */
     private static function validateUpload(array $file): array
     {
-        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            throw new RuntimeException('Error al subir el archivo (código ' . (int) ($file['error'] ?? 0) . ').');
+        $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new RuntimeException(self::uploadErrorMessage($error));
         }
 
         $tmp = (string) ($file['tmp_name'] ?? '');
@@ -127,15 +130,32 @@ final class Uploader
 
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
         $mime = $finfo->file($tmp) ?: '';
-        if (!in_array($mime, self::ALLOWED_MIME, true)) {
+        $mimeOk = in_array($mime, self::ALLOWED_MIME, true)
+            || ($ext === 'pdf' && in_array($mime, ['application/x-pdf', 'application/octet-stream'], true));
+        if (!$mimeOk) {
             throw new RuntimeException('Tipo MIME no permitido: ' . $mime);
         }
 
-        if ((int) ($file['size'] ?? 0) > 8 * 1024 * 1024) {
-            throw new RuntimeException('El archivo supera 8 MB.');
+        if ((int) ($file['size'] ?? 0) > self::MAX_BYTES) {
+            throw new RuntimeException('El archivo supera 20 MB. Comprime el PDF o divide el documento.');
         }
 
         return [$tmp, $ext, $original];
+    }
+
+    private static function uploadErrorMessage(int $code): string
+    {
+        return match ($code) {
+            UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE =>
+                'El archivo es demasiado grande para el servidor (código ' . $code . '). '
+                . 'Reduce el PDF o pide subir upload_max_filesize / post_max_size (p. ej. 20M) en Neubox.',
+            UPLOAD_ERR_PARTIAL => 'La subida se interrumpió. Intenta de nuevo.',
+            UPLOAD_ERR_NO_FILE => 'No se recibió ningún archivo.',
+            UPLOAD_ERR_NO_TMP_DIR => 'Falta la carpeta temporal en el servidor.',
+            UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir el archivo en disco.',
+            UPLOAD_ERR_EXTENSION => 'Una extensión de PHP bloqueó la subida.',
+            default => 'Error al subir el archivo (código ' . $code . ').',
+        };
     }
 
     private static function resizeImageToFile(string $source, string $dest, int $maxW, int $maxH, string $outExt): bool

@@ -427,31 +427,51 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
 
         <?php if ($item && $tab === 'convenio'): ?>
             <section class="provider-panel">
-                <h3>Convenios firmados (PDF)</h3>
+                <h3>Convenios y acuerdos (PDF)</h3>
+                <p class="muted">
+                    Puedes tener <strong>varios vigentes a la vez</strong> (p. ej. ITEP supervisor + centro,
+                    o UKS base + extensión CENEVAL). Descontinuar no borra el PDF.
+                </p>
                 <?php if ($agreements): ?>
                     <div class="table-wrap">
                         <table class="data-table">
                             <thead><tr><th>Etiqueta</th><th>Año</th><th>Firmado</th><th>Estado</th><th></th></tr></thead>
                             <tbody>
                             <?php foreach ($agreements as $a): ?>
-                                <tr>
-                                    <td><a href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener"><?= e($a['label']) ?></a></td>
+                                <?php $aActive = (int)$a['is_current'] === 1; ?>
+                                <tr class="<?= $aActive ? '' : 'is-row-inactive' ?>">
+                                    <td>
+                                        <a href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener"><?= e($a['label']) ?></a>
+                                        <?php if (!empty($a['notes'])): ?>
+                                            <br><small class="muted"><?= e($a['notes']) ?></small>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?= e((string)($a['year'] ?? '—')) ?></td>
                                     <td><?= e($a['signed_on'] ?? '—') ?></td>
-                                    <td><?= (int)$a['is_current'] ? '<span class="pill pill-ok">Vigente</span>' : '—' ?></td>
-                                    <td class="row-actions">
-                                        <?php if (!(int)$a['is_current']): ?>
-                                            <form method="post" action="/admin/providers/agreement/current" class="inline-form">
+                                    <td>
+                                        <?php if ($aActive): ?>
+                                            <span class="pill pill-ok">Vigente</span>
+                                        <?php else: ?>
+                                            <span class="pill pill-muted">Descontinuado</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div class="icon-actions">
+                                            <form method="post" action="/admin/providers/agreement/toggle-active" class="inline-form"
+                                                  onsubmit="return confirm(<?= json_encode($aActive ? '¿Descontinuar este convenio? El PDF se conserva.' : '¿Reactivar este convenio como vigente?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
                                                 <input type="hidden" name="provider_id" value="<?= $id ?>">
                                                 <input type="hidden" name="agreement_id" value="<?= (int)$a['id'] ?>">
-                                                <button type="submit" class="linkish">Marcar vigente</button>
+                                                <input type="hidden" name="activate" value="<?= $aActive ? '0' : '1' ?>">
+                                                <button type="submit" class="icon-btn eye-btn" title="<?= $aActive ? 'Descontinuar' : 'Reactivar' ?>" aria-label="<?= $aActive ? 'Descontinuar' : 'Reactivar' ?>">
+                                                    <?= $aActive ? $iconEye : $iconEyeOff ?>
+                                                </button>
                                             </form>
-                                        <?php endif; ?>
-                                        <form method="post" action="/admin/providers/agreement/delete" class="inline-form" onsubmit="return confirm('¿Eliminar PDF?');">
-                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                            <input type="hidden" name="agreement_id" value="<?= (int)$a['id'] ?>">
-                                            <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
-                                        </form>
+                                            <form method="post" action="/admin/providers/agreement/delete" class="inline-form" onsubmit="return confirm('¿Eliminar el PDF de forma permanente?');">
+                                                <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                                <input type="hidden" name="agreement_id" value="<?= (int)$a['id'] ?>">
+                                                <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -464,12 +484,13 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
 
                 <form method="post" action="/admin/providers/agreement" enctype="multipart/form-data" class="form-grid" style="margin-top:1rem">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <label>Etiqueta<input name="label" required placeholder="Convenio 2026"></label>
+                    <label>Etiqueta<input name="label" required placeholder="Ej. Supervisor ITEP / Extensión CENEVAL"></label>
                     <label>Año<input type="number" name="year" value="<?= e(date('Y')) ?>"></label>
                     <label>Fecha de firma<input type="date" name="signed_on"></label>
-                    <label>PDF<input type="file" name="agreement_file" required accept=".pdf,application/pdf"></label>
-                    <label class="check"><input type="checkbox" name="is_current" checked> Marcar como vigente</label>
-                    <div class="actions"><button class="btn" type="submit">Subir versión</button></div>
+                    <label>PDF (máx. 20 MB)<input type="file" name="agreement_file" required accept=".pdf,application/pdf"></label>
+                    <label>Nota corta<input name="notes" placeholder="Opcional: supervisor, centro, extensión…"></label>
+                    <label class="check"><input type="checkbox" name="is_current" checked> Queda vigente (no desactiva los anteriores)</label>
+                    <div class="actions"><button class="btn" type="submit">Subir acuerdo</button></div>
                 </form>
             </section>
         <?php endif; ?>

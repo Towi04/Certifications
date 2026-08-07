@@ -397,16 +397,17 @@ final class AdminRoutes
                 $path = Uploader::store($_FILES['agreement_file'], 'providers/agreements');
                 $year = trim((string) ($_POST['year'] ?? ''));
                 $signedOn = trim((string) ($_POST['signed_on'] ?? ''));
+                $notes = trim((string) ($_POST['notes'] ?? '')) ?: null;
                 $repo()->addProviderAgreement([
                     'provider_id' => $providerId,
                     'label' => $label,
                     'year' => $year !== '' ? (int) $year : null,
                     'file_path' => $path,
                     'signed_on' => $signedOn !== '' ? $signedOn : null,
-                    'notes' => null,
+                    'notes' => $notes,
                     'is_current' => isset($_POST['is_current']),
                 ]);
-                flash('info', 'Convenio subido.');
+                flash('info', 'Convenio subido. Puedes tener varios vigentes a la vez.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
@@ -414,12 +415,13 @@ final class AdminRoutes
             exit;
         });
 
-        $router->post('/admin/providers/agreement/current', static function () use ($repo, $providerTabUrl): void {
+        $router->post('/admin/providers/agreement/toggle-active', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $agreementId = (int) ($_POST['agreement_id'] ?? 0);
-            $repo()->setCurrentProviderAgreement($providerId, $agreementId);
-            flash('info', 'Convenio marcado como vigente.');
+            $activate = isset($_POST['activate']) && (string) $_POST['activate'] === '1';
+            $repo()->setProviderAgreementActive($providerId, $agreementId, $activate);
+            flash('info', $activate ? 'Convenio reactivado (vigente).' : 'Convenio descontinuado.');
             header('Location: ' . $providerTabUrl($providerId, 'convenio'));
             exit;
         });
