@@ -387,6 +387,47 @@ final class CatalogRepository
         return $row;
     }
 
+    /** @return array<string, string> */
+    public static function certificationSkills(): array
+    {
+        return [
+            'listening' => 'Listening (comprensión auditiva)',
+            'reading' => 'Reading (comprensión de lectura)',
+            'writing' => 'Writing (expresión escrita)',
+            'speaking' => 'Speaking (expresión oral)',
+            'use_of_english' => 'Use of English / Grammar',
+            'vocabulary' => 'Vocabulary',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function cenniDocTypes(): array
+    {
+        return [
+            'constancia' => 'Constancia',
+            'constancia_certificado_diploma' => 'Constancia, Certificado y Diploma',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function modalities(): array
+    {
+        return [
+            'paper' => 'Paper',
+            'online' => 'Online',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function courseRelationTypes(): array
+    {
+        return [
+            'included' => 'Incluido (gratis con la certificación)',
+            'sold_separate' => 'Vendido por separado',
+            'bundle_discount' => 'Bundle con descuento',
+        ];
+    }
+
     /** Crea una certificación mínima (solo nombre) ligada al proveedor. */
     public function createCertificationStub(int $providerId, string $name): int
     {
@@ -414,6 +455,9 @@ final class CatalogRepository
             'syllabus_html' => null,
             'duration_label' => null,
             'audience' => null,
+            'is_level_exam' => 0,
+            'skills_json' => null,
+            'score_range' => null,
             'public_price' => null,
             'currency' => 'MXN',
             'cenni_eligible' => 0,
@@ -442,17 +486,27 @@ final class CatalogRepository
         return $created;
     }
 
-    private function certificationCodeExists(string $code): bool
+    private function certificationCodeExists(string $code, ?int $excludeId = null): bool
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE code = ? LIMIT 1');
-        $stmt->execute([$code]);
+        if ($excludeId) {
+            $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE code = ? AND id <> ? LIMIT 1');
+            $stmt->execute([$code, $excludeId]);
+        } else {
+            $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE code = ? LIMIT 1');
+            $stmt->execute([$code]);
+        }
         return (bool) $stmt->fetchColumn();
     }
 
-    private function certificationSlugExists(string $slug): bool
+    private function certificationSlugExists(string $slug, ?int $excludeId = null): bool
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE slug = ? LIMIT 1');
-        $stmt->execute([$slug]);
+        if ($excludeId) {
+            $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE slug = ? AND id <> ? LIMIT 1');
+            $stmt->execute([$slug, $excludeId]);
+        } else {
+            $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE slug = ? LIMIT 1');
+            $stmt->execute([$slug]);
+        }
         return (bool) $stmt->fetchColumn();
     }
 
@@ -733,10 +787,19 @@ final class CatalogRepository
 
     public function saveCertification(array $data, ?int $id = null): int
     {
+        $skillsJson = $data['skills_json'] ?? null;
+        if (is_array($skillsJson)) {
+            $skillsJson = json_encode(array_values($skillsJson), JSON_UNESCAPED_UNICODE) ?: '[]';
+        }
+
         $fields = [
             $data['provider_id'], $data['protocol_id'], $data['code'], $data['slug'], $data['name'],
             $data['modality'], $data['short_description'], $data['description_html'], $data['syllabus_html'],
-            $data['duration_label'], $data['audience'], $data['public_price'], $data['currency'],
+            $data['duration_label'], $data['audience'],
+            (int) ($data['is_level_exam'] ?? 0),
+            $skillsJson,
+            $data['score_range'] ?? null,
+            $data['public_price'], $data['currency'],
             $data['cenni_eligible'], $data['cenni_doc_type'], $data['cenni_included'], $data['cenni_fee'],
             $data['conocer_eligible'], $data['conocer_fee'], $data['is_published'], $data['sort_order'],
         ];
@@ -745,6 +808,7 @@ final class CatalogRepository
             $stmt = $this->pdo->prepare(
                 'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
                  short_description=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
+                 is_level_exam=?, skills_json=?, score_range=?,
                  public_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
                  conocer_eligible=?, conocer_fee=?, is_published=?, sort_order=? WHERE id=?'
             );
@@ -755,12 +819,29 @@ final class CatalogRepository
         $stmt = $this->pdo->prepare(
             'INSERT INTO certifications (
                 provider_id, protocol_id, code, slug, name, modality, short_description, description_html,
-                syllabus_html, duration_label, audience, public_price, currency, cenni_eligible, cenni_doc_type,
+                syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range,
+                public_price, currency, cenni_eligible, cenni_doc_type,
                 cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function allocateCertificationCodeSlug(string $name, ?int $excludeId = null): array
+    {
+        $baseSlug = \App\Support\Str::slug($name);
+        $slug = $baseSlug;
+        $codeBase = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', strtoupper($baseSlug)) ?: 'CERT');
+        $codeBase = substr($codeBase, 0, 48);
+        $code = $codeBase;
+        $n = 1;
+        while ($this->certificationCodeExists($code, $excludeId) || $this->certificationSlugExists($slug, $excludeId)) {
+            $n++;
+            $slug = $baseSlug . '-' . $n;
+            $code = substr($codeBase, 0, 40) . '_' . $n;
+        }
+        return ['code' => $code, 'slug' => $slug];
     }
 
     /** @return list<array<string, mixed>> */
@@ -783,6 +864,13 @@ final class CatalogRepository
         ?float $bundlePrice = null,
         ?string $notes = null
     ): void {
+        $allowed = ['included', 'sold_separate', 'bundle_discount'];
+        if (!in_array($relationType, $allowed, true)) {
+            $relationType = 'included';
+        }
+        if ($relationType !== 'bundle_discount') {
+            $bundlePrice = null;
+        }
         $stmt = $this->pdo->prepare(
             'INSERT INTO certification_courses (certification_id, course_id, relation_type, bundle_price, notes)
              VALUES (?,?,?,?,?)

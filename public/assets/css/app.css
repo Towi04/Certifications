@@ -244,7 +244,34 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   border-radius: 10px;
   background: #fff;
 }
-.form-grid .actions { grid-column: 1 / -1; display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.form-grid .actions { grid-column: 1 / -1; display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: center; }
+.form-grid .field-wide { grid-column: 1 / -1; }
+.form-grid textarea.html-editor {
+  min-height: 10rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.skills-fieldset {
+  border: 1px solid rgba(49, 82, 133, 0.15);
+  border-radius: 12px;
+  padding: 0.85rem 1rem 1rem;
+  margin: 0;
+}
+.skills-fieldset legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+  color: var(--blue);
+}
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.45rem 0.85rem;
+  margin-top: 0.35rem;
+}
+.cenni-fields { margin-top: 0.15rem; }
+.prose-inline { display: inline; }
+.prose-inline p { display: inline; margin: 0; }
 
 .table-wrap { overflow-x: auto; margin-top: 1rem; }
 .data-table {

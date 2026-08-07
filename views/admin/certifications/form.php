@@ -2,18 +2,62 @@
 require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
 $linkedCourses = $linkedCourses ?? [];
+$modalities = \App\Catalog\CatalogRepository::modalities();
+$skillsCatalog = \App\Catalog\CatalogRepository::certificationSkills();
+$cenniTypes = \App\Catalog\CatalogRepository::cenniDocTypes();
+$relationTypes = \App\Catalog\CatalogRepository::courseRelationTypes();
+$selectedSkills = [];
+if (!empty($item['skills_json'])) {
+    $decoded = is_string($item['skills_json'])
+        ? json_decode($item['skills_json'], true)
+        : $item['skills_json'];
+    if (is_array($decoded)) {
+        $selectedSkills = array_map('strval', $decoded);
+    }
+}
+$isLevel = !empty($item['is_level_exam']);
+$cenniOn = !empty($item['cenni_eligible']);
+$conocerOn = !empty($item['conocer_eligible']);
+$cenniDoc = $item['cenni_doc_type'] ?? 'constancia';
+if ($cenniDoc === 'certificado' || $cenniDoc === 'diploma') {
+    $cenniDoc = 'constancia_certificado_diploma';
+}
+$modality = $item['modality'] ?? 'online';
+if (!isset($modalities[$modality])) {
+    $modality = 'online';
+}
+$published = !empty($item['is_published']);
+$iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>';
+$iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+$iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 ?>
-<section class="note">
+<section class="note certification-edit">
     <h2><?= e($title) ?></h2>
-    <form method="post" action="/admin/certifications/save" class="stack form-grid">
+    <?php if ($item): ?>
+        <p class="muted">
+            Certificaciones de <strong><?= e($item['provider_name'] ?? '') ?></strong>
+            · código <code><?= e($item['code']) ?></code>
+            · slug <code><?= e($item['slug']) ?></code>
+            <span class="admin-only-hint">(asignados automáticamente)</span>
+        </p>
+    <?php else: ?>
+        <p class="muted">Preferible crearlas desde Proveedores → Certificaciones. Aquí el código y slug se generan solos.</p>
+    <?php endif; ?>
+
+    <form method="post" action="/admin/certifications/save" class="stack form-grid" id="certForm">
         <?php if ($item): ?><input type="hidden" name="id" value="<?= (int)$item['id'] ?>"><?php endif; ?>
-        <label>Proveedor
-            <select name="provider_id" required>
-                <?php foreach ($providers as $p): ?>
-                    <option value="<?= (int)$p['id'] ?>" <?= (int)($item['provider_id'] ?? 0) === (int)$p['id'] ? 'selected' : '' ?>><?= e($p['name']) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </label>
+
+        <?php if (!$item): ?>
+            <label>Proveedor
+                <select name="provider_id" required>
+                    <option value="">—</option>
+                    <?php foreach ($providers as $p): ?>
+                        <option value="<?= (int)$p['id'] ?>"><?= e($p['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+        <?php endif; ?>
+
         <label>Protocolo
             <select name="protocol_id">
                 <option value="">—</option>
@@ -22,38 +66,97 @@ $linkedCourses = $linkedCourses ?? [];
                 <?php endforeach; ?>
             </select>
         </label>
-        <label>Código<input name="code" required value="<?= e($item['code'] ?? '') ?>"></label>
-        <label>Slug<input name="slug" value="<?= e($item['slug'] ?? '') ?>" placeholder="auto desde nombre"></label>
         <label>Nombre<input name="name" required value="<?= e($item['name'] ?? '') ?>"></label>
         <label>Modalidad
             <select name="modality">
-                <?php foreach (['online','paper','hybrid','other'] as $m): ?>
-                    <option value="<?= $m ?>" <?= ($item['modality'] ?? 'online') === $m ? 'selected' : '' ?>><?= $m ?></option>
+                <?php foreach ($modalities as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $modality === $value ? 'selected' : '' ?>><?= e($label) ?></option>
                 <?php endforeach; ?>
             </select>
         </label>
-        <label>Resumen<textarea name="short_description" rows="3"><?= e($item['short_description'] ?? '') ?></textarea></label>
-        <label>Descripción HTML<textarea name="description_html" rows="5"><?= e($item['description_html'] ?? '') ?></textarea></label>
-        <label>Temario HTML<textarea name="syllabus_html" rows="5"><?= e($item['syllabus_html'] ?? '') ?></textarea></label>
-        <label>Duración<input name="duration_label" value="<?= e($item['duration_label'] ?? '') ?>"></label>
+
+        <label class="field-wide">Resumen (HTML)
+            <textarea name="short_description" rows="8" class="html-editor" placeholder="Puedes usar HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;&lt;li&gt;…"><?= e($item['short_description'] ?? '') ?></textarea>
+            <small class="muted">Texto con formato HTML (negritas, listas, párrafos, etc.).</small>
+        </label>
+        <label class="field-wide">Descripción (HTML)
+            <textarea name="description_html" rows="12" class="html-editor" placeholder="Descripción larga con HTML"><?= e($item['description_html'] ?? '') ?></textarea>
+            <small class="muted">Escribe HTML para aplicar formatos al publicar la ficha.</small>
+        </label>
+        <label class="field-wide">Temario (HTML)
+            <textarea name="syllabus_html" rows="10" class="html-editor"><?= e($item['syllabus_html'] ?? '') ?></textarea>
+        </label>
+
+        <label>Duración<input name="duration_label" value="<?= e($item['duration_label'] ?? '') ?>" placeholder="Ej. 2 h 30 min"></label>
         <label>Audiencia<input name="audience" value="<?= e($item['audience'] ?? '') ?>"></label>
+
+        <label class="check field-wide">
+            <input type="checkbox" name="is_level_exam" id="isLevelExam" <?= $isLevel ? 'checked' : '' ?>>
+            Es un examen de nivel (evalúa habilidades)
+        </label>
+        <fieldset class="field-wide skills-fieldset" id="skillsFieldset" <?= $isLevel ? '' : 'hidden' ?>>
+            <legend>Habilidades que evalúa</legend>
+            <div class="skills-grid">
+                <?php foreach ($skillsCatalog as $key => $label): ?>
+                    <label class="check">
+                        <input type="checkbox" name="skills[]" value="<?= e($key) ?>" <?= in_array($key, $selectedSkills, true) ? 'checked' : '' ?>>
+                        <?= e($label) ?>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        </fieldset>
+
+        <label class="field-wide">Rango de puntaje / nivel
+            <input name="score_range" required value="<?= e($item['score_range'] ?? '') ?>" placeholder="Ej. 0–120, A1–C2, 420–677, B1+">
+            <small class="muted">Rango que puede obtener el candidato.</small>
+        </label>
+
         <label>Precio público<input type="number" step="0.01" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>"></label>
         <label>Moneda<input name="currency" value="<?= e($item['currency'] ?? 'MXN') ?>"></label>
-        <label class="check"><input type="checkbox" name="cenni_eligible" <?= !empty($item['cenni_eligible']) ? 'checked' : '' ?>> Elegible CENNI</label>
-        <label>Tipo doc CENNI
-            <select name="cenni_doc_type">
-                <?php foreach (['none','constancia','certificado','diploma'] as $t): ?>
-                    <option value="<?= $t ?>" <?= ($item['cenni_doc_type'] ?? 'none') === $t ? 'selected' : '' ?>><?= $t ?></option>
-                <?php endforeach; ?>
-            </select>
+
+        <label class="check field-wide">
+            <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>
+            Elegible CENNI
         </label>
-        <label class="check"><input type="checkbox" name="cenni_included" <?= !empty($item['cenni_included']) ? 'checked' : '' ?>> CENNI incluido</label>
-        <label>Fee CENNI<input type="number" step="0.01" name="cenni_fee" value="<?= e((string)($item['cenni_fee'] ?? '')) ?>"></label>
-        <label class="check"><input type="checkbox" name="conocer_eligible" <?= !empty($item['conocer_eligible']) ? 'checked' : '' ?>> Elegible CONOCER</label>
-        <label>Fee CONOCER<input type="number" step="0.01" name="conocer_fee" value="<?= e((string)($item['conocer_fee'] ?? '')) ?>"></label>
+        <div id="cenniFields" class="field-wide cenni-fields" <?= $cenniOn ? '' : 'hidden' ?>>
+            <div class="form-grid" style="margin:0">
+                <label>Tipo de documento CENNI
+                    <select name="cenni_doc_type">
+                        <?php foreach ($cenniTypes as $value => $label): ?>
+                            <option value="<?= e($value) ?>" <?= $cenniDoc === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="muted">Quienes otorgan certificado/diploma pueden emitir los 3 según el nivel.</small>
+                </label>
+                <label>Fee CENNI
+                    <input type="number" step="0.01" name="cenni_fee" value="<?= e((string)($item['cenni_fee'] ?? '0')) ?>">
+                    <small class="muted">Si es $0, se considera incluido en la certificación.</small>
+                </label>
+            </div>
+        </div>
+
+        <label class="check field-wide">
+            <input type="checkbox" name="conocer_eligible" id="conocerEligible" <?= $conocerOn ? 'checked' : '' ?>>
+            Elegible CONOCER
+        </label>
+        <div id="conocerFields" class="field-wide" <?= $conocerOn ? '' : 'hidden' ?>>
+            <label>Fee CONOCER
+                <input type="number" step="0.01" name="conocer_fee" value="<?= e((string)($item['conocer_fee'] ?? '0')) ?>">
+            </label>
+        </div>
+
         <label>Orden<input type="number" name="sort_order" value="<?= e((string)($item['sort_order'] ?? '0')) ?>"></label>
-        <label class="check"><input type="checkbox" name="is_published" <?= !empty($item['is_published']) ? 'checked' : '' ?>> Publicada (visible a partners)</label>
-        <div class="actions"><button class="btn" type="submit">Guardar</button><a class="btn btn-ghost" href="/admin/certifications">Volver</a></div>
+
+        <div class="actions">
+            <button class="btn" type="submit" name="intent" value="save">Guardar</button>
+            <?php if ($item && !$published): ?>
+                <button class="btn" type="submit" name="intent" value="publish">Publicar</button>
+            <?php elseif ($item && $published): ?>
+                <span class="pill pill-ok">Publicada</span>
+                <span class="muted">Para ocultarla usa el ojo en el listado.</span>
+            <?php endif; ?>
+            <a class="btn btn-ghost" href="/admin/certifications">Volver</a>
+        </div>
     </form>
 
     <?php if ($item): ?>
@@ -61,12 +164,19 @@ $linkedCourses = $linkedCourses ?? [];
         <?php if ($linkedCourses): ?>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Curso</th><th>Relación</th><th>Plataforma</th><th></th></tr></thead>
+                    <thead><tr><th>Curso</th><th>Relación</th><th>Precio bundle</th><th>Plataforma</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($linkedCourses as $c): ?>
                         <tr>
                             <td><?= e($c['course_name']) ?></td>
-                            <td><?= e($c['relation_type']) ?></td>
+                            <td><?= e($relationTypes[$c['relation_type']] ?? $c['relation_type']) ?></td>
+                            <td>
+                                <?php if (($c['relation_type'] ?? '') === 'bundle_discount' && $c['bundle_price'] !== null): ?>
+                                    <?= e(\App\Support\Str::money((float)$c['bundle_price'])) ?>
+                                <?php else: ?>
+                                    —
+                                <?php endif; ?>
+                            </td>
                             <td><?= e($c['platform_type']) ?></td>
                             <td>
                                 <form method="post" action="/admin/certifications/detach-course" class="inline-form">
@@ -84,7 +194,7 @@ $linkedCourses = $linkedCourses ?? [];
             <p class="muted">Ningún curso vinculado aún.</p>
         <?php endif; ?>
 
-        <form method="post" action="/admin/certifications/attach-course" class="stack form-grid" style="margin-top:1rem">
+        <form method="post" action="/admin/certifications/attach-course" class="stack form-grid" style="margin-top:1rem" id="attachCourseForm">
             <input type="hidden" name="certification_id" value="<?= (int)$item['id'] ?>">
             <label>Vincular curso
                 <select name="course_id" required>
@@ -95,18 +205,52 @@ $linkedCourses = $linkedCourses ?? [];
                 </select>
             </label>
             <label>Relación
-                <select name="relation_type">
-                    <?php foreach (['included', 'sold_separate', 'bundle_discount'] as $rel): ?>
-                        <option value="<?= $rel ?>"><?= $rel ?></option>
+                <select name="relation_type" id="relationType">
+                    <?php foreach ($relationTypes as $value => $label): ?>
+                        <option value="<?= e($value) ?>"><?= e($label) ?></option>
                     <?php endforeach; ?>
                 </select>
             </label>
-            <label>Precio bundle<input type="number" step="0.01" name="bundle_price"></label>
+            <label id="bundlePriceField" style="display:none">Precio bundle
+                <input type="number" step="0.01" name="bundle_price">
+                <small class="muted">Solo aplica con bundle con descuento.</small>
+            </label>
             <label>Notas<input name="notes"></label>
             <div class="actions"><button class="btn" type="submit">Vincular curso</button></div>
         </form>
     <?php endif; ?>
 </section>
+
+<script>
+(() => {
+  const level = document.getElementById('isLevelExam');
+  const skills = document.getElementById('skillsFieldset');
+  const syncLevel = () => { if (skills) skills.hidden = !level?.checked; };
+  level?.addEventListener('change', syncLevel);
+  syncLevel();
+
+  const cenni = document.getElementById('cenniEligible');
+  const cenniFields = document.getElementById('cenniFields');
+  const syncCenni = () => { if (cenniFields) cenniFields.hidden = !cenni?.checked; };
+  cenni?.addEventListener('change', syncCenni);
+  syncCenni();
+
+  const conocer = document.getElementById('conocerEligible');
+  const conocerFields = document.getElementById('conocerFields');
+  const syncConocer = () => { if (conocerFields) conocerFields.hidden = !conocer?.checked; };
+  conocer?.addEventListener('change', syncConocer);
+  syncConocer();
+
+  const rel = document.getElementById('relationType');
+  const bundle = document.getElementById('bundlePriceField');
+  const syncRel = () => {
+    if (!bundle || !rel) return;
+    bundle.style.display = rel.value === 'bundle_discount' ? '' : 'none';
+  };
+  rel?.addEventListener('change', syncRel);
+  syncRel();
+})();
+</script>
 
 <?php if ($item): ?>
 <?php
@@ -118,4 +262,3 @@ $redirect = '/admin/certifications/edit?id=' . $ownerId;
 require __DIR__ . '/../_assets.php';
 ?>
 <?php endif; ?>
-
