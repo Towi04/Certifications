@@ -48,10 +48,23 @@
                     Precio partner: pendiente
                 <?php endif; ?>
             </p>
-            <p class="meta-line">
-                <?= (int)$item['cenni_eligible'] ? 'CENNI' : '' ?>
-                <?= (int)$item['conocer_eligible'] ? ' · CONOCER' : '' ?>
-                · <?= e($item['modality']) ?>
+            <p class="meta-line catalog-meta-icons">
+                <?= \App\Support\CertIcons::modalityHtml((string)($item['modality'] ?? '')) ?>
+                <?php
+                $skillsIcons = \App\Support\CertIcons::skillsHtml(
+                    $item['skills_json'] ?? null,
+                    !empty($item['is_level_exam'])
+                );
+                if ($skillsIcons !== '') {
+                    echo ' ' . $skillsIcons;
+                }
+                ?>
+                <?php if ((int)$item['cenni_eligible'] || (int)$item['conocer_eligible']): ?>
+                    <span class="muted">
+                        <?= (int)$item['cenni_eligible'] ? 'CENNI' : '' ?>
+                        <?= (int)$item['conocer_eligible'] ? (((int)$item['cenni_eligible'] ? ' · ' : '') . 'CONOCER') : '' ?>
+                    </span>
+                <?php endif; ?>
             </p>
         </article>
     <?php endforeach; ?>

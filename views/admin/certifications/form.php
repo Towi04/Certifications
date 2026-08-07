@@ -90,15 +90,15 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 <span class="html-field-title">Resumen (HTML)</span>
                 <button type="button" class="icon-btn html-preview-toggle" title="Vista previa / código" aria-label="Alternar vista previa HTML" aria-pressed="false">&lt;/&gt;</button>
             </div>
-            <textarea name="short_description" rows="8" class="html-editor" placeholder="Puedes usar HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;&lt;li&gt;…"><?= e($item['short_description'] ?? '') ?></textarea>
+            <textarea name="short_description" rows="14" class="html-editor" placeholder="Puedes usar HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;&lt;li&gt;…"><?= e($item['short_description'] ?? '') ?></textarea>
             <div class="html-preview prose" hidden></div>
         </div>
-        <div class="field-wide html-field" data-html-field>
+        <div class="field-wide html-field html-field--long" data-html-field>
             <div class="html-field-head">
                 <span class="html-field-title">Descripción (HTML)</span>
                 <button type="button" class="icon-btn html-preview-toggle" title="Vista previa / código" aria-label="Alternar vista previa HTML" aria-pressed="false">&lt;/&gt;</button>
             </div>
-            <textarea name="description_html" rows="12" class="html-editor" placeholder="Descripción larga con HTML"><?= e($item['description_html'] ?? '') ?></textarea>
+            <textarea name="description_html" rows="20" class="html-editor" placeholder="Descripción larga con HTML"><?= e($item['description_html'] ?? '') ?></textarea>
             <div class="html-preview prose" hidden></div>
         </div>
 
