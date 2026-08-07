@@ -2,16 +2,17 @@
 <section class="note">
     <div class="page-head" style="margin:0">
         <h2 style="margin:0">Partners Teacher Referral</h2>
-        <a class="btn" href="/admin/partners/create">Asignar partner</a>
+        <a class="btn" href="/admin/partners/create">Nuevo partner</a>
     </div>
     <div class="table-wrap">
         <table class="data-table">
             <thead>
             <tr>
-                <th>Usuario</th>
+                <th>Partner</th>
                 <th>Organización</th>
                 <th>Nivel</th>
                 <th>Convenio</th>
+                <th>Ciudad envío</th>
                 <th></th>
             </tr>
             </thead>
@@ -25,11 +26,12 @@
                     <td><?= e($item['organization'] ?? '—') ?></td>
                     <td><?= e($item['tier_name'] ?? '—') ?></td>
                     <td><?= e($item['agreement_name'] ?? '—') ?></td>
+                    <td><?= e($item['shipping_city'] ?? '—') ?></td>
                     <td><a href="/admin/partners/edit?id=<?= (int)$item['id'] ?>">Editar</a></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="5" class="muted">Aún no hay partners asignados. Registra un usuario y asígnale nivel/convenio.</td></tr>
+                <tr><td colspan="6" class="muted">Aún no hay partners. Crea uno con “Nuevo partner”.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

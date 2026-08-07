@@ -1185,12 +1185,11 @@ final class AdminRoutes
         $router->get('/admin/partners/create', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/partners/form', [
-                'title' => 'Asignar partner',
+                'title' => 'Nuevo partner TR',
                 'item' => null,
-                'users' => $repo()->usersAvailableForPartner(),
                 'tiers' => $repo()->partnerTiers(true),
-                'agreements' => $repo()->agreements(),
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -1204,11 +1203,9 @@ final class AdminRoutes
                 exit;
             }
             view('admin/partners/form', [
-                'title' => 'Editar partner',
+                'title' => 'Editar partner TR',
                 'item' => $item,
-                'users' => $repo()->usersAvailableForPartner((int) $item['user_id']),
                 'tiers' => $repo()->partnerTiers(true),
-                'agreements' => $repo()->agreements(),
                 'history' => $repo()->partnerAssignmentHistory($id),
                 'error' => flash('error'),
                 'info' => flash('info'),
@@ -1218,27 +1215,142 @@ final class AdminRoutes
         $router->post('/admin/partners/save', static function () use ($repo): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
-            $userId = (int) ($_POST['user_id'] ?? 0);
             $tierId = (int) ($_POST['partner_tier_id'] ?? 0);
-            $agreementId = (int) ($_POST['current_agreement_id'] ?? 0);
-            if ($userId < 1) {
-                flash('error', 'Selecciona un usuario.');
-                header('Location: ' . ($id ? '/admin/partners/edit?id=' . $id : '/admin/partners/create'));
-                exit;
-            }
+            $firstName = trim((string) ($_POST['first_name'] ?? ''));
+            $lastName = trim((string) ($_POST['last_name'] ?? ''));
+            $email = trim((string) ($_POST['email'] ?? ''));
+            $phone = trim((string) ($_POST['phone'] ?? '')) ?: null;
+            $organization = trim((string) ($_POST['organization'] ?? '')) ?: null;
+            $requiresInvoice = isset($_POST['requires_invoice']) ? 1 : 0;
+
             try {
+                if ($tierId < 1) {
+                    throw new \RuntimeException('Selecciona el nivel TR.');
+                }
+                $agreement = $repo()->currentAgreementForTier($tierId);
+                if (!$agreement) {
+                    throw new \RuntimeException('Ese nivel no tiene un convenio vigente. Márcalo en Convenios anuales.');
+                }
+
+                $shippingLine = trim((string) ($_POST['shipping_address_line'] ?? ''));
+                $shippingCity = trim((string) ($_POST['shipping_city'] ?? ''));
+                if ($shippingLine === '' || $shippingCity === '') {
+                    throw new \RuntimeException('La dirección de paquetería (calle y ciudad) es obligatoria.');
+                }
+
+                $existing = $id ? $repo()->partner($id) : null;
+                if ($id && !$existing) {
+                    throw new \RuntimeException('Partner no encontrado.');
+                }
+
+                $signedFile = $_FILES['signed_agreement'] ?? null;
+                $hasSignedUpload = is_array($signedFile)
+                    && (int) ($signedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+                if (!$id && !$hasSignedUpload) {
+                    throw new \RuntimeException('Sube el convenio firmado por el Teacher Referral (PDF).');
+                }
+
+                $taxFile = $_FILES['tax_status'] ?? null;
+                $hasTaxUpload = is_array($taxFile)
+                    && (int) ($taxFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+                if ($requiresInvoice && !$hasTaxUpload && empty($existing['tax_status_path'])) {
+                    throw new \RuntimeException('Si requiere factura, sube la Constancia de Situación Fiscal.');
+                }
+
+                $userRepo = new UserRepository();
+                if ($id) {
+                    $userId = (int) $existing['user_id'];
+                    $userRepo->update($userId, [
+                        'email' => $email !== '' ? $email : (string) $existing['email'],
+                        'phone' => $phone,
+                        'username' => (string) ($existing['username'] ?: explode('@', (string) $existing['email'], 2)[0]),
+                        'first_name' => $firstName !== '' ? $firstName : (string) ($existing['first_name'] ?? 'Partner'),
+                        'last_name' => $lastName !== '' ? $lastName : (string) ($existing['last_name'] ?? 'TR'),
+                        'role' => 'partner',
+                        'is_active' => (int) ($existing['user_active'] ?? 1),
+                    ]);
+                } else {
+                    if ($firstName === '' || $lastName === '' || $email === '') {
+                        throw new \RuntimeException('Nombre, apellidos y correo son obligatorios.');
+                    }
+                    $userId = $userRepo->createPartnerUser($email, $firstName, $lastName, $phone);
+                }
+
                 $admin = Auth::user();
-                $repo()->savePartner([
+                $savedId = $repo()->savePartner([
                     'user_id' => $userId,
-                    'partner_tier_id' => $tierId > 0 ? $tierId : null,
-                    'current_agreement_id' => $agreementId > 0 ? $agreementId : null,
-                    'organization' => trim((string) ($_POST['organization'] ?? '')) ?: null,
-                    'phone' => trim((string) ($_POST['phone'] ?? '')) ?: null,
+                    'partner_tier_id' => $tierId,
+                    'current_agreement_id' => (int) $agreement['id'],
+                    'organization' => $organization,
+                    'phone' => $phone,
+                    'shipping_address_line' => $shippingLine,
+                    'shipping_address_line2' => trim((string) ($_POST['shipping_address_line2'] ?? '')) ?: null,
+                    'shipping_neighborhood' => trim((string) ($_POST['shipping_neighborhood'] ?? '')) ?: null,
+                    'shipping_city' => $shippingCity,
+                    'shipping_state' => trim((string) ($_POST['shipping_state'] ?? '')) ?: null,
+                    'shipping_postal_code' => trim((string) ($_POST['shipping_postal_code'] ?? '')) ?: null,
+                    'shipping_country' => trim((string) ($_POST['shipping_country'] ?? 'México')) ?: 'México',
+                    'signed_agreement_path' => $existing['signed_agreement_path'] ?? null,
+                    'requires_invoice' => $requiresInvoice,
+                    'tax_status_path' => $existing['tax_status_path'] ?? null,
+                    'logo_path' => $existing['logo_path'] ?? null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                    'assignment_reason' => trim((string) ($_POST['assignment_reason'] ?? '')) ?: 'Asignación admin',
+                    'assignment_reason' => trim((string) ($_POST['assignment_reason'] ?? '')) ?: 'Alta / actualización partner TR',
                 ], $id, $admin ? (int) $admin['id'] : null);
-                flash('info', 'Partner guardado.');
-                header('Location: /admin/partners');
+
+                $subdir = 'partners/' . $savedId;
+                $signedPath = $existing['signed_agreement_path'] ?? null;
+                $taxPath = $existing['tax_status_path'] ?? null;
+                $logoPath = $existing['logo_path'] ?? null;
+                $filesChanged = false;
+
+                if ($hasSignedUpload) {
+                    $signedPath = Uploader::store($signedFile, $subdir);
+                    $filesChanged = true;
+                }
+                if ($hasTaxUpload) {
+                    $taxPath = Uploader::store($taxFile, $subdir);
+                    $filesChanged = true;
+                }
+                $logoFile = $_FILES['logo'] ?? null;
+                if (is_array($logoFile) && (int) ($logoFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $logoPath = Uploader::storeImage($logoFile, $subdir, 600, 600);
+                    $filesChanged = true;
+                }
+
+                if ($filesChanged) {
+                    $fresh = $repo()->partner($savedId);
+                    $repo()->savePartner([
+                        'user_id' => $userId,
+                        'partner_tier_id' => $tierId,
+                        'current_agreement_id' => (int) $agreement['id'],
+                        'organization' => $organization,
+                        'phone' => $phone,
+                        'shipping_address_line' => $shippingLine,
+                        'shipping_address_line2' => trim((string) ($_POST['shipping_address_line2'] ?? '')) ?: null,
+                        'shipping_neighborhood' => trim((string) ($_POST['shipping_neighborhood'] ?? '')) ?: null,
+                        'shipping_city' => $shippingCity,
+                        'shipping_state' => trim((string) ($_POST['shipping_state'] ?? '')) ?: null,
+                        'shipping_postal_code' => trim((string) ($_POST['shipping_postal_code'] ?? '')) ?: null,
+                        'shipping_country' => trim((string) ($_POST['shipping_country'] ?? 'México')) ?: 'México',
+                        'signed_agreement_path' => $signedPath,
+                        'requires_invoice' => $requiresInvoice,
+                        'tax_status_path' => $taxPath,
+                        'logo_path' => $logoPath,
+                        'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                        'assignment_reason' => 'Actualización de documentos',
+                    ], $savedId, $admin ? (int) $admin['id'] : null);
+                    unset($fresh);
+                }
+
+                flash(
+                    'info',
+                    $id
+                        ? 'Partner actualizado.'
+                        : 'Partner creado. Correo: ' . $email . ' · contraseña temporal: '
+                            . UserRepository::PARTNER_DEFAULT_PASSWORD
+                );
+                header('Location: /admin/partners/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());

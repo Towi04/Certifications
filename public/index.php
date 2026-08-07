@@ -70,6 +70,10 @@ $runLogin = static function (bool $fromGet = false): void {
     }
 
     $user = Auth::user();
+    if (Auth::mustChangePassword()) {
+        header('Location: /change-password');
+        exit;
+    }
     $role = $user['role'] ?? '';
     if (Auth::isStaffRole($role)) {
         header('Location: /admin');
@@ -83,6 +87,9 @@ $runLogin = static function (bool $fromGet = false): void {
 
 $postLoginPath = static function (): string {
     $user = Auth::user();
+    if (Auth::mustChangePassword()) {
+        return '/change-password';
+    }
     $role = $user['role'] ?? '';
     if (Auth::isStaffRole($role)) {
         return '/admin';
@@ -116,6 +123,58 @@ $router->post('/logout', static function (): void {
     Auth::logout();
     header('Location: /login');
     exit;
+});
+
+$router->get('/change-password', static function (): void {
+    Auth::requireLogin();
+    if (!Auth::mustChangePassword()) {
+        $user = Auth::user();
+        $role = $user['role'] ?? '';
+        header('Location: ' . (Auth::isStaffRole($role) ? '/admin' : ($role === 'partner' ? '/partner' : '/')));
+        exit;
+    }
+    view('auth/change_password', [
+        'title' => 'Cambiar contraseña',
+        'error' => flash('error'),
+        'info' => flash('info'),
+    ]);
+});
+
+$router->post('/change-password', static function (): void {
+    Auth::requireLogin();
+    if (!Auth::mustChangePassword()) {
+        header('Location: /');
+        exit;
+    }
+    $user = Auth::user();
+    $password = (string) ($_POST['password'] ?? '');
+    $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+    if ($password === '' || $passwordConfirm === '') {
+        flash('error', 'Completa ambos campos.');
+        header('Location: /change-password');
+        exit;
+    }
+    if ($password !== $passwordConfirm) {
+        flash('error', 'Las contraseñas no coinciden.');
+        header('Location: /change-password');
+        exit;
+    }
+    if (strlen($password) < 8) {
+        flash('error', 'La contraseña debe tener al menos 8 caracteres.');
+        header('Location: /change-password');
+        exit;
+    }
+    try {
+        Auth::updatePassword((int) $user['id'], $password);
+        flash('info', 'Contraseña actualizada.');
+        $role = $user['role'] ?? '';
+        header('Location: ' . (Auth::isStaffRole($role) ? '/admin' : ($role === 'partner' ? '/partner' : '/')));
+        exit;
+    } catch (Throwable $e) {
+        flash('error', $e->getMessage());
+        header('Location: /change-password');
+        exit;
+    }
 });
 
 $router->get('/register', static function (): void {
@@ -273,6 +332,7 @@ $router->post('/reset-password', static function (): void {
 
 $router->get('/profile', static function (): void {
     Auth::requireLogin();
+    Auth::requirePasswordChanged();
 
     view('auth/profile', [
         'title' => 'Perfil',
@@ -284,6 +344,7 @@ $router->get('/profile', static function (): void {
 
 $router->post('/profile', static function (): void {
     Auth::requireLogin();
+    Auth::requirePasswordChanged();
     $user = Auth::user();
     if ($user === null) {
         header('Location: /login');

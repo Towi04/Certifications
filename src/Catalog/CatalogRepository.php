@@ -1117,9 +1117,13 @@ final class CatalogRepository
     public function partner(int $id): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT p.*, u.email, u.name AS user_name, u.role
+            'SELECT p.*, u.email, u.name AS user_name, u.first_name, u.last_name, u.username, u.role,
+                    u.phone AS user_phone, u.is_active AS user_active,
+                    t.name AS tier_name, a.name AS agreement_name
              FROM partners p
              JOIN users u ON u.id = p.user_id
+             LEFT JOIN partner_tiers t ON t.id = p.partner_tier_id
+             LEFT JOIN agreements a ON a.id = p.current_agreement_id
              WHERE p.id = ?'
         );
         $stmt->execute([$id]);
@@ -1127,19 +1131,17 @@ final class CatalogRepository
         return $row ?: null;
     }
 
-    /** @return list<array<string, mixed>> */
-    public function usersAvailableForPartner(?int $currentUserId = null): array
+    public function currentAgreementForTier(int $tierId): ?array
     {
-        $sql = 'SELECT u.id, u.email, u.name, u.role
-                FROM users u
-                LEFT JOIN partners p ON p.user_id = u.id
-                WHERE (p.id IS NULL OR u.id = ?)
-                  AND u.is_active = 1
-                  AND u.role IN (\'partner\', \'student\')
-                ORDER BY u.name, u.email';
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$currentUserId ?? 0]);
-        return $stmt->fetchAll();
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM agreements
+             WHERE partner_tier_id = ? AND is_current = 1
+             ORDER BY year DESC, id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$tierId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     public function savePartner(array $data, ?int $id = null, ?int $createdBy = null): int
@@ -1148,7 +1150,7 @@ final class CatalogRepository
         try {
             $userId = (int) $data['user_id'];
             $this->pdo->prepare(
-                "UPDATE users SET role = 'partner' WHERE id = ? AND role <> 'admin'"
+                "UPDATE users SET role = 'partner' WHERE id = ? AND role NOT IN ('admin', 'assistant', 'manager')"
             )->execute([$userId]);
 
             $previousAgreementId = null;
@@ -1161,21 +1163,40 @@ final class CatalogRepository
                 $userId,
                 $data['partner_tier_id'],
                 $data['current_agreement_id'],
-                $data['organization'],
-                $data['phone'],
-                $data['notes'],
+                $data['organization'] ?? null,
+                $data['phone'] ?? null,
+                $data['shipping_address_line'] ?? null,
+                $data['shipping_address_line2'] ?? null,
+                $data['shipping_neighborhood'] ?? null,
+                $data['shipping_city'] ?? null,
+                $data['shipping_state'] ?? null,
+                $data['shipping_postal_code'] ?? null,
+                $data['shipping_country'] ?? 'México',
+                $data['signed_agreement_path'] ?? null,
+                (int) ($data['requires_invoice'] ?? 0),
+                $data['tax_status_path'] ?? null,
+                $data['logo_path'] ?? null,
+                $data['notes'] ?? null,
             ];
 
             if ($id) {
                 $stmt = $this->pdo->prepare(
                     'UPDATE partners SET user_id=?, partner_tier_id=?, current_agreement_id=?,
-                     organization=?, phone=?, notes=? WHERE id=?'
+                     organization=?, phone=?,
+                     shipping_address_line=?, shipping_address_line2=?, shipping_neighborhood=?,
+                     shipping_city=?, shipping_state=?, shipping_postal_code=?, shipping_country=?,
+                     signed_agreement_path=?, requires_invoice=?, tax_status_path=?, logo_path=?,
+                     notes=? WHERE id=?'
                 );
                 $stmt->execute([...$fields, $id]);
             } else {
                 $stmt = $this->pdo->prepare(
-                    'INSERT INTO partners (user_id, partner_tier_id, current_agreement_id, organization, phone, notes)
-                     VALUES (?,?,?,?,?,?)'
+                    'INSERT INTO partners (
+                        user_id, partner_tier_id, current_agreement_id, organization, phone,
+                        shipping_address_line, shipping_address_line2, shipping_neighborhood,
+                        shipping_city, shipping_state, shipping_postal_code, shipping_country,
+                        signed_agreement_path, requires_invoice, tax_status_path, logo_path, notes
+                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
                 );
                 $stmt->execute($fields);
                 $id = (int) $this->pdo->lastInsertId();

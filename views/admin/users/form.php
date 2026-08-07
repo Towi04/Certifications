@@ -2,8 +2,11 @@
 require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
 $roles = $roles ?? \App\Users\UserRepository::manageableRoles();
-if ($item && ($item['role'] ?? '') === 'student' && !isset($roles['student'])) {
-    $roles = ['student' => 'Alumno'] + $roles;
+$lockedRole = null;
+if ($item && in_array(($item['role'] ?? ''), ['partner', 'student'], true)) {
+    $lockedRole = $item['role'];
+    $labels = \App\Users\UserRepository::allRoleLabels();
+    $roles = [$lockedRole => $labels[$lockedRole] ?? $lockedRole] + $roles;
 }
 $isEdit = $item !== null;
 $currentUserId = (int) ($currentUserId ?? 0);
@@ -12,7 +15,8 @@ $isSelf = $isEdit && (int) $item['id'] === $currentUserId;
 <section class="note">
     <h2><?= e($title) ?></h2>
     <p class="muted">
-        Alta de personal (Administrador, Asistente, Gestor) y Partners TR.
+        Alta de personal Doceo (Administrador, Asistente, Gestor).
+        Los Partners TR se dan de alta en <a href="/admin/partners">Partners TR</a>.
         Los permisos por sección se definirán más adelante; por ahora todos los roles de personal entran al panel.
     </p>
 
@@ -38,14 +42,16 @@ $isSelf = $isEdit && (int) $item['id'] === $currentUserId;
             <small class="muted">Puede iniciar sesión con usuario o correo.</small>
         </label>
         <label>Rol
-            <select name="role" required <?= $isSelf ? 'disabled' : '' ?>>
+            <select name="role" required <?= ($isSelf || $lockedRole) ? 'disabled' : '' ?>>
                 <?php foreach ($roles as $value => $label): ?>
                     <option value="<?= e($value) ?>" <?= ($item['role'] ?? '') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
                 <?php endforeach; ?>
             </select>
-            <?php if ($isSelf): ?>
+            <?php if ($isSelf || $lockedRole): ?>
                 <input type="hidden" name="role" value="<?= e($item['role']) ?>">
-                <small class="muted">No puedes cambiar tu propio rol desde aquí.</small>
+                <small class="muted">
+                    <?= $lockedRole ? 'Los Partners TR / alumnos se gestionan en su ficha correspondiente.' : 'No puedes cambiar tu propio rol desde aquí.' ?>
+                </small>
             <?php endif; ?>
         </label>
 
