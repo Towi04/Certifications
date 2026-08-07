@@ -566,12 +566,14 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                       const eye = <?= json_encode($iconEye) ?>;
                       const eyeOff = <?= json_encode($iconEyeOff) ?>;
                       const isEdit = <?= $editAccount ? 'true' : 'false' ?>;
+                      const hadLogin = <?= ($editAccount && !$editIsSite) ? 'true' : 'false' ?>;
 
                       const sync = () => {
                         const site = !(user?.value || '').trim();
                         if (passLabel) passLabel.style.display = site ? 'none' : '';
                         if (pass) {
-                          pass.required = !site && !isEdit;
+                          // Nueva cuenta con usuario, o sitio→cuenta: pide contraseña.
+                          pass.required = !site && (!isEdit || !hadLogin);
                           if (site) pass.value = '';
                         }
                         if (url) url.required = site;
@@ -803,7 +805,7 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                         })();
                         </script>
                     <?php else: ?>
-                        <p class="muted">Sin cuentas registradas. Agrega portales de capacitación, admin de exámenes, etc.</p>
+                        <p class="muted">Sin registros. Agrega cuentas con login o sitios (solo URL) para material, capacitación, etc.</p>
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
