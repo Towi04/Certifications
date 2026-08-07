@@ -113,9 +113,10 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <legend>Habilidades que evalúa</legend>
             <div class="skills-grid">
                 <?php foreach ($skillsCatalog as $key => $label): ?>
-                    <label class="check">
+                    <?php $skillSvg = \App\Support\CertIcons::skillSvg($key); ?>
+                    <label class="skill-icon-toggle" title="<?= e($label) ?>">
                         <input type="checkbox" name="skills[]" value="<?= e($key) ?>" <?= in_array($key, $selectedSkills, true) ? 'checked' : '' ?>>
-                        <?= e($label) ?>
+                        <span class="skill-icon-face" aria-label="<?= e($label) ?>"><?= $skillSvg ?></span>
                     </label>
                 <?php endforeach; ?>
             </div>
@@ -170,35 +171,35 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <?php endif; ?>
         </fieldset>
 
-        <label class="check field-wide">
-            <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>
-            Elegible CENNI
-        </label>
-        <div id="cenniFields" class="field-wide cenni-fields" <?= $cenniOn ? '' : 'hidden' ?>>
-            <div class="form-grid" style="margin:0">
-                <label>Tipo de documento CENNI
+        <div class="eligibility-row">
+            <label class="check">
+                <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>
+                Elegible CENNI
+            </label>
+            <div id="cenniFields" class="eligibility-fields" <?= $cenniOn ? '' : 'hidden' ?>>
+                <label>Tipo de documento
                     <select name="cenni_doc_type">
                         <?php foreach ($cenniTypes as $value => $label): ?>
                             <option value="<?= e($value) ?>" <?= $cenniDoc === $value ? 'selected' : '' ?>><?= e($label) ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="muted">Quienes otorgan certificado/diploma pueden emitir los 3 según el nivel.</small>
                 </label>
-                <label>Fee CENNI
+                <label class="fee-field">Fee CENNI
                     <input type="number" step="0.01" name="cenni_fee" value="<?= e((string)($item['cenni_fee'] ?? '0')) ?>">
-                    <small class="muted">Si es $0, se considera incluido en la certificación.</small>
                 </label>
             </div>
         </div>
 
-        <label class="check field-wide">
-            <input type="checkbox" name="conocer_eligible" id="conocerEligible" <?= $conocerOn ? 'checked' : '' ?>>
-            Elegible CONOCER
-        </label>
-        <div id="conocerFields" class="field-wide" <?= $conocerOn ? '' : 'hidden' ?>>
-            <label>Fee CONOCER
-                <input type="number" step="0.01" name="conocer_fee" value="<?= e((string)($item['conocer_fee'] ?? '0')) ?>">
+        <div class="eligibility-row">
+            <label class="check">
+                <input type="checkbox" name="conocer_eligible" id="conocerEligible" <?= $conocerOn ? 'checked' : '' ?>>
+                Elegible CONOCER
             </label>
+            <div id="conocerFields" class="eligibility-fields" <?= $conocerOn ? '' : 'hidden' ?>>
+                <label class="fee-field">Fee CONOCER
+                    <input type="number" step="0.01" name="conocer_fee" value="<?= e((string)($item['conocer_fee'] ?? '0')) ?>">
+                </label>
+            </div>
         </div>
 
         <label>Orden<input type="number" name="sort_order" value="<?= e((string)($item['sort_order'] ?? '0')) ?>"></label>
