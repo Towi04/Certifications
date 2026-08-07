@@ -512,15 +512,15 @@ $router->get('/admin/salud', static function (): void {
             $results[] = $checker->checkSmtp();
         } else {
             $results[] = [
-                'name' => 'SMTP',
+                'name' => 'Correo',
                 'ok' => null,
                 'message' => 'No ejecutado automáticamente (envía correo real). Usa el botón “Probar SMTP”.',
-                'meta' => [
+                'meta' => array_merge([
                     'skipped' => true,
+                    'transport' => \App\Config\Env::get('SMTP_TRANSPORT', 'auto'),
                     'host' => \App\Config\Env::get('SMTP_HOST'),
                     'user' => \App\Config\Env::get('SMTP_USER'),
-                    'pass_len' => strlen((string) \App\Config\Env::get('SMTP_PASS', '')),
-                ],
+                ], \App\Integrations\Mailer::passwordFingerprint()),
             ];
         }
 
