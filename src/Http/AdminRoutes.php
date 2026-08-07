@@ -248,27 +248,60 @@ final class AdminRoutes
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $venueId = (int) ($_POST['venue_id'] ?? 0) ?: null;
+            $venueType = (string) ($_POST['venue_type'] ?? 'fixed');
+            if (!in_array($venueType, ['fixed', 'subcentro'], true)) {
+                $venueType = 'fixed';
+            }
+            $city = trim((string) ($_POST['city'] ?? ''));
+            $state = trim((string) ($_POST['state'] ?? ''));
             $name = trim((string) ($_POST['name'] ?? ''));
             $address = trim((string) ($_POST['address_line'] ?? ''));
-            $city = trim((string) ($_POST['city'] ?? ''));
-            if ($providerId < 1 || $name === '' || $address === '' || $city === '') {
-                flash('error', 'Lugar, dirección y ciudad son obligatorios.');
+
+            $redirectError = static function () use ($providerTabUrl, $providerId, $venueId): void {
                 $loc = $providerTabUrl($providerId, 'sedes');
                 if ($venueId) {
                     $loc .= '&edit_venue=' . $venueId;
                 }
                 header('Location: ' . $loc);
                 exit;
+            };
+
+            if ($providerId < 1 || $city === '') {
+                flash('error', 'La ciudad es obligatoria.');
+                $redirectError();
             }
+            if ($venueType === 'fixed' && ($name === '' || $address === '')) {
+                flash('error', 'En sede fija: lugar y dirección son obligatorios.');
+                $redirectError();
+            }
+            if ($venueType === 'subcentro') {
+                if ($state === '') {
+                    flash('error', 'En subcentro: estado y ciudad son obligatorios.');
+                    $redirectError();
+                }
+                if ($name === '') {
+                    $name = 'Subcentro ' . ($state !== '' ? $state : $city);
+                }
+                // Dirección física se define por aplicación (más adelante).
+                $address = '';
+            }
+
             $payload = [
                 'provider_id' => $providerId,
+                'venue_type' => $venueType,
                 'name' => $name,
-                'address_line' => $address,
-                'address_line2' => trim((string) ($_POST['address_line2'] ?? '')) ?: null,
-                'neighborhood' => trim((string) ($_POST['neighborhood'] ?? '')) ?: null,
+                'address_line' => $address !== '' ? $address : null,
+                'address_line2' => $venueType === 'fixed'
+                    ? (trim((string) ($_POST['address_line2'] ?? '')) ?: null)
+                    : null,
+                'neighborhood' => $venueType === 'fixed'
+                    ? (trim((string) ($_POST['neighborhood'] ?? '')) ?: null)
+                    : null,
                 'city' => $city,
-                'state' => trim((string) ($_POST['state'] ?? '')) ?: null,
-                'postal_code' => trim((string) ($_POST['postal_code'] ?? '')) ?: null,
+                'state' => $state !== '' ? $state : null,
+                'postal_code' => $venueType === 'fixed'
+                    ? (trim((string) ($_POST['postal_code'] ?? '')) ?: null)
+                    : null,
                 'country' => trim((string) ($_POST['country'] ?? 'México')) ?: 'México',
                 'contact_name' => trim((string) ($_POST['contact_name'] ?? '')) ?: null,
                 'contact_phone' => trim((string) ($_POST['contact_phone'] ?? '')) ?: null,
@@ -282,19 +315,14 @@ final class AdminRoutes
                         throw new \RuntimeException('Sede no encontrada.');
                     }
                     $repo()->updateProviderVenue($venueId, $payload);
-                    flash('info', 'Sede actualizada.');
+                    flash('info', $venueType === 'subcentro' ? 'Subcentro actualizado.' : 'Sede actualizada.');
                 } else {
                     $repo()->addProviderVenue($payload);
-                    flash('info', 'Sede agregada.');
+                    flash('info', $venueType === 'subcentro' ? 'Subcentro agregado.' : 'Sede agregada.');
                 }
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                $loc = $providerTabUrl($providerId, 'sedes');
-                if ($venueId) {
-                    $loc .= '&edit_venue=' . $venueId;
-                }
-                header('Location: ' . $loc);
-                exit;
+                $redirectError();
             }
             header('Location: ' . $providerTabUrl($providerId, 'sedes'));
             exit;

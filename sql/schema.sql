@@ -82,8 +82,9 @@ CREATE TABLE IF NOT EXISTS provider_contacts (
 CREATE TABLE IF NOT EXISTS provider_venues (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NOT NULL,
+  venue_type ENUM('fixed', 'subcentro') NOT NULL DEFAULT 'fixed',
   name VARCHAR(190) NOT NULL,
-  address_line VARCHAR(255) NOT NULL,
+  address_line VARCHAR(255) NULL,
   address_line2 VARCHAR(255) NULL,
   neighborhood VARCHAR(120) NULL,
   city VARCHAR(120) NOT NULL,
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS provider_venues (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_provider_venues_provider (provider_id),
+  KEY idx_provider_venues_type (venue_type),
   CONSTRAINT fk_provider_venues_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

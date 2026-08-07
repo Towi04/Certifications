@@ -163,7 +163,7 @@ final class CatalogRepository
         $stmt = $this->pdo->prepare(
             'SELECT * FROM provider_venues
              WHERE provider_id = ?
-             ORDER BY is_active DESC, city ASC, state ASC, name ASC'
+             ORDER BY is_active DESC, venue_type ASC, state ASC, city ASC, name ASC'
         );
         $stmt->execute([$providerId]);
         return $stmt->fetchAll();
@@ -183,12 +183,13 @@ final class CatalogRepository
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO provider_venues (
-                provider_id, name, address_line, address_line2, neighborhood, city, state,
+                provider_id, venue_type, name, address_line, address_line2, neighborhood, city, state,
                 postal_code, country, contact_name, contact_phone, contact_email, notes, is_active
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute([
             $data['provider_id'],
+            $data['venue_type'] ?? 'fixed',
             $data['name'],
             $data['address_line'],
             $data['address_line2'],
@@ -210,11 +211,12 @@ final class CatalogRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE provider_venues SET
-                name=?, address_line=?, address_line2=?, neighborhood=?, city=?, state=?,
+                venue_type=?, name=?, address_line=?, address_line2=?, neighborhood=?, city=?, state=?,
                 postal_code=?, country=?, contact_name=?, contact_phone=?, contact_email=?, notes=?
              WHERE id=? AND provider_id=?'
         );
         $stmt->execute([
+            $data['venue_type'] ?? 'fixed',
             $data['name'],
             $data['address_line'],
             $data['address_line2'],
