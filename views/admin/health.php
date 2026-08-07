@@ -36,13 +36,13 @@
 <section class="note">
     <h2>SMTP y error 535</h2>
     <p>
-        El alta de usuarios y este botón usan el <strong>mismo</strong> cliente SMTP y el mismo <code>.env</code>.
-        Si “Probar SMTP” falla con 535, Exim está rechazando la autenticación en este momento
-        (no es un bug del formulario de usuarios).
+        El alta de usuarios y este botón usan el <strong>mismo</strong> cliente SMTP.
+        El Mailer prueba varios endpoints: el del <code>.env</code>, <code>localhost</code>,
+        <code>127.0.0.1</code> y puerto <code>587/tls</code> (típico en Neubox).
     </p>
     <ol>
-        <li>Revisa en el meta de SMTP: <code>user</code> y <code>pass_len</code> (longitud leída del .env, sin mostrar la clave).</li>
-        <li>Entra a webmail de <code>certificaciones@institutodoceo.com</code> con la misma contraseña.</li>
-        <li>Si webmail funciona pero SMTP no: prueba <code>SMTP_HOST=localhost</code> o puerto <code>587</code> + <code>SMTP_ENCRYPTION=tls</code>.</li>
+        <li>Compara <code>pass_len</code> con la longitud real de la contraseña en cPanel. Si no coincide, ponla entre comillas dobles en el <code>.env</code>.</li>
+        <li>Entra a webmail con esa cuenta para confirmar que la clave es válida.</li>
+        <li>Si un endpoint funciona, el meta mostrará <code>used_endpoint</code>; puedes dejarlo fijo en el <code>.env</code>.</li>
     </ol>
 </section>
