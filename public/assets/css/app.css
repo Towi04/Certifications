@@ -327,10 +327,6 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   height: 1.15rem;
   display: block;
 }
-.cert-meta-emoji {
-  font-size: 0.95rem;
-  line-height: 1;
-}
 .cert-meta-icon--modality {
   background: rgba(245, 223, 37, 0.28);
 }
@@ -342,9 +338,6 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .cert-meta-icons--lg .cert-meta-icon svg {
   width: 1.35rem;
   height: 1.35rem;
-}
-.cert-meta-icons--lg .cert-meta-emoji {
-  font-size: 1.15rem;
 }
 .data-table .cert-meta-icons { gap: 0.3rem; }
 .skills-fieldset {
