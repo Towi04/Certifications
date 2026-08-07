@@ -151,28 +151,67 @@ $tabs = $item ? [
         <?php endif; ?>
 
         <?php if ($item && $tab === 'sedes'): ?>
+            <?php
+            $editVenue = $editVenue ?? null;
+            $editType = $editVenue['venue_type'] ?? 'fixed';
+            ?>
             <section class="provider-panel">
-                <h3>Sedes (paper-based)</h3>
-                <p class="muted">Dirección completa para recolección de certificados y contacto para agendar.</p>
+                <h3>Sedes y subcentros</h3>
+                <p class="muted">
+                    <strong>Sede fija:</strong> lugar conocido con dirección (ej. 2 sedes CDMX).<br>
+                    <strong>Subcentro:</strong> solo ciudad/estado; el lugar exacto se define al agendar cada aplicación
+                    (el alumno lo recibirá en el registro — pendiente).
+                </p>
                 <?php if ($venues): ?>
                     <div class="venue-cards">
                         <?php foreach ($venues as $v): ?>
-                            <article class="venue-card">
+                            <?php
+                            $vActive = (int)($v['is_active'] ?? 1) === 1;
+                            $isSub = ($v['venue_type'] ?? 'fixed') === 'subcentro';
+                            ?>
+                            <article class="venue-card <?= $vActive ? '' : 'is-inactive' ?> <?= $isSub ? 'is-subcentro' : 'is-fixed' ?>">
                                 <header>
-                                    <strong><?= e($v['name']) ?></strong>
-                                    <form method="post" action="/admin/providers/venue/delete" class="inline-form" onsubmit="return confirm('¿Eliminar sede?');">
-                                        <input type="hidden" name="provider_id" value="<?= $id ?>">
-                                        <input type="hidden" name="venue_id" value="<?= (int)$v['id'] ?>">
-                                        <button type="submit" class="linkish">Eliminar</button>
-                                    </form>
+                                    <div>
+                                        <span class="venue-type-pill"><?= $isSub ? 'Subcentro' : 'Sede fija' ?></span>
+                                        <strong><?= e(trim($v['city'] . ($v['state'] ? ', ' . $v['state'] : ''))) ?></strong>
+                                        <?php if (!$isSub): ?>
+                                            <p class="muted venue-place"><?= e($v['name']) ?></p>
+                                        <?php elseif (!empty($v['name'])): ?>
+                                            <p class="muted venue-place"><?= e($v['name']) ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="venue-card-actions">
+                                        <a class="linkish" href="/admin/providers/edit?id=<?= $id ?>&tab=sedes&edit_venue=<?= (int)$v['id'] ?>">Editar</a>
+                                        <form method="post" action="/admin/providers/venue/toggle-active" class="inline-form"
+                                              onsubmit="return confirm(<?= json_encode('¿Seguro que quieres ' . ($vActive ? 'desactivar' : 'activar') . ' ' . ($isSub ? 'el subcentro' : 'la sede') . ' de ' . $v['city'] . '?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                            <input type="hidden" name="venue_id" value="<?= (int)$v['id'] ?>">
+                                            <button type="submit" class="eye-btn" title="<?= $vActive ? 'Desactivar' : 'Activar' ?>" aria-label="<?= $vActive ? 'Desactivar' : 'Activar' ?>">
+                                                <?php if ($vActive): ?>
+                                                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>
+                                                <?php else: ?>
+                                                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                                                <?php endif; ?>
+                                            </button>
+                                        </form>
+                                        <form method="post" action="/admin/providers/venue/delete" class="inline-form" onsubmit="return confirm('¿Eliminar de forma permanente?');">
+                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                            <input type="hidden" name="venue_id" value="<?= (int)$v['id'] ?>">
+                                            <button type="submit" class="linkish">Eliminar</button>
+                                        </form>
+                                    </div>
                                 </header>
-                                <p>
-                                    <?= e($v['address_line']) ?>
-                                    <?php if (!empty($v['address_line2'])): ?><br><?= e($v['address_line2']) ?><?php endif; ?>
-                                    <br>
-                                    <?= e(trim(($v['neighborhood'] ? $v['neighborhood'] . ', ' : '') . $v['city'] . ($v['state'] ? ', ' . $v['state'] : '') . ($v['postal_code'] ? ' CP ' . $v['postal_code'] : ''))) ?>
-                                    <br><?= e($v['country']) ?>
-                                </p>
+                                <?php if ($isSub): ?>
+                                    <p class="venue-pending">Dirección por definir al agendar la aplicación</p>
+                                <?php else: ?>
+                                    <p>
+                                        <?= e($v['address_line'] ?? '') ?>
+                                        <?php if (!empty($v['address_line2'])): ?><br><?= e($v['address_line2']) ?><?php endif; ?>
+                                        <?php if (!empty($v['neighborhood'])): ?><br><?= e($v['neighborhood']) ?><?php endif; ?>
+                                        <?php if (!empty($v['postal_code'])): ?> · CP <?= e($v['postal_code']) ?><?php endif; ?>
+                                        <br><?= e($v['country'] ?? 'México') ?>
+                                    </p>
+                                <?php endif; ?>
                                 <p class="muted">
                                     Contacto: <?= e($v['contact_name'] ?? '—') ?>
                                     · <?= e($v['contact_phone'] ?? '—') ?>
@@ -182,26 +221,69 @@ $tabs = $item ? [
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <p class="muted">Sin sedes. Útil sobre todo para Cambridge paper-based.</p>
+                    <p class="muted">Sin sedes ni subcentros. Ejemplo Cambridge: 2 sedes fijas en CDMX + subcentros por estado.</p>
                 <?php endif; ?>
 
-                <form method="post" action="/admin/providers/venue" class="form-grid" style="margin-top:1rem">
+                <h4 class="venue-form-title"><?= $editVenue ? 'Editar' : 'Agregar' ?> sede / subcentro</h4>
+                <?php if ($editVenue): ?>
+                    <p class="muted"><a href="/admin/providers/edit?id=<?= $id ?>&tab=sedes">Cancelar edición</a></p>
+                <?php endif; ?>
+                <form method="post" action="/admin/providers/venue" class="form-grid" style="margin-top:0.5rem" id="venueForm">
                     <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <label>Nombre de la sede<input name="name" required placeholder="Sede Centro / Campus Norte"></label>
-                    <label>Calle y número<input name="address_line" required></label>
-                    <label>Interior / referencia<input name="address_line2"></label>
-                    <label>Colonia<input name="neighborhood"></label>
-                    <label>Ciudad<input name="city" required></label>
-                    <label>Estado<input name="state"></label>
-                    <label>C.P.<input name="postal_code"></label>
-                    <label>País<input name="country" value="México"></label>
-                    <label>Contacto en sede<input name="contact_name"></label>
-                    <label>Teléfono sede<input name="contact_phone"></label>
-                    <label>Correo sede<input type="email" name="contact_email"></label>
-                    <label>Notas<textarea name="notes" rows="2" placeholder="Horarios, acceso, etc."></textarea></label>
-                    <div class="actions"><button class="btn" type="submit">Agregar sede</button></div>
+                    <?php if ($editVenue): ?><input type="hidden" name="venue_id" value="<?= (int)$editVenue['id'] ?>"><?php endif; ?>
+                    <label>Tipo
+                        <select name="venue_type" id="venueType">
+                            <option value="fixed" <?= $editType === 'fixed' ? 'selected' : '' ?>>Sede fija (con dirección)</option>
+                            <option value="subcentro" <?= $editType === 'subcentro' ? 'selected' : '' ?>>Subcentro (ciudad/estado)</option>
+                        </select>
+                    </label>
+                    <label class="venue-fixed-only">Lugar (universidad / escuela)
+                        <input name="name" id="venueName" value="<?= e($editVenue['name'] ?? '') ?>" placeholder="Ej. Universidad X, Campus Norte">
+                    </label>
+                    <label class="venue-sub-only" style="display:none">Etiqueta del subcentro (opcional)
+                        <input name="name_sub" id="venueNameSub" value="<?= e(($editType === 'subcentro') ? ($editVenue['name'] ?? '') : '') ?>" placeholder="Se usa “Subcentro {estado}” si lo dejas vacío">
+                    </label>
+                    <label>Estado<input name="state" id="venueState" value="<?= e($editVenue['state'] ?? '') ?>" placeholder="Obligatorio en subcentro"></label>
+                    <label>Ciudad<input name="city" id="venueCity" required value="<?= e($editVenue['city'] ?? '') ?>"></label>
+                    <label class="venue-fixed-only">Calle y número<input name="address_line" id="venueAddress" value="<?= e($editVenue['address_line'] ?? '') ?>"></label>
+                    <label class="venue-fixed-only">Interior / referencia<input name="address_line2" value="<?= e($editVenue['address_line2'] ?? '') ?>"></label>
+                    <label class="venue-fixed-only">Colonia<input name="neighborhood" value="<?= e($editVenue['neighborhood'] ?? '') ?>"></label>
+                    <label class="venue-fixed-only">C.P.<input name="postal_code" value="<?= e($editVenue['postal_code'] ?? '') ?>"></label>
+                    <label>País<input name="country" value="<?= e($editVenue['country'] ?? 'México') ?>"></label>
+                    <label>Contacto<input name="contact_name" value="<?= e($editVenue['contact_name'] ?? '') ?>"></label>
+                    <label>Teléfono<input name="contact_phone" value="<?= e($editVenue['contact_phone'] ?? '') ?>"></label>
+                    <label>Correo<input type="email" name="contact_email" value="<?= e($editVenue['contact_email'] ?? '') ?>"></label>
+                    <label>Notas<textarea name="notes" rows="2" placeholder="Horarios, acceso, etc."><?= e($editVenue['notes'] ?? '') ?></textarea></label>
+                    <div class="actions">
+                        <button class="btn" type="submit"><?= $editVenue ? 'Guardar cambios' : 'Agregar' ?></button>
+                    </div>
                 </form>
             </section>
+            <script>
+            (() => {
+              const type = document.getElementById('venueType');
+              const nameFixed = document.getElementById('venueName');
+              const nameSub = document.getElementById('venueNameSub');
+              const address = document.getElementById('venueAddress');
+              const state = document.getElementById('venueState');
+              const form = document.getElementById('venueForm');
+              const sync = () => {
+                const sub = type.value === 'subcentro';
+                document.querySelectorAll('.venue-fixed-only').forEach((el) => { el.style.display = sub ? 'none' : ''; });
+                document.querySelectorAll('.venue-sub-only').forEach((el) => { el.style.display = sub ? '' : 'none'; });
+                if (nameFixed) nameFixed.required = !sub;
+                if (address) address.required = !sub;
+                if (state) state.required = sub;
+              };
+              type.addEventListener('change', sync);
+              form.addEventListener('submit', () => {
+                if (type.value === 'subcentro' && nameSub) {
+                  nameFixed.value = nameSub.value.trim();
+                }
+              });
+              sync();
+            })();
+            </script>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'autorizacion'): ?>

@@ -28,8 +28,9 @@ CREATE TABLE IF NOT EXISTS provider_contacts (
 CREATE TABLE IF NOT EXISTS provider_venues (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NOT NULL,
+  venue_type ENUM('fixed', 'subcentro') NOT NULL DEFAULT 'fixed',
   name VARCHAR(190) NOT NULL,
-  address_line VARCHAR(255) NOT NULL,
+  address_line VARCHAR(255) NULL,
   address_line2 VARCHAR(255) NULL,
   neighborhood VARCHAR(120) NULL,
   city VARCHAR(120) NOT NULL,
