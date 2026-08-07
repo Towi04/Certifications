@@ -16,6 +16,15 @@ final class Auth
             return;
         }
 
+        $sessionDir = BASE_PATH . '/storage/sessions';
+        if (!is_dir($sessionDir)) {
+            @mkdir($sessionDir, 0755, true);
+        }
+
+        if (is_dir($sessionDir) && is_writable($sessionDir)) {
+            session_save_path($sessionDir);
+        }
+
         session_name('doceo_pdv_session');
         session_start([
             'cookie_httponly' => true,
@@ -27,6 +36,50 @@ final class Auth
     private static function normalizeIdentifier(string $identifier): string
     {
         return strtolower(trim($identifier));
+    }
+
+    /**
+     * Resuelve las credenciales desde POST, GET o un cuerpo JSON.
+     *
+     * @param array<string, mixed> $input
+     * @return array{identifier:string,password:string}
+     */
+    public static function resolveLoginCredentials(array $input = []): array
+    {
+        $source = $input;
+        if ($source === []) {
+            $source = array_merge($_GET, $_POST);
+            if ($source === []) {
+                $raw = file_get_contents('php://input');
+                if (is_string($raw) && trim($raw) !== '') {
+                    $decoded = json_decode($raw, true);
+                    if (is_array($decoded)) {
+                        $source = $decoded;
+                    }
+                }
+            }
+        }
+
+        $identifier = '';
+        foreach (['email', 'username', 'login', 'user', 'identifier', 'email_or_username', 'user_login'] as $key) {
+            if (isset($source[$key])) {
+                $identifier = (string) $source[$key];
+                break;
+            }
+        }
+
+        $password = '';
+        foreach (['password', 'pass', 'pwd'] as $key) {
+            if (isset($source[$key])) {
+                $password = (string) $source[$key];
+                break;
+            }
+        }
+
+        return [
+            'identifier' => self::normalizeIdentifier($identifier),
+            'password' => $password,
+        ];
     }
 
     public static function attempt(string $identifier, string $password): bool

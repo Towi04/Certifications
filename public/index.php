@@ -10,25 +10,46 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 $router = new Router();
 
-$router->get('/', static function (): void {
-    view('home', [
-        'title' => 'Inicio',
-    ]);
-});
-
-$router->post('/login', static function (): void {
+$runLogin = static function (bool $fromGet = false): void {
     Auth::ensureBootstrapAdmin();
 
-    // El reset NO debe impedir el login si falla
     try {
         Auth::syncAdminPasswordFromEnv();
     } catch (Throwable $e) {
         error_log('[PDV] reset admin en login: ' . $e->getMessage());
-        // Continuar al attempt; si el hash ya es válido, entrará igual
     }
 
-    $login = strtolower(trim((string) ($_POST['email'] ?? '')));
-    $password = (string) ($_POST['password'] ?? '');
+    $credentials = Auth::resolveLoginCredentials($fromGet ? ($_GET ?? []) : ($_POST ?? []));
+    $login = strtolower(trim($credentials['identifier']));
+    $password = (string) $credentials['password'];
+
+    if ($login === '' || $password === '') {
+        if ($fromGet) {
+            $info = flash('info');
+            try {
+                $reset = Auth::syncAdminPasswordFromEnv();
+                if ($reset !== null) {
+                    $info = 'Hash actualizado para ' . $reset['email']
+                        . ' (longitud ADMIN_PASSWORD: ' . $reset['length'] . '). '
+                        . 'Entra con ese correo/clave y luego pon ADMIN_RESET_PASSWORD=false.';
+                }
+            } catch (Throwable $e) {
+                $info = 'Aviso reset: ' . $e->getMessage()
+                    . ' — Si ya insertaste el admin en phpMyAdmin, pon ADMIN_RESET_PASSWORD=false y entra normal.';
+            }
+
+            view('auth/login', [
+                'title' => 'Iniciar sesión',
+                'error' => flash('error'),
+                'info' => $info,
+            ]);
+            return;
+        }
+
+        flash('error', 'Correo o contraseña incorrectos.');
+        header('Location: /login');
+        exit;
+    }
 
     try {
         if (!Auth::attempt($login, $password)) {
@@ -53,35 +74,26 @@ $router->post('/login', static function (): void {
         header('Location: /');
     }
     exit;
+};
+
+$router->get('/', static function (): void {
+    view('home', [
+        'title' => 'Inicio',
+    ]);
 });
 
-$router->get('/login', static function (): void {
+$router->post('/login', static function () use ($runLogin): void {
+    $runLogin(false);
+});
+
+$router->get('/login', static function () use ($runLogin): void {
     if (Auth::check()) {
         $user = Auth::user();
         header('Location: ' . (($user['role'] ?? '') === 'admin' ? '/admin' : '/'));
         exit;
     }
 
-    $info = flash('info');
-    // Solo intentar reset en GET si está activo; no tumbar la página
-    try {
-        $reset = Auth::syncAdminPasswordFromEnv();
-        if ($reset !== null) {
-            $info = 'Hash actualizado para ' . $reset['email']
-                . ' (longitud ADMIN_PASSWORD: ' . $reset['length'] . '). '
-                . 'Entra con ese correo/clave y luego pon ADMIN_RESET_PASSWORD=false.';
-        }
-    } catch (Throwable $e) {
-        // No usar flash error bloqueante: el login debe seguir visible
-        $info = 'Aviso reset: ' . $e->getMessage()
-            . ' — Si ya insertaste el admin en phpMyAdmin, pon ADMIN_RESET_PASSWORD=false y entra normal.';
-    }
-
-    view('auth/login', [
-        'title' => 'Iniciar sesión',
-        'error' => flash('error'),
-        'info' => $info,
-    ]);
+    $runLogin(true);
 });
 
 $router->post('/logout', static function (): void {
