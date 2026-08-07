@@ -41,6 +41,11 @@ Valores ya prellenados (puedes dejarlos):
    - `sql/seed.sql`
 3. El primer login con `ADMIN_EMAIL` o `ADMIN_USERNAME` / `ADMIN_PASSWORD` creará el usuario admin si la tabla `users` está vacía. Puedes entrar con `admin` si usas `ADMIN_USERNAME=admin`.
 
+Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin:
+
+- `sql/migration_providers_v2.sql` (si aún no tienes contactos/sedes nuevas)
+- `sql/migration_venues_subcentros.sql` (tipo `fixed` vs `subcentro` + dirección opcional)
+
 ## 4. Moodle
 
 - Servicio externo con función `core_course_get_courses` (ya verificada).
