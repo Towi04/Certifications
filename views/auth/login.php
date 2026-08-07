@@ -14,8 +14,8 @@
 
     <form method="post" action="/login" class="stack">
         <label>
-            Usuario o correo
-            <input type="text" name="email" required autocomplete="username" value="<?= e($_POST['email'] ?? '') ?>" placeholder="admin o admin@institutodoceo.com">
+            Usuario
+            <input type="text" name="email" required autocomplete="username" value="<?= e($_POST['email'] ?? '') ?>" placeholder="user">
         </label>
         <label>
             Contraseña

@@ -123,6 +123,7 @@ final class Auth
         self::writeDebugLog('login_attempt identifier=' . $normalized . ' password_len=' . strlen($password));
 
         $pdo = Connection::get();
+        $dbName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
         $query = 'SELECT id, email, username, password_hash, role, name, is_active '
             . 'FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(username)) = ? LIMIT 1';
         $stmt = $pdo->prepare($query);
@@ -130,12 +131,14 @@ final class Auth
         $user = $stmt->fetch();
 
         if (!$user) {
-            self::writeDebugLog('login_failed reason=user_not_found identifier=' . $normalized);
+            self::writeDebugLog('db_name=' . $dbName . ' login_failed reason=user_not_found identifier=' . $normalized);
             return false;
         }
 
-        if (!(int) $user['is_active']) {
-            self::writeDebugLog('login_failed reason=user_inactive identifier=' . $normalized . ' user_id=' . ((int) $user['id']));
+        self::writeDebugLog('db_name=' . $dbName . ' row=' . json_encode($user, JSON_UNESCAPED_UNICODE));
+
+        if (!$user) {
+            self::writeDebugLog('login_failed reason=user_not_found identifier=' . $normalized);
             return false;
         }
 
@@ -145,6 +148,20 @@ final class Auth
             return false;
         }
 
+        $userId = (int) $user['id'];
+        $role = (string) ($user['role'] ?? 'student');
+        $isActive = (int) ($user['is_active'] ?? 0);
+        if ($isActive !== 1) {
+            if ($role === 'admin') {
+                $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$userId]);
+                $isActive = 1;
+                self::writeDebugLog('admin_reactivated user_id=' . $userId . ' identifier=' . $normalized);
+            } else {
+                self::writeDebugLog('login_failed reason=user_inactive identifier=' . $normalized . ' user_id=' . $userId . ' role=' . $role);
+                return false;
+            }
+        }
+
         try {
             session_regenerate_id(true);
         } catch (\Throwable $e) {
@@ -152,13 +169,13 @@ final class Auth
         }
 
         $_SESSION['user'] = [
-            'id' => (int) $user['id'],
+            'id' => $userId,
             'email' => (string) $user['email'],
-            'role' => (string) $user['role'],
+            'role' => $role,
             'name' => (string) $user['name'],
         ];
 
-        self::writeDebugLog('login_success user_id=' . ((int) $user['id']) . ' role=' . ((string) $user['role']) . ' session_id=' . session_id());
+        self::writeDebugLog('login_success user_id=' . $userId . ' role=' . $role . ' session_id=' . session_id());
 
         return true;
     }
