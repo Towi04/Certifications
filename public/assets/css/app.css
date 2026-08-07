@@ -90,6 +90,7 @@ a:hover { text-decoration: underline; }
 }
 .nav { display: flex; gap: 1rem; align-items: center; }
 .inline-form { margin: 0; }
+.hidden-form { display: none !important; }
 .linkish, .nav button {
   background: none; border: 0; color: var(--brand); font: inherit; cursor: pointer; padding: 0;
 }
@@ -692,6 +693,7 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .admin-menu-card.tone-amber  { --tone: #c47a12; --tone-soft: rgba(196, 122, 18, 0.16); --tone-hover: #9a5f0c; }
 .admin-menu-card.tone-green  { --tone: #2f7a45; --tone-soft: rgba(47, 122, 69, 0.14); --tone-hover: #215732; }
 .admin-menu-card.tone-coral  { --tone: #c45a3a; --tone-soft: rgba(196, 90, 58, 0.14); --tone-hover: #9a4228; }
+.admin-menu-card.tone-slate  { --tone: #4a5568; --tone-soft: rgba(74, 85, 104, 0.14); --tone-hover: #2d3748; }
 
 @media (max-width: 720px) {
   .admin-hero { grid-template-columns: 1fr; padding: 1.25rem; }

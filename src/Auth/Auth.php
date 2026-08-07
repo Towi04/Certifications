@@ -391,6 +391,17 @@ final class Auth
         return $_SESSION['user'] ?? null;
     }
 
+    /** Roles del personal Doceo (acceso al panel admin por ahora). */
+    public static function staffRoles(): array
+    {
+        return ['admin', 'assistant', 'manager'];
+    }
+
+    public static function isStaffRole(?string $role): bool
+    {
+        return $role !== null && in_array($role, self::staffRoles(), true);
+    }
+
     public static function requireLogin(): void
     {
         if (!self::check()) {
@@ -403,7 +414,7 @@ final class Auth
     {
         self::requireLogin();
         $user = self::user();
-        if ($user === null || $user['role'] !== 'admin') {
+        if ($user === null || !self::isStaffRole($user['role'] ?? null)) {
             http_response_code(403);
             echo 'Acceso denegado.';
             exit;
@@ -414,7 +425,8 @@ final class Auth
     {
         self::requireLogin();
         $user = self::user();
-        if ($user === null || !in_array($user['role'], ['partner', 'admin'], true)) {
+        $role = $user['role'] ?? null;
+        if ($user === null || (!self::isStaffRole($role) && $role !== 'partner')) {
             http_response_code(403);
             echo 'Acceso denegado. Esta área es para Teacher Referral.';
             exit;

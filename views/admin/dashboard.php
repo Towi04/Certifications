@@ -1,10 +1,18 @@
 <?php
 $counts = $counts ?? [
     'providers' => 0, 'certifications' => 0, 'published' => 0,
-    'courses' => 0, 'partners' => 0, 'agreements' => 0, 'protocols' => 0, 'tiers' => 0,
+    'courses' => 0, 'partners' => 0, 'agreements' => 0, 'protocols' => 0, 'tiers' => 0, 'users' => 0,
 ];
 
 $menus = [
+    [
+        'href' => '/admin/users',
+        'title' => 'Usuarios',
+        'desc' => 'Personal Doceo y Partners TR',
+        'count' => (int) ($counts['users'] ?? 0),
+        'tone' => 'slate',
+        'icon' => 'id',
+    ],
     [
         'href' => '/admin/providers',
         'title' => 'Proveedores',
@@ -64,6 +72,7 @@ $menus = [
 ];
 
 $icons = [
+    'id' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="12" r="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M13.5 10.5h4M13.5 13.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     'building' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20V8l8-4 8 4v12" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 20v-6h6v6M9 10h.01M15 10h.01M12 10h.01M9 14h.01M15 14h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     'badge' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="9" r="5.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 13.5 7 20l5-2.5L17 20l-1.5-6.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
     'book' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5V5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 18.5A2.5 2.5 0 0 1 7.5 16H19" stroke="currentColor" stroke-width="1.8"/></svg>',
@@ -78,7 +87,7 @@ $icons = [
     <div class="admin-hero-copy">
         <p class="eyebrow">Panel de administración</p>
         <h1>Hola, <?= e($user['name'] ?? $user['email'] ?? 'Admin') ?></h1>
-        <p class="lede">Gestiona el catálogo, convenios y partners Teacher Referral desde aquí.</p>
+        <p class="lede">Gestiona usuarios, catálogo, convenios y partners Teacher Referral desde aquí.</p>
     </div>
     <div class="admin-hero-visual" aria-hidden="true">
         <span class="hex hex-a"></span>

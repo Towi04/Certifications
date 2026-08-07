@@ -9,6 +9,7 @@ use App\Catalog\CatalogRepository;
 use App\Support\SecretBox;
 use App\Support\Str;
 use App\Support\Uploader;
+use App\Users\UserRepository;
 
 final class AdminRoutes
 {
@@ -1301,6 +1302,135 @@ final class AdminRoutes
                 flash('info', 'Asset eliminado.');
             } else {
                 flash('error', 'Asset no encontrado.');
+            }
+            header('Location: ' . $redirect);
+            exit;
+        });
+
+        $users = static fn (): UserRepository => new UserRepository();
+
+        $router->get('/admin/users', static function () use ($users): void {
+            Auth::requireAdmin();
+            $filters = [
+                'q' => trim((string) ($_GET['q'] ?? '')),
+                'role' => (string) ($_GET['role'] ?? ''),
+                'is_active' => $_GET['is_active'] ?? '',
+            ];
+            view('admin/users/index', [
+                'title' => 'Usuarios',
+                'items' => $users()->list($filters),
+                'filters' => $filters,
+                'roles' => UserRepository::manageableRoles(),
+                'roleLabels' => UserRepository::allRoleLabels(),
+                'currentUserId' => (int) (Auth::user()['id'] ?? 0),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/users/create', static function (): void {
+            Auth::requireAdmin();
+            view('admin/users/form', [
+                'title' => 'Nuevo usuario',
+                'item' => null,
+                'roles' => UserRepository::manageableRoles(),
+                'error' => flash('error'),
+                'info' => flash('info'),
+            ]);
+        });
+
+        $router->get('/admin/users/edit', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $users()->find($id);
+            if (!$item) {
+                flash('error', 'Usuario no encontrado.');
+                header('Location: /admin/users');
+                exit;
+            }
+            view('admin/users/form', [
+                'title' => 'Editar usuario',
+                'item' => $item,
+                'roles' => UserRepository::manageableRoles(),
+                'currentUserId' => (int) (Auth::user()['id'] ?? 0),
+                'error' => flash('error'),
+                'info' => flash('info'),
+            ]);
+        });
+
+        $router->post('/admin/users/save', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            $payload = [
+                'email' => (string) ($_POST['email'] ?? ''),
+                'phone' => trim((string) ($_POST['phone'] ?? '')) ?: null,
+                'username' => (string) ($_POST['username'] ?? ''),
+                'first_name' => (string) ($_POST['first_name'] ?? ''),
+                'last_name' => (string) ($_POST['last_name'] ?? ''),
+                'role' => (string) ($_POST['role'] ?? ''),
+                'password' => (string) ($_POST['password'] ?? ''),
+            ];
+
+            try {
+                if ($id) {
+                    $existing = $users()->find($id);
+                    if (!$existing) {
+                        throw new \RuntimeException('Usuario no encontrado.');
+                    }
+                    $users()->update($id, $payload + ['is_active' => (int) $existing['is_active']]);
+                    flash('info', 'Usuario actualizado.');
+                    header('Location: /admin/users/edit?id=' . $id);
+                } else {
+                    $savedId = $users()->create($payload);
+                    flash('info', 'Usuario creado.');
+                    header('Location: /admin/users/edit?id=' . $savedId);
+                }
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: ' . ($id ? '/admin/users/edit?id=' . $id : '/admin/users/create'));
+                exit;
+            }
+        });
+
+        $router->post('/admin/users/reset-password', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $password = (string) ($_POST['password'] ?? '');
+            $password2 = (string) ($_POST['password_confirm'] ?? '');
+            try {
+                if ($password !== $password2) {
+                    throw new \RuntimeException('Las contraseñas no coinciden.');
+                }
+                $users()->setPassword($id, $password);
+                flash('info', 'Contraseña restablecida.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/users/edit?id=' . $id);
+            exit;
+        });
+
+        $router->post('/admin/users/toggle-active', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $actorId = (int) (Auth::user()['id'] ?? 0);
+            $item = $users()->find($id);
+            if (!$item) {
+                flash('error', 'Usuario no encontrado.');
+                header('Location: /admin/users');
+                exit;
+            }
+            $enable = (int) $item['is_active'] !== 1;
+            try {
+                $users()->setActive($id, $enable, $actorId);
+                flash('info', $enable ? 'Usuario habilitado.' : 'Usuario deshabilitado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            $redirect = (string) ($_POST['redirect'] ?? '/admin/users');
+            if (!str_starts_with($redirect, '/admin/users')) {
+                $redirect = '/admin/users';
             }
             header('Location: ' . $redirect);
             exit;
