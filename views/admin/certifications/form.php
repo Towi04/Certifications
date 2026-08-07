@@ -75,14 +75,24 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </select>
         </label>
 
-        <label class="field-wide">Resumen (HTML)
+        <div class="field-wide html-field" data-html-field>
+            <div class="html-field-head">
+                <span class="html-field-title">Resumen (HTML)</span>
+                <button type="button" class="icon-btn html-preview-toggle" title="Vista previa / código" aria-label="Alternar vista previa HTML" aria-pressed="false">&lt;/&gt;</button>
+            </div>
             <textarea name="short_description" rows="8" class="html-editor" placeholder="Puedes usar HTML: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;&lt;li&gt;…"><?= e($item['short_description'] ?? '') ?></textarea>
-            <small class="muted">Texto con formato HTML (negritas, listas, párrafos, etc.).</small>
-        </label>
-        <label class="field-wide">Descripción (HTML)
+            <div class="html-preview prose" hidden></div>
+            <small class="muted">Texto con formato HTML (negritas, listas, párrafos, etc.). Usa &lt;/&gt; para previsualizar.</small>
+        </div>
+        <div class="field-wide html-field" data-html-field>
+            <div class="html-field-head">
+                <span class="html-field-title">Descripción (HTML)</span>
+                <button type="button" class="icon-btn html-preview-toggle" title="Vista previa / código" aria-label="Alternar vista previa HTML" aria-pressed="false">&lt;/&gt;</button>
+            </div>
             <textarea name="description_html" rows="12" class="html-editor" placeholder="Descripción larga con HTML"><?= e($item['description_html'] ?? '') ?></textarea>
-            <small class="muted">Escribe HTML para aplicar formatos al publicar la ficha.</small>
-        </label>
+            <div class="html-preview prose" hidden></div>
+            <small class="muted">Escribe HTML para aplicar formatos. Usa &lt;/&gt; para ver el resultado.</small>
+        </div>
         <label class="field-wide">Temario (HTML)
             <textarea name="syllabus_html" rows="10" class="html-editor"><?= e($item['syllabus_html'] ?? '') ?></textarea>
         </label>
