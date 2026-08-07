@@ -102,9 +102,10 @@ Si falla, el error ahora dice si la clave del formulario no coincide con la del 
 5. En **Partners**, asigna un usuario a nivel + convenio.
 6. Ese usuario entra a `/partner`.
 
-Si ya tenías la BD creada, importa también:
-- `sql/migration_providers_enrich_columns.sql` (ignora “Duplicate column”)
+Si ya tenías la BD creada, importa también (en orden, ignora “Duplicate column”):
+- `sql/migration_providers_enrich_columns.sql`
 - `sql/migration_providers_enrich.sql`
+- `sql/migration_providers_v2.sql` (logos duales, contactos, sedes, notas)
 
 Archivos se guardan en `storage/uploads/` y se sirven por `/media?f=…`.
 
