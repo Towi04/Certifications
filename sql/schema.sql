@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS providers (
   code VARCHAR(64) NOT NULL,
   name VARCHAR(190) NOT NULL,
   website_url VARCHAR(255) NULL,
+  brand_website_url VARCHAR(255) NULL,
   logo_path VARCHAR(255) NULL,
   logo_icon_path VARCHAR(255) NULL,
   logo_full_path VARCHAR(255) NULL,

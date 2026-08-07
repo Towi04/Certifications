@@ -13,4 +13,6 @@ Estado actual: admin ya distingue `sede fija` vs `subcentro` (solo ciudad/estado
 
 - Campo `code` = **Convenio con** (Creative Solutions, ETC Iberoamérica, Lingua Franca…). Solo admin.
 - Campo `name` = **Certificaciones de** (Cambridge, Certiport, TOEFL/IIE…). Lo que ven alumnos y TR.
+- Campo `website_url` = sitio del **convenio** (solo admin).
+- Campo `brand_website_url` = sitio de la **marca que certifica** (público para alumnos/TR).
 - No exponer el convenio/intermediario en catálogo público ni partner.

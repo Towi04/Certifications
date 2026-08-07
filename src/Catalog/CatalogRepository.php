@@ -43,6 +43,7 @@ final class CatalogRepository
             $data['code'],
             $data['name'],
             $data['website_url'],
+            $data['brand_website_url'] ?? null,
             $data['logo_path'] ?? $data['logo_icon_path'] ?? null,
             $data['logo_icon_path'] ?? null,
             $data['logo_full_path'] ?? null,
@@ -54,7 +55,7 @@ final class CatalogRepository
 
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE providers SET code=?, name=?, website_url=?, logo_path=?,
+                'UPDATE providers SET code=?, name=?, website_url=?, brand_website_url=?, logo_path=?,
                  logo_icon_path=?, logo_full_path=?,
                  auth_proof_type=?, auth_proof_url=?, auth_proof_path=?, is_active=?
                  WHERE id=?'
@@ -65,9 +66,9 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO providers (
-                code, name, website_url, logo_path, logo_icon_path, logo_full_path,
+                code, name, website_url, brand_website_url, logo_path, logo_icon_path, logo_full_path,
                 auth_proof_type, auth_proof_url, auth_proof_path, is_active
-             ) VALUES (?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -754,7 +755,8 @@ final class CatalogRepository
     public function certification(int $id): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, p.name AS provider_name, p.code AS provider_code, pr.name AS protocol_name,
+            'SELECT c.*, p.name AS provider_name, p.brand_website_url AS provider_brand_website,
+                    p.code AS provider_code, pr.name AS protocol_name,
                     pr.procedure_html AS protocol_procedure_html,
                     pr.requires_regulation_signature, pr.requires_software, pr.requires_zoom,
                     pr.requires_vm, pr.uses_inventory
@@ -771,7 +773,8 @@ final class CatalogRepository
     public function certificationBySlug(string $slug): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, p.name AS provider_name, p.code AS provider_code, pr.name AS protocol_name,
+            'SELECT c.*, p.name AS provider_name, p.brand_website_url AS provider_brand_website,
+                    p.code AS provider_code, pr.name AS protocol_name,
                     pr.procedure_html AS protocol_procedure_html,
                     pr.requires_regulation_signature, pr.requires_software, pr.requires_zoom,
                     pr.requires_vm, pr.uses_inventory

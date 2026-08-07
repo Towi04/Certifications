@@ -68,6 +68,13 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
                 <li><strong>Duración:</strong> <?= e($item['duration_label'] ?? '—') ?></li>
                 <li><strong>Audiencia:</strong> <?= e($item['audience'] ?? '—') ?></li>
                 <li><strong>Rango:</strong> <?= e($item['score_range'] ?? '—') ?></li>
+                <?php if (!empty($item['provider_brand_website'])): ?>
+                    <li><strong>Sitio oficial:</strong>
+                        <a href="<?= e($item['provider_brand_website']) ?>" target="_blank" rel="noopener">
+                            <?= e(preg_replace('#^https?://#i', '', rtrim((string)$item['provider_brand_website'], '/'))) ?>
+                        </a>
+                    </li>
+                <?php endif; ?>
                 <?php if (!empty($item['is_level_exam'])): ?>
                     <?php
                     $skills = [];
