@@ -506,65 +506,85 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
             <section class="provider-panel">
                 <div class="panel-toolbar">
                     <div>
-                        <h3>Cuentas de portales</h3>
+                        <h3>Cuentas y sitios</h3>
                         <p class="muted" style="margin:0.25rem 0 0">
-                            Accesos que nos dan los partners (capacitaciones, admin de exámenes, cursos…). Solo admin.
-                            Las contraseñas se guardan cifradas con <code>APP_KEY</code>.
+                            Portales con login (usuario + contraseña cifrada) o <strong>sitios sin login</strong>
+                            (solo URL: registros, material, capacitación…). Solo admin.
                         </p>
                     </div>
                     <?php if (!$accountFormOpen): ?>
-                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas&form=1">Agregar cuenta</a>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas&form=1">Agregar cuenta o sitio</a>
                     <?php endif; ?>
                 </div>
 
                 <?php if ($accountFormOpen): ?>
+                    <?php $editIsSite = $editAccount && trim((string)($editAccount['username'] ?? '')) === ''; ?>
                     <div class="inline-form-panel">
                         <div class="panel-toolbar">
-                            <h4 style="margin:0"><?= $editAccount ? 'Editar cuenta' : 'Nueva cuenta' ?></h4>
+                            <h4 style="margin:0"><?= $editAccount ? 'Editar' : 'Nuevo' ?> · cuenta o sitio</h4>
                             <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas">Cancelar</a>
                         </div>
-                        <form method="post" action="/admin/providers/account" class="form-grid" style="margin-top:0.75rem" autocomplete="off">
+                        <form method="post" action="/admin/providers/account" class="form-grid" style="margin-top:0.75rem" autocomplete="off" id="accountForm">
                             <input type="hidden" name="provider_id" value="<?= $id ?>">
                             <?php if ($editAccount): ?><input type="hidden" name="account_id" value="<?= (int)$editAccount['id'] ?>"><?php endif; ?>
-                            <label>Portal / etiqueta
-                                <input name="label" required value="<?= e($editAccount['label'] ?? '') ?>" placeholder="Ej. LMS capacitaciones / Admin de exámenes">
+                            <label>Etiqueta
+                                <input name="label" required value="<?= e($editAccount['label'] ?? '') ?>" placeholder="Ej. Material de estudio / Admin de exámenes">
                             </label>
-                            <label>URL del portal
-                                <input type="url" name="portal_url" value="<?= e($editAccount['portal_url'] ?? '') ?>" placeholder="https://…">
+                            <label>URL
+                                <input type="url" name="portal_url" id="accountPortalUrl" value="<?= e($editAccount['portal_url'] ?? '') ?>" placeholder="https://…">
+                                <small class="muted">Obligatoria si es un sitio (sin usuario).</small>
                             </label>
                             <label>Usuario
-                                <input name="username" required value="<?= e($editAccount['username'] ?? '') ?>" autocomplete="off">
+                                <input name="username" id="accountUsername" value="<?= e($editAccount['username'] ?? '') ?>" autocomplete="off" placeholder="Vacío = guardar como sitio">
+                                <small class="muted">Si lo dejas vacío se guarda como sitio (sin contraseña).</small>
                             </label>
-                            <label>Contraseña
+                            <label id="accountPasswordLabel">Contraseña
                                 <span class="password-field">
-                                    <input type="password" name="password" id="accountPasswordInput" <?= $editAccount ? '' : 'required' ?> autocomplete="new-password" placeholder="<?= $editAccount ? 'Dejar vacío para no cambiar' : '' ?>">
+                                    <input type="password" name="password" id="accountPasswordInput" autocomplete="new-password" placeholder="<?= $editAccount && !$editIsSite ? 'Dejar vacío para no cambiar' : '' ?>">
                                     <button type="button" class="icon-btn password-toggle js-toggle-input-pass" title="Mostrar/ocultar" aria-label="Mostrar u ocultar contraseña"><?= $iconEye ?></button>
                                 </span>
-                                <?php if ($editAccount): ?>
-                                    <small class="muted">Vacío = conservar la actual.</small>
-                                <?php endif; ?>
+                                <small class="muted" id="accountPasswordHint">Obligatoria si hay usuario.</small>
                             </label>
                             <label class="field-wide">Notas
-                                <textarea name="notes" rows="2" placeholder="Para qué sirve, quién la usa, MFA, etc."><?= e($editAccount['notes'] ?? '') ?></textarea>
+                                <textarea name="notes" rows="2" placeholder="Para qué sirve, material, registro, MFA, etc."><?= e($editAccount['notes'] ?? '') ?></textarea>
                             </label>
                             <?php if ($editAccount): ?>
-                                <label class="check"><input type="checkbox" name="is_active" <?= !empty($editAccount['is_active']) ? 'checked' : '' ?>> Cuenta activa</label>
+                                <label class="check"><input type="checkbox" name="is_active" <?= !empty($editAccount['is_active']) ? 'checked' : '' ?>> Activo</label>
                             <?php endif; ?>
                             <div class="actions">
-                                <button class="btn" type="submit"><?= $editAccount ? 'Guardar cambios' : 'Agregar cuenta' ?></button>
+                                <button class="btn" type="submit"><?= $editAccount ? 'Guardar cambios' : 'Guardar' ?></button>
                             </div>
                         </form>
                     </div>
                     <script>
                     (() => {
+                      const user = document.getElementById('accountUsername');
+                      const pass = document.getElementById('accountPasswordInput');
+                      const passLabel = document.getElementById('accountPasswordLabel');
+                      const url = document.getElementById('accountPortalUrl');
                       const btn = document.querySelector('.js-toggle-input-pass');
-                      const input = document.getElementById('accountPasswordInput');
-                      if (!btn || !input) return;
                       const eye = <?= json_encode($iconEye) ?>;
                       const eyeOff = <?= json_encode($iconEyeOff) ?>;
-                      btn.addEventListener('click', () => {
-                        const show = input.type === 'password';
-                        input.type = show ? 'text' : 'password';
+                      const isEdit = <?= $editAccount ? 'true' : 'false' ?>;
+                      const hadLogin = <?= ($editAccount && !$editIsSite) ? 'true' : 'false' ?>;
+
+                      const sync = () => {
+                        const site = !(user?.value || '').trim();
+                        if (passLabel) passLabel.style.display = site ? 'none' : '';
+                        if (pass) {
+                          // Nueva cuenta con usuario, o sitio→cuenta: pide contraseña.
+                          pass.required = !site && (!isEdit || !hadLogin);
+                          if (site) pass.value = '';
+                        }
+                        if (url) url.required = site;
+                      };
+                      user?.addEventListener('input', sync);
+                      sync();
+
+                      btn?.addEventListener('click', () => {
+                        if (!pass) return;
+                        const show = pass.type === 'password';
+                        pass.type = show ? 'text' : 'password';
                         btn.innerHTML = show ? eyeOff : eye;
                         btn.title = show ? 'Ocultar' : 'Mostrar';
                       });
@@ -576,10 +596,14 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                              data-reveal-url="/admin/providers/account/reveal"
                              data-provider-id="<?= $id ?>">
                             <?php foreach ($accounts as $acc): ?>
-                                <?php $accActive = (int)($acc['is_active'] ?? 1) === 1; ?>
-                                <article class="account-card <?= $accActive ? '' : 'is-inactive' ?>" data-account-id="<?= (int)$acc['id'] ?>">
+                                <?php
+                                $accActive = (int)($acc['is_active'] ?? 1) === 1;
+                                $isSite = trim((string)($acc['username'] ?? '')) === '';
+                                ?>
+                                <article class="account-card <?= $accActive ? '' : 'is-inactive' ?> <?= $isSite ? 'is-site' : 'is-login' ?>" data-account-id="<?= (int)$acc['id'] ?>" data-is-site="<?= $isSite ? '1' : '0' ?>">
                                     <header>
                                         <div>
+                                            <span class="venue-type-pill"><?= $isSite ? 'Sitio' : 'Cuenta' ?></span>
                                             <strong><?= e($acc['label']) ?></strong>
                                             <?php if (!empty($acc['portal_url'])): ?>
                                                 <p class="muted" style="margin:0.2rem 0 0">
@@ -589,35 +613,37 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                                         </div>
                                         <div class="icon-actions">
                                             <a class="icon-btn" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas&edit_account=<?= (int)$acc['id'] ?>" title="Editar" aria-label="Editar"><?= $iconEdit ?></a>
-                                            <form method="post" action="/admin/providers/account/delete" class="inline-form" onsubmit="return confirm('¿Eliminar esta cuenta?');">
+                                            <form method="post" action="/admin/providers/account/delete" class="inline-form" onsubmit="return confirm('¿Eliminar este registro?');">
                                                 <input type="hidden" name="provider_id" value="<?= $id ?>">
                                                 <input type="hidden" name="account_id" value="<?= (int)$acc['id'] ?>">
                                                 <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
                                             </form>
                                         </div>
                                     </header>
-                                    <dl class="account-creds">
-                                        <div>
-                                            <dt>Usuario</dt>
-                                            <dd>
-                                                <code class="js-username"><?= e($acc['username']) ?></code>
-                                                <button type="button" class="icon-btn js-copy-user" title="Copiar usuario" aria-label="Copiar usuario"><?= $iconCopy ?></button>
-                                            </dd>
-                                        </div>
-                                        <div>
-                                            <dt>Contraseña</dt>
-                                            <dd>
-                                                <code class="secret-mask js-secret">••••••••</code>
-                                                <button type="button" class="icon-btn js-toggle-secret" title="Mostrar contraseña" aria-label="Mostrar contraseña" aria-pressed="false"><?= $iconEye ?></button>
-                                                <button type="button" class="icon-btn js-copy-pass" title="Copiar contraseña" aria-label="Copiar contraseña"><?= $iconCopy ?></button>
-                                            </dd>
-                                        </div>
-                                    </dl>
+                                    <?php if (!$isSite): ?>
+                                        <dl class="account-creds">
+                                            <div>
+                                                <dt>Usuario</dt>
+                                                <dd>
+                                                    <code class="js-username"><?= e($acc['username']) ?></code>
+                                                    <button type="button" class="icon-btn js-copy-user" title="Copiar usuario" aria-label="Copiar usuario"><?= $iconCopy ?></button>
+                                                </dd>
+                                            </div>
+                                            <div>
+                                                <dt>Contraseña</dt>
+                                                <dd>
+                                                    <code class="secret-mask js-secret">••••••••</code>
+                                                    <button type="button" class="icon-btn js-toggle-secret" title="Mostrar contraseña" aria-label="Mostrar contraseña" aria-pressed="false"><?= $iconEye ?></button>
+                                                    <button type="button" class="icon-btn js-copy-pass" title="Copiar contraseña" aria-label="Copiar contraseña"><?= $iconCopy ?></button>
+                                                </dd>
+                                            </div>
+                                        </dl>
+                                    <?php endif; ?>
                                     <?php if (!empty($acc['notes'])): ?>
                                         <p class="muted"><?= nl2br(e($acc['notes'])) ?></p>
                                     <?php endif; ?>
                                     <?php if (!$accActive): ?>
-                                        <p class="muted"><em>Cuenta inactiva</em></p>
+                                        <p class="muted"><em>Inactivo</em></p>
                                     <?php endif; ?>
                                 </article>
                             <?php endforeach; ?>
@@ -779,7 +805,7 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                         })();
                         </script>
                     <?php else: ?>
-                        <p class="muted">Sin cuentas registradas. Agrega portales de capacitación, admin de exámenes, etc.</p>
+                        <p class="muted">Sin registros. Agrega cuentas con login o sitios (solo URL) para material, capacitación, etc.</p>
                     <?php endif; ?>
                 <?php endif; ?>
             </section>

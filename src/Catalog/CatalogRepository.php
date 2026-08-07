@@ -354,6 +354,10 @@ final class CatalogRepository
 
     public function addProviderAccount(array $data): int
     {
+        $enc = $data['password_enc'] ?? null;
+        if ($enc === '') {
+            $enc = null;
+        }
         $stmt = $this->pdo->prepare(
             'INSERT INTO provider_accounts
                 (provider_id, label, portal_url, username, password_enc, notes, is_active)
@@ -364,7 +368,7 @@ final class CatalogRepository
             $data['label'],
             $data['portal_url'],
             $data['username'],
-            $data['password_enc'],
+            $enc,
             $data['notes'],
             $data['is_active'] ?? 1,
         ]);
@@ -374,6 +378,7 @@ final class CatalogRepository
     public function updateProviderAccount(int $accountId, array $data): void
     {
         if (array_key_exists('password_enc', $data) && $data['password_enc'] !== null) {
+            $enc = $data['password_enc'] === '' ? null : $data['password_enc'];
             $stmt = $this->pdo->prepare(
                 'UPDATE provider_accounts SET
                     label=?, portal_url=?, username=?, password_enc=?, notes=?, is_active=?
@@ -383,7 +388,7 @@ final class CatalogRepository
                 $data['label'],
                 $data['portal_url'],
                 $data['username'],
-                $data['password_enc'],
+                $enc,
                 $data['notes'],
                 $data['is_active'] ?? 1,
                 $accountId,

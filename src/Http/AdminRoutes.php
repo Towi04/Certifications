@@ -496,21 +496,34 @@ final class AdminRoutes
             $label = trim((string) ($_POST['label'] ?? ''));
             $username = trim((string) ($_POST['username'] ?? ''));
             $password = (string) ($_POST['password'] ?? '');
+            $portalUrl = trim((string) ($_POST['portal_url'] ?? ''));
+            $isSite = $username === '';
             $redirectForm = static function () use ($providerTabUrl, $providerId, $accountId): void {
                 $loc = $providerTabUrl($providerId, 'cuentas') . ($accountId ? '&edit_account=' . $accountId : '&form=1');
                 header('Location: ' . $loc);
                 exit;
             };
-            if ($providerId < 1 || $label === '' || $username === '') {
-                flash('error', 'Portal/etiqueta y usuario son obligatorios.');
+            if ($providerId < 1 || $label === '') {
+                flash('error', 'La etiqueta del portal/sitio es obligatoria.');
                 $redirectForm();
             }
             try {
+                if ($isSite) {
+                    if ($portalUrl === '') {
+                        throw new \RuntimeException('En un sitio (sin usuario) la URL es obligatoria.');
+                    }
+                    if (trim($password) !== '') {
+                        throw new \RuntimeException('Si no hay usuario, no envíes contraseña. Déjala vacía.');
+                    }
+                } elseif (!$accountId && trim($password) === '') {
+                    throw new \RuntimeException('Si hay usuario, la contraseña es obligatoria.');
+                }
+
                 $payload = [
                     'provider_id' => $providerId,
                     'label' => $label,
-                    'portal_url' => trim((string) ($_POST['portal_url'] ?? '')) ?: null,
-                    'username' => $username,
+                    'portal_url' => $portalUrl !== '' ? $portalUrl : null,
+                    'username' => $isSite ? null : $username,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ];
@@ -519,21 +532,24 @@ final class AdminRoutes
                     if (!$existing) {
                         throw new \RuntimeException('Cuenta no encontrada.');
                     }
-                    if (trim($password) !== '') {
+                    if ($isSite) {
+                        $payload['password_enc'] = ''; // limpia credencial
+                    } elseif (trim($password) !== '') {
                         $payload['password_enc'] = SecretBox::encrypt($password);
                     } else {
+                        // Conserva la contraseña solo si el registro ya tenía usuario/login.
+                        if (trim((string) ($existing['username'] ?? '')) === '') {
+                            throw new \RuntimeException('Al convertir un sitio en cuenta con usuario, indica la contraseña.');
+                        }
                         $payload['password_enc'] = null; // no cambiar
                     }
                     $repo()->updateProviderAccount($accountId, $payload);
-                    flash('info', 'Cuenta actualizada.');
+                    flash('info', $isSite ? 'Sitio actualizado.' : 'Cuenta actualizada.');
                 } else {
-                    if (trim($password) === '') {
-                        throw new \RuntimeException('La contraseña es obligatoria al crear la cuenta.');
-                    }
-                    $payload['password_enc'] = SecretBox::encrypt($password);
+                    $payload['password_enc'] = $isSite ? null : SecretBox::encrypt($password);
                     $payload['is_active'] = 1;
                     $repo()->addProviderAccount($payload);
-                    flash('info', 'Cuenta agregada.');
+                    flash('info', $isSite ? 'Sitio agregado.' : 'Cuenta agregada.');
                 }
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
@@ -568,6 +584,11 @@ final class AdminRoutes
             if (!$account) {
                 http_response_code(404);
                 echo json_encode(['ok' => false, 'error' => 'Cuenta no encontrada.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            if (trim((string) ($account['username'] ?? '')) === '' || trim((string) ($account['password_enc'] ?? '')) === '') {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Este registro es un sitio sin contraseña.'], JSON_UNESCAPED_UNICODE);
                 exit;
             }
             try {
