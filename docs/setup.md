@@ -48,6 +48,10 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_certifications_form.sql` (examen de nivel, habilidades, rango, CENNI/modalidad)
 - `sql/migration_provider_brand_website.sql` (sitio del convenio vs sitio de la marca pública)
 
+### Subida de PDFs de convenio
+
+Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max_filesize`. El repo incluye `public/.user.ini` con 20M; en Neubox también puedes subirlo en MultiPHP INI Editor.
+
 ## 4. Moodle
 
 - Servicio externo con función `core_course_get_courses` (ya verificada).
