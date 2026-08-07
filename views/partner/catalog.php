@@ -40,7 +40,7 @@
         <article class="catalog-card">
             <p class="eyebrow"><?= e($item['provider_name']) ?></p>
             <h2><a href="/partner/certificacion?slug=<?= e(rawurlencode($item['slug'])) ?>"><?= e($item['name']) ?></a></h2>
-            <p class="muted"><?= e($item['short_description'] ?? '') ?></p>
+            <p class="muted"><?= e(trim(strip_tags((string)($item['short_description'] ?? '')))) ?></p>
             <p class="price">
                 <?php if ($item['partner_price'] !== null): ?>
                     Tu precio: <strong><?= e(\App\Support\Str::money((float)$item['partner_price'], $item['partner_currency'] ?? 'MXN')) ?></strong>

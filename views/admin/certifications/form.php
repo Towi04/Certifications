@@ -107,8 +107,8 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         </fieldset>
 
         <label class="field-wide">Rango de puntaje / nivel
-            <input name="score_range" required value="<?= e($item['score_range'] ?? '') ?>" placeholder="Ej. 0–120, A1–C2, 420–677, B1+">
-            <small class="muted">Rango que puede obtener el candidato.</small>
+            <input name="score_range" value="<?= e($item['score_range'] ?? '') ?>" placeholder="Ej. 0–120, A1–C2, 420–677, B1+">
+            <small class="muted">Rango que puede obtener el candidato (obligatorio al publicar fichas completas).</small>
         </label>
 
         <label>Precio público<input type="number" step="0.01" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>"></label>
