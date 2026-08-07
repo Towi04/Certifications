@@ -259,6 +259,31 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
   };
   rel?.addEventListener('change', syncRel);
   syncRel();
+
+  document.querySelectorAll('[data-html-field]').forEach((wrap) => {
+    const btn = wrap.querySelector('.html-preview-toggle');
+    const ta = wrap.querySelector('textarea.html-editor');
+    const preview = wrap.querySelector('.html-preview');
+    if (!btn || !ta || !preview) return;
+    btn.addEventListener('click', () => {
+      const showing = btn.getAttribute('aria-pressed') === 'true';
+      if (showing) {
+        preview.hidden = true;
+        preview.innerHTML = '';
+        ta.hidden = false;
+        btn.setAttribute('aria-pressed', 'false');
+        btn.classList.remove('is-active');
+        btn.title = 'Vista previa';
+      } else {
+        preview.innerHTML = ta.value.trim() !== '' ? ta.value : '<p class="muted"><em>(Vacío)</em></p>';
+        ta.hidden = true;
+        preview.hidden = false;
+        btn.setAttribute('aria-pressed', 'true');
+        btn.classList.add('is-active');
+        btn.title = 'Ver código HTML';
+      }
+    });
+  });
 })();
 </script>
 

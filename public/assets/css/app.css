@@ -252,6 +252,38 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   font-size: 0.92rem;
   line-height: 1.5;
 }
+.html-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.html-field-title {
+  font-weight: 600;
+  color: var(--ink, inherit);
+}
+.html-preview-toggle {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 40px;
+}
+.html-preview-toggle.is-active {
+  background: var(--blue);
+  color: #fff;
+}
+.html-preview {
+  min-height: 10rem;
+  border: 1px solid rgba(49, 82, 133, 0.18);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  overflow: auto;
+}
+.html-preview[hidden] { display: none !important; }
+.html-field textarea[hidden] { display: none !important; }
 .skills-fieldset {
   border: 1px solid rgba(49, 82, 133, 0.15);
   border-radius: 12px;
