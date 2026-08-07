@@ -7,64 +7,179 @@ namespace App\Integrations;
 use App\Config\Env;
 
 /**
- * Cliente SMTP mínimo (SSL/TLS) sin dependencias Composer.
- * En Neubox/cPanel, mail.dominio:465 desde el mismo servidor a menudo
- * responde 535 aunque la contraseña sea correcta; localhost suele funcionar.
+ * Envío de correo para Neubox/cPanel.
+ *
+ * Webmail (IMAP/Dovecot) puede aceptar la clave y Exim SMTP AUTH (465/587)
+ * rechazarla con 535 desde PHP. En auto se usa primero mail() local
+ * (sendmail/Exim sin AUTH), que es lo habitual en hosting compartido.
  */
 final class Mailer
 {
-    /** @var array{host: string, port: int, encryption: string}|null */
+    /** @var array{transport: string, host?: string, port?: int, encryption?: string, auth_user?: string}|null */
     private static ?array $lastEndpoint = null;
 
-    /** @return array{host: string, port: int, encryption: string}|null */
+    /** @return array{transport: string, host?: string, port?: int, encryption?: string, auth_user?: string}|null */
     public static function lastEndpoint(): ?array
     {
         return self::$lastEndpoint;
     }
 
+    /** Huella segura de SMTP_PASS (sin revelar la clave). */
+    public static function passwordFingerprint(): array
+    {
+        $pass = (string) Env::get('SMTP_PASS', '');
+        $len = strlen($pass);
+        $first = $len > 0 ? ord($pass[0]) : null;
+        $last = $len > 0 ? ord($pass[$len - 1]) : null;
+
+        return [
+            'pass_len' => $len,
+            'pass_first_ord' => $first,
+            'pass_last_ord' => $last,
+            'pass_sha1_8' => $len > 0 ? substr(sha1($pass), 0, 8) : null,
+            'pass_has_space' => str_contains($pass, ' '),
+            'pass_has_non_ascii' => $pass !== '' && !preg_match('/^[\x20-\x7E]+$/', $pass),
+        ];
+    }
+
     public function send(string $to, string $subject, string $bodyText): void
+    {
+        $transport = strtolower(trim(Env::get('SMTP_TRANSPORT', 'auto') ?? 'auto'));
+        if (!in_array($transport, ['auto', 'smtp', 'mail'], true)) {
+            $transport = 'auto';
+        }
+
+        $errors = [];
+
+        if ($transport === 'mail' || $transport === 'auto') {
+            try {
+                $this->sendViaPhpMail($to, $subject, $bodyText);
+                self::$lastEndpoint = ['transport' => 'mail'];
+
+                return;
+            } catch (\Throwable $e) {
+                $errors[] = 'mail() → ' . $e->getMessage();
+                if ($transport === 'mail') {
+                    throw $e;
+                }
+            }
+        }
+
+        if ($transport === 'smtp' || $transport === 'auto') {
+            try {
+                $this->sendViaSmtp($to, $subject, $bodyText, $errors);
+
+                return;
+            } catch (\Throwable $e) {
+                $errors[] = 'smtp → ' . $e->getMessage();
+                if ($transport === 'smtp') {
+                    throw $this->wrapFinalError($errors);
+                }
+            }
+        }
+
+        throw $this->wrapFinalError($errors);
+    }
+
+    /** @param list<string> $errors */
+    private function wrapFinalError(array $errors): \RuntimeException
+    {
+        $fp = self::passwordFingerprint();
+
+        return new \RuntimeException(
+            'Correo: no se pudo enviar. '
+            . 'Webmail (IMAP) ≠ SMTP AUTH: clave válida en webmail no garantiza 465/587 desde PHP. '
+            . 'Tras muchos 535, revisa cPanel → cPHulk (desbloquea IP/cuenta) o restablece la clave del buzón. '
+            . 'Puedes forzar envío local con SMTP_TRANSPORT=mail. '
+            . 'Fingerprint: len=' . $fp['pass_len']
+            . ', first_ord=' . ($fp['pass_first_ord'] ?? '-')
+            . ', last_ord=' . ($fp['pass_last_ord'] ?? '-')
+            . ', sha1_8=' . ($fp['pass_sha1_8'] ?? '-')
+            . ". Intentos:\n- " . implode("\n- ", $errors)
+        );
+    }
+
+    /** @param list<string> $errors */
+    private function sendViaSmtp(string $to, string $subject, string $bodyText, array &$errors): void
     {
         $user = trim(Env::require('SMTP_USER'));
         $pass = Env::require('SMTP_PASS');
         $from = trim(Env::get('SMTP_FROM', $user) ?? $user);
         $fromName = Env::get('SMTP_FROM_NAME', 'Instituto Doceo') ?? 'Instituto Doceo';
 
-        $attempts = $this->endpoints();
-        $errors = [];
+        $userVariants = array_values(array_unique(array_filter([
+            $user,
+            str_contains($user, '@') ? explode('@', $user, 2)[0] : null,
+        ])));
 
-        foreach ($attempts as $endpoint) {
+        foreach ($this->endpoints() as $endpoint) {
             $label = $endpoint['host'] . ':' . $endpoint['port'] . '/' . $endpoint['encryption'];
-            try {
-                $this->sendVia(
-                    $endpoint['host'],
-                    $endpoint['port'],
-                    $endpoint['encryption'],
-                    $user,
-                    $pass,
-                    $from,
-                    $fromName,
-                    $to,
-                    $subject,
-                    $bodyText
-                );
-                self::$lastEndpoint = $endpoint;
+            foreach ($userVariants as $authUser) {
+                $authLabel = $label . ' user=' . $authUser;
+                try {
+                    $this->sendViaSocket(
+                        $endpoint['host'],
+                        $endpoint['port'],
+                        $endpoint['encryption'],
+                        $authUser,
+                        $pass,
+                        $from,
+                        $fromName,
+                        $to,
+                        $subject,
+                        $bodyText
+                    );
+                    self::$lastEndpoint = [
+                        'transport' => 'smtp',
+                        'host' => $endpoint['host'],
+                        'port' => $endpoint['port'],
+                        'encryption' => $endpoint['encryption'],
+                        'auth_user' => $authUser,
+                    ];
 
-                return;
-            } catch (\Throwable $e) {
-                $errors[] = $label . ' → ' . $e->getMessage();
+                    return;
+                } catch (\Throwable $e) {
+                    $errors[] = $authLabel . ' → ' . $e->getMessage();
+                }
             }
         }
 
-        $passLen = strlen($pass);
-        throw new \RuntimeException(
-            'SMTP: todos los endpoints fallaron (user=' . $user . ', pass_len=' . $passLen . '). '
-            . 'Comprueba que la contraseña tenga exactamente ' . $passLen . ' caracteres (como en cPanel/webmail). '
-            . "Intentos:\n- " . implode("\n- ", $errors)
-        );
+        throw new \RuntimeException('SMTP AUTH falló en todos los endpoints.');
+    }
+
+    private function sendViaPhpMail(string $to, string $subject, string $bodyText): void
+    {
+        $user = trim((string) Env::get('SMTP_USER', ''));
+        $from = trim((string) (Env::get('SMTP_FROM', $user !== '' ? $user : null) ?? 'certificaciones@institutodoceo.com'));
+        $fromName = (string) (Env::get('SMTP_FROM_NAME', 'Instituto Doceo') ?? 'Instituto Doceo');
+
+        $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+        $encodedFrom = '=?UTF-8?B?' . base64_encode($fromName) . '?= <' . $from . '>';
+
+        $headers = [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Transfer-Encoding: 8bit',
+            'From: ' . $encodedFrom,
+            'Reply-To: ' . $from,
+            'X-Mailer: Instituto-Doceo-PDV',
+        ];
+
+        $body = str_replace(["\r\n", "\r"], "\n", $bodyText);
+        $body = str_replace("\n", "\r\n", $body);
+
+        $params = '-f' . $from;
+        $ok = @mail($to, $encodedSubject, $body, implode("\r\n", $headers), $params);
+        if ($ok !== true) {
+            throw new \RuntimeException(
+                'PHP mail() devolvió false. Revisa que From (' . $from
+                . ') sea un buzón del dominio en Neubox.'
+            );
+        }
     }
 
     /**
-     * Endpoints a probar: el configurado y variantes típicas de hosting compartido.
+     * Pocos endpoints (auto ya prioriza mail()). Evita timeouts en salud.
      *
      * @return list<array{host: string, port: int, encryption: string}>
      */
@@ -79,13 +194,8 @@ final class Mailer
 
         $candidates = [
             ['host' => $host, 'port' => $port, 'encryption' => $encryption],
-            ['host' => 'localhost', 'port' => $port, 'encryption' => $encryption],
-            ['host' => '127.0.0.1', 'port' => $port, 'encryption' => $encryption],
-            ['host' => $host, 'port' => 587, 'encryption' => 'tls'],
-            ['host' => 'localhost', 'port' => 587, 'encryption' => 'tls'],
-            ['host' => '127.0.0.1', 'port' => 587, 'encryption' => 'tls'],
             ['host' => 'localhost', 'port' => 465, 'encryption' => 'ssl'],
-            ['host' => $host, 'port' => 465, 'encryption' => 'ssl'],
+            ['host' => $host, 'port' => 587, 'encryption' => 'tls'],
         ];
 
         $seen = [];
@@ -102,7 +212,7 @@ final class Mailer
         return $out;
     }
 
-    private function sendVia(
+    private function sendViaSocket(
         string $host,
         int $port,
         string $encryption,
@@ -148,23 +258,10 @@ final class Mailer
      */
     private function connect(string $host, int $port, string $encryption)
     {
-        $scheme = match ($encryption) {
-            'ssl' => 'ssl://',
-            default => 'tcp://',
-        };
+        $scheme = $encryption === 'ssl' ? 'ssl://' : 'tcp://';
         $remote = $scheme . $host . ':' . $port;
 
         $contexts = [
-            stream_context_create([
-                'ssl' => [
-                    'crypto_method' => STREAM_CRYPTO_METHOD_TLS_CLIENT,
-                    'verify_peer' => true,
-                    'verify_peer_name' => true,
-                    'peer_name' => $host,
-                    'allow_self_signed' => false,
-                ],
-            ]),
-            // Cert del servidor compartido suele no coincidir con mail.dominio / localhost.
             stream_context_create([
                 'ssl' => [
                     'verify_peer' => false,
@@ -182,7 +279,7 @@ final class Mailer
                 $remote,
                 $errno,
                 $errstr,
-                20,
+                12,
                 STREAM_CLIENT_CONNECT,
                 $context
             );
@@ -195,7 +292,7 @@ final class Mailer
             throw new \RuntimeException("No se pudo conectar a {$remote}: {$errstr} ({$errno})");
         }
 
-        stream_set_timeout($fp, 20);
+        stream_set_timeout($fp, 12);
         $this->expect($fp, 220);
         $this->command($fp, 'EHLO pdv.institutodoceo.com', 250);
 
@@ -223,7 +320,7 @@ final class Mailer
 
             return $fp;
         } catch (\RuntimeException) {
-            // seguir con LOGIN
+            // LOGIN
         }
 
         $newFp = $this->connect($host, $port, $encryption);

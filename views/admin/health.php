@@ -34,15 +34,16 @@
 </div>
 
 <section class="note">
-    <h2>SMTP y error 535</h2>
+    <h2>Correo y error 535</h2>
     <p>
-        El alta de usuarios y este botón usan el <strong>mismo</strong> cliente SMTP.
-        El Mailer prueba varios endpoints: el del <code>.env</code>, <code>localhost</code>,
-        <code>127.0.0.1</code> y puerto <code>587/tls</code> (típico en Neubox).
+        Entrar a <strong>webmail</strong> valida IMAP (Dovecot), no SMTP AUTH de Exim.
+        Por eso la misma clave puede abrir webmail y fallar en 465/587 desde PHP.
+        En modo <code>SMTP_TRANSPORT=auto</code> el sistema envía primero con
+        <code>mail()</code> local (sin AUTH), que es lo normal en Neubox.
     </p>
     <ol>
-        <li>Compara <code>pass_len</code> con la longitud real de la contraseña en cPanel. Si no coincide, ponla entre comillas dobles en el <code>.env</code>.</li>
-        <li>Entra a webmail con esa cuenta para confirmar que la clave es válida.</li>
-        <li>Si un endpoint funciona, el meta mostrará <code>used_endpoint</code>; puedes dejarlo fijo en el <code>.env</code>.</li>
+        <li>Tras “Probar SMTP”, si sale OK con <code>used_endpoint.transport = mail</code>, el correo ya funciona.</li>
+        <li>Si SMTP AUTH sigue en 535: cPanel → cPHulk (desbloquea) o restablece la clave del buzón.</li>
+        <li>Opcional: fija <code>SMTP_TRANSPORT=mail</code> en el <code>.env</code>.</li>
     </ol>
 </section>

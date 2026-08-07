@@ -126,28 +126,34 @@ final class HealthChecker
     /** @return array{name: string, ok: bool, message: string, meta?: array<string, mixed>} */
     public function checkSmtp(?string $testTo = null): array
     {
-        $name = 'SMTP';
-        foreach (['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as $key) {
-            if (!Env::isFilled($key)) {
-                return ['name' => $name, 'ok' => false, 'message' => "Falta {$key} en .env"];
+        $transport = strtolower(trim(Env::get('SMTP_TRANSPORT', 'auto') ?? 'auto'));
+        $name = 'Correo';
+
+        if ($transport !== 'mail') {
+            foreach (['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as $key) {
+                if (!Env::isFilled($key)) {
+                    return ['name' => $name, 'ok' => false, 'message' => "Falta {$key} en .env"];
+                }
             }
+        } elseif (!Env::isFilled('SMTP_FROM') && !Env::isFilled('SMTP_USER')) {
+            return ['name' => $name, 'ok' => false, 'message' => 'Falta SMTP_FROM o SMTP_USER en .env para mail()'];
         }
 
         $to = $testTo ?: (Env::get('SMTP_FROM') ?: Env::get('SMTP_USER'));
         if ($to === null || $to === '') {
-            return ['name' => $name, 'ok' => false, 'message' => 'No hay destinatario de prueba SMTP.'];
+            return ['name' => $name, 'ok' => false, 'message' => 'No hay destinatario de prueba de correo.'];
         }
 
-        $meta = [
+        $meta = array_merge([
+            'transport' => $transport,
             'host' => Env::get('SMTP_HOST'),
             'port' => Env::get('SMTP_PORT'),
             'encryption' => Env::get('SMTP_ENCRYPTION', 'ssl'),
             'user' => Env::get('SMTP_USER'),
-            'pass_len' => strlen((string) Env::get('SMTP_PASS', '')),
             'from' => Env::get('SMTP_FROM'),
             'to' => $to,
-            'note' => 'Si pass_len no coincide con la longitud real de la clave en cPanel, el .env está mal parseado (usa comillas dobles).',
-        ];
+            'note' => 'Webmail (IMAP) ≠ SMTP AUTH. En Neubox auto usa mail() local primero.',
+        ], Mailer::passwordFingerprint());
 
         try {
             $mailer = new Mailer();
@@ -162,11 +168,19 @@ final class HealthChecker
                 $meta['used_endpoint'] = $used;
             }
 
+            $via = 'mail()';
+            if ($used !== null) {
+                if (($used['transport'] ?? '') === 'mail') {
+                    $via = 'PHP mail()';
+                } elseif (!empty($used['host'])) {
+                    $via = $used['host'] . ':' . ($used['port'] ?? '') . '/' . ($used['encryption'] ?? '');
+                }
+            }
+
             return [
                 'name' => $name,
                 'ok' => true,
-                'message' => "Correo de prueba enviado a {$to}"
-                    . ($used ? ' vía ' . $used['host'] . ':' . $used['port'] . '/' . $used['encryption'] : ''),
+                'message' => "Correo de prueba enviado a {$to} vía {$via}",
                 'meta' => $meta,
             ];
         } catch (\Throwable $e) {
