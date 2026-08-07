@@ -138,6 +138,16 @@ final class HealthChecker
             return ['name' => $name, 'ok' => false, 'message' => 'No hay destinatario de prueba SMTP.'];
         }
 
+        $meta = [
+            'host' => Env::get('SMTP_HOST'),
+            'port' => Env::get('SMTP_PORT'),
+            'encryption' => Env::get('SMTP_ENCRYPTION', 'ssl'),
+            'user' => Env::get('SMTP_USER'),
+            'pass_len' => strlen((string) Env::get('SMTP_PASS', '')),
+            'from' => Env::get('SMTP_FROM'),
+            'to' => $to,
+        ];
+
         try {
             $mailer = new Mailer();
             $mailer->send(
@@ -150,13 +160,15 @@ final class HealthChecker
                 'name' => $name,
                 'ok' => true,
                 'message' => "Correo de prueba enviado a {$to}",
-                'meta' => [
-                    'host' => Env::get('SMTP_HOST'),
-                    'port' => Env::get('SMTP_PORT'),
-                ],
+                'meta' => $meta,
             ];
         } catch (\Throwable $e) {
-            return ['name' => $name, 'ok' => false, 'message' => $e->getMessage()];
+            return [
+                'name' => $name,
+                'ok' => false,
+                'message' => $e->getMessage(),
+                'meta' => $meta,
+            ];
         }
     }
 

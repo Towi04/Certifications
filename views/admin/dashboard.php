@@ -69,6 +69,14 @@ $menus = [
         'tone' => 'coral',
         'icon' => 'users',
     ],
+    [
+        'href' => '/admin/salud',
+        'title' => 'Salud',
+        'desc' => 'DB, Moodle, OpenPay, SMTP',
+        'count' => null,
+        'tone' => 'slate',
+        'icon' => 'list',
+    ],
 ];
 
 $icons = [
