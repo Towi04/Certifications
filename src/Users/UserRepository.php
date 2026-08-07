@@ -36,6 +36,7 @@ final class UserRepository
     }
 
     public const PARTNER_DEFAULT_PASSWORD = 'Doceo1234';
+    public const DEFAULT_PASSWORD = self::PARTNER_DEFAULT_PASSWORD;
 
     public function createPartnerUser(string $email, string $firstName, string $lastName, ?string $phone = null): int
     {
@@ -56,14 +57,14 @@ final class UserRepository
 
         $username = $this->allocateUsernameFromEmail($email);
         $name = self::displayName($first, $last);
-        $hash = password_hash(self::PARTNER_DEFAULT_PASSWORD, PASSWORD_DEFAULT);
+        $hash = password_hash(self::DEFAULT_PASSWORD, PASSWORD_DEFAULT);
         if ($hash === false) {
             throw new \RuntimeException('No se pudo generar la contraseña.');
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password)
-             VALUES (?,?,?,?,?,?,?,?,1,1)'
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password, email_verified_at)
+             VALUES (?,?,?,?,?,?,?,?,1,1,NULL)'
         );
         $stmt->execute([$email, $phone, $username, $hash, $name, $first, $last, 'partner']);
         return (int) $this->pdo->lastInsertId();
@@ -95,7 +96,8 @@ final class UserRepository
     /** @return list<array<string, mixed>> */
     public function list(?array $filters = null): array
     {
-        $sql = 'SELECT id, email, phone, username, name, first_name, last_name, role, is_active, created_at, updated_at
+        $sql = 'SELECT id, email, phone, username, name, first_name, last_name, role, is_active,
+                       must_change_password, email_verified_at, created_at, updated_at
                 FROM users WHERE 1=1';
         $params = [];
 
@@ -125,7 +127,8 @@ final class UserRepository
     public function find(int $id): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, email, phone, username, name, first_name, last_name, role, is_active, created_at, updated_at
+            'SELECT id, email, phone, username, name, first_name, last_name, role, is_active,
+                    must_change_password, email_verified_at, created_at, updated_at
              FROM users WHERE id = ? LIMIT 1'
         );
         $stmt->execute([$id]);
@@ -196,7 +199,7 @@ final class UserRepository
         $name = self::displayName($first, $last);
         $role = $data['role'];
         $phone = trim((string) ($data['phone'] ?? '')) ?: null;
-        $password = (string) ($data['password'] ?? '');
+        $password = self::DEFAULT_PASSWORD;
 
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('Correo inválido.');
@@ -209,9 +212,6 @@ final class UserRepository
         }
         if ($last === '') {
             throw new \RuntimeException('Los apellidos son obligatorios.');
-        }
-        if ($password === '') {
-            throw new \RuntimeException('La contraseña es obligatoria.');
         }
         if (!isset(self::manageableRoles()[$role])) {
             throw new \RuntimeException('Rol no válido.');
@@ -228,9 +228,10 @@ final class UserRepository
             throw new \RuntimeException('No se pudo generar la contraseña.');
         }
 
+        // Pendiente de activación por correo
         $stmt = $this->pdo->prepare(
-            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active)
-             VALUES (?,?,?,?,?,?,?,?,1)'
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password, email_verified_at)
+             VALUES (?,?,?,?,?,?,?,?,0,1,NULL)'
         );
         $stmt->execute([$email, $phone, $username, $hash, $name, $first, $last, $role]);
         return (int) $this->pdo->lastInsertId();
@@ -297,7 +298,7 @@ final class UserRepository
         $stmt->execute([$email, $phone, $username, $name, $first, $last, $role, $id]);
     }
 
-    public function setPassword(int $id, string $password): void
+    public function setPassword(int $id, string $password, bool $forceChange = false): void
     {
         if ($password === '') {
             throw new \RuntimeException('La contraseña no puede estar vacía.');
@@ -309,8 +310,16 @@ final class UserRepository
         if ($hash === false) {
             throw new \RuntimeException('No se pudo generar la contraseña.');
         }
-        $stmt = $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
-        $stmt->execute([$hash, $id]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?'
+        );
+        $stmt->execute([$hash, $forceChange ? 1 : 0, $id]);
+    }
+
+    /** Restablece a la contraseña temporal Doceo1234 y obliga a cambiarla. */
+    public function resetToDefaultPassword(int $id): void
+    {
+        $this->setPassword($id, self::DEFAULT_PASSWORD, true);
     }
 
     public function setActive(int $id, bool $active, ?int $actorId = null): void
@@ -321,6 +330,9 @@ final class UserRepository
         }
         if ($actorId !== null && $actorId === $id && !$active) {
             throw new \RuntimeException('No puedes deshabilitar tu propia cuenta.');
+        }
+        if ($active && empty($existing['email_verified_at'])) {
+            throw new \RuntimeException('La cuenta aún no se ha activado por correo. El usuario debe abrir el enlace de activación.');
         }
         if (
             !$active
@@ -333,5 +345,129 @@ final class UserRepository
 
         $stmt = $this->pdo->prepare('UPDATE users SET is_active = ? WHERE id = ?');
         $stmt->execute([$active ? 1 : 0, $id]);
+    }
+
+    public function createActivationToken(int $userId): string
+    {
+        $this->ensureActivationTable();
+        $this->pdo->prepare('DELETE FROM account_activations WHERE user_id = ? OR expires_at < ?')
+            ->execute([$userId, date('Y-m-d H:i:s')]);
+
+        $token = bin2hex(random_bytes(24));
+        $expiresAt = date('Y-m-d H:i:s', time() + 86400 * 7);
+        $this->pdo->prepare(
+            'INSERT INTO account_activations (user_id, token, expires_at) VALUES (?,?,?)'
+        )->execute([$userId, $token, $expiresAt]);
+
+        return $token;
+    }
+
+    public function findActivationByToken(string $token): ?array
+    {
+        if (trim($token) === '') {
+            return null;
+        }
+        $this->ensureActivationTable();
+        $stmt = $this->pdo->prepare(
+            'SELECT a.token, a.expires_at, u.id AS user_id, u.email, u.username, u.name, u.first_name, u.last_name, u.role, u.is_active, u.email_verified_at
+             FROM account_activations a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.token = ? AND a.expires_at >= ?
+             LIMIT 1'
+        );
+        $stmt->execute([$token, date('Y-m-d H:i:s')]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function consumeActivationToken(string $token): void
+    {
+        $this->ensureActivationTable();
+        $this->pdo->prepare('DELETE FROM account_activations WHERE token = ?')->execute([$token]);
+    }
+
+    /** Activa la cuenta y guarda la nueva contraseña elegida por el usuario. */
+    public function activateWithPassword(int $userId, string $password): void
+    {
+        if ($password === self::DEFAULT_PASSWORD) {
+            throw new \RuntimeException('Elige una contraseña distinta a la temporal.');
+        }
+        if (strlen($password) < 8) {
+            throw new \RuntimeException('La contraseña debe tener al menos 8 caracteres.');
+        }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        if ($hash === false) {
+            throw new \RuntimeException('No se pudo generar la contraseña.');
+        }
+        $stmt = $this->pdo->prepare(
+            'UPDATE users SET password_hash = ?, is_active = 1, must_change_password = 0, email_verified_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([$hash, $userId]);
+    }
+
+    public function sendWelcomeActivationEmail(int $userId): void
+    {
+        $user = $this->find($userId);
+        if (!$user) {
+            throw new \RuntimeException('Usuario no encontrado.');
+        }
+
+        $token = $this->createActivationToken($userId);
+        $url = $this->buildActivationUrl($token);
+        $display = self::displayName($user['first_name'] ?? null, $user['last_name'] ?? null, $user['name'] ?? null);
+        $roleLabels = self::allRoleLabels();
+        $roleLabel = $roleLabels[$user['role']] ?? $user['role'];
+
+        $subject = 'Activa tu cuenta — Instituto Doceo PDV';
+        $body = "Hola {$display},\n\n";
+        $body .= "Se creó tu cuenta en el sistema de certificaciones de Instituto Doceo.\n\n";
+        $body .= "Datos de acceso temporales:\n";
+        $body .= '- Correo: ' . $user['email'] . "\n";
+        $body .= '- Usuario: ' . ($user['username'] ?? '') . "\n";
+        $body .= '- Contraseña temporal: ' . self::DEFAULT_PASSWORD . "\n";
+        $body .= '- Rol: ' . $roleLabel . "\n\n";
+        $body .= "Para activar tu cuenta y elegir una contraseña nueva, abre este enlace:\n{$url}\n\n";
+        $body .= "El enlace vence en 7 días. Si no solicitaste esta cuenta, ignora este mensaje.\n\n";
+        $body .= "Saludos,\nInstituto Doceo";
+
+        $mailer = new \App\Integrations\Mailer();
+        $mailer->send((string) $user['email'], $subject, $body);
+    }
+
+    public static function statusLabel(array $user): string
+    {
+        if ((int) ($user['is_active'] ?? 0) === 1) {
+            return 'Activo';
+        }
+        if (empty($user['email_verified_at'])) {
+            return 'Pendiente';
+        }
+        return 'Deshabilitado';
+    }
+
+    private function buildActivationUrl(string $token): string
+    {
+        $scheme = 'http';
+        if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+            $scheme = 'https';
+        }
+        $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+        return $scheme . '://' . $host . '/activate-account?token=' . rawurlencode($token);
+    }
+
+    private function ensureActivationTable(): void
+    {
+        $this->pdo->exec(
+            'CREATE TABLE IF NOT EXISTS account_activations ('
+            . 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, '
+            . 'user_id BIGINT UNSIGNED NOT NULL, '
+            . 'token VARCHAR(255) NOT NULL, '
+            . 'expires_at DATETIME NOT NULL, '
+            . 'created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, '
+            . 'UNIQUE KEY uq_account_activations_token (token), '
+            . 'KEY idx_account_activations_user (user_id)'
+            . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
     }
 }

@@ -177,6 +177,73 @@ $router->post('/change-password', static function (): void {
     }
 });
 
+$router->get('/activate-account', static function (): void {
+    $token = trim((string) ($_GET['token'] ?? ''));
+    $repo = new \App\Users\UserRepository();
+    $activation = $token !== '' ? $repo->findActivationByToken($token) : null;
+    if (!$activation) {
+        view('auth/activate_account', [
+            'title' => 'Activar cuenta',
+            'token' => $token,
+            'activationUser' => null,
+            'error' => 'El enlace de activación no es válido o ya venció. Pide a un administrador que lo reenvíe.',
+            'info' => flash('info'),
+        ]);
+        return;
+    }
+    view('auth/activate_account', [
+        'title' => 'Activar cuenta',
+        'token' => $token,
+        'activationUser' => [
+            'name' => \App\Users\UserRepository::displayName(
+                $activation['first_name'] ?? null,
+                $activation['last_name'] ?? null,
+                $activation['name'] ?? null
+            ),
+            'email' => $activation['email'] ?? '',
+            'username' => $activation['username'] ?? '',
+        ],
+        'error' => flash('error'),
+        'info' => flash('info'),
+    ]);
+});
+
+$router->post('/activate-account', static function (): void {
+    $token = trim((string) ($_POST['token'] ?? ''));
+    $password = (string) ($_POST['password'] ?? '');
+    $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+    $repo = new \App\Users\UserRepository();
+    $activation = $token !== '' ? $repo->findActivationByToken($token) : null;
+
+    if (!$activation) {
+        flash('error', 'El enlace de activación no es válido o ya venció.');
+        header('Location: /activate-account?token=' . rawurlencode($token));
+        exit;
+    }
+    if ($password === '' || $passwordConfirm === '') {
+        flash('error', 'Completa ambos campos.');
+        header('Location: /activate-account?token=' . rawurlencode($token));
+        exit;
+    }
+    if ($password !== $passwordConfirm) {
+        flash('error', 'Las contraseñas no coinciden.');
+        header('Location: /activate-account?token=' . rawurlencode($token));
+        exit;
+    }
+
+    try {
+        $repo->activateWithPassword((int) $activation['user_id'], $password);
+        $repo->consumeActivationToken($token);
+        flash('info', 'Cuenta activada. Ya puedes iniciar sesión con tu nueva contraseña.');
+        header('Location: /login');
+        exit;
+    } catch (Throwable $e) {
+        flash('error', $e->getMessage());
+        header('Location: /activate-account?token=' . rawurlencode($token));
+        exit;
+    }
+});
+
 $router->get('/register', static function (): void {
     if (Auth::check()) {
         header('Location: /profile');

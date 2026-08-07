@@ -11,13 +11,15 @@ if ($item && in_array(($item['role'] ?? ''), ['partner', 'student'], true)) {
 $isEdit = $item !== null;
 $currentUserId = (int) ($currentUserId ?? 0);
 $isSelf = $isEdit && (int) $item['id'] === $currentUserId;
+$defaultPassword = \App\Users\UserRepository::DEFAULT_PASSWORD;
 ?>
 <section class="note">
     <h2><?= e($title) ?></h2>
     <p class="muted">
         Alta de personal Doceo (Administrador, Asistente, Gestor).
         Los Partners TR se dan de alta en <a href="/admin/partners">Partners TR</a>.
-        Los permisos por sección se definirán más adelante; por ahora todos los roles de personal entran al panel.
+        La contraseña temporal es <code><?= e($defaultPassword) ?></code>; al guardar se envía un correo
+        con usuario, contraseña y enlace para activar la cuenta y elegir una nueva.
     </p>
 
     <form method="post" action="/admin/users/save" class="stack form-grid">
@@ -56,9 +58,10 @@ $isSelf = $isEdit && (int) $item['id'] === $currentUserId;
         </label>
 
         <?php if (!$isEdit): ?>
-            <label>Contraseña
-                <input type="password" name="password" required autocomplete="new-password">
-            </label>
+            <p class="field-wide muted">
+                Contraseña temporal asignada automáticamente:
+                <code><?= e($defaultPassword) ?></code>
+            </p>
         <?php endif; ?>
 
         <div class="actions">
@@ -83,22 +86,3 @@ $isSelf = $isEdit && (int) $item['id'] === $currentUserId;
         </form>
     <?php endif; ?>
 </section>
-
-<?php if ($isEdit): ?>
-<section class="note">
-    <h3>Restablecer contraseña</h3>
-    <p class="muted">Define una contraseña nueva para este usuario. No se envía por correo automáticamente.</p>
-    <form method="post" action="/admin/users/reset-password" class="stack form-grid">
-        <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
-        <label>Nueva contraseña
-            <input type="password" name="password" required autocomplete="new-password">
-        </label>
-        <label>Confirmar contraseña
-            <input type="password" name="password_confirm" required autocomplete="new-password">
-        </label>
-        <div class="actions">
-            <button class="btn" type="submit">Restablecer contraseña</button>
-        </div>
-    </form>
-</section>
-<?php endif; ?>
