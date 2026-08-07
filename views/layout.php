@@ -29,6 +29,7 @@
                     <?php endif; ?>
                     <?php if ($u && $u['role'] === 'admin'): ?>
                         <a href="/admin">Admin</a>
+                        <a href="/admin/settings">Integraciones</a>
                         <a href="/admin/salud">Salud</a>
                     <?php endif; ?>
                     <form class="inline-form" method="post" action="/logout">

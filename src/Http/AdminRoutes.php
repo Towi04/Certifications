@@ -7,6 +7,8 @@ namespace App\Http;
 use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
 use App\Support\Str;
+use App\Support\Uploader;
+use App\Support\IntegrationSettings;
 
 final class AdminRoutes
 {
@@ -45,6 +47,9 @@ final class AdminRoutes
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
+                'assets' => $repo()->assets('provider', $id),
+                'assetTypes' => CatalogRepository::assetTypesFor('provider'),
+                'info' => flash('info'),
                 'error' => flash('error'),
             ]);
         });
@@ -313,6 +318,8 @@ final class AdminRoutes
                 'tiers' => $repo()->partnerTiers(true),
                 'prices' => $repo()->agreementPrices($id),
                 'certifications' => $repo()->certifications(),
+                'assets' => $repo()->assets('agreement', $id),
+                'assetTypes' => CatalogRepository::assetTypesFor('agreement'),
                 'error' => flash('error'),
                 'info' => flash('info'),
             ]);
@@ -408,6 +415,8 @@ final class AdminRoutes
                 'protocols' => $repo()->protocols(true),
                 'linkedCourses' => $repo()->certificationCourses($id),
                 'courses' => $repo()->courses(true),
+                'assets' => $repo()->assets('certification', $id),
+                'assetTypes' => CatalogRepository::assetTypesFor('certification'),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -545,7 +554,9 @@ final class AdminRoutes
                 'users' => $repo()->usersAvailableForPartner((int) $item['user_id']),
                 'tiers' => $repo()->partnerTiers(true),
                 'agreements' => $repo()->agreements(),
+                'history' => $repo()->partnerAssignmentHistory($id),
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -561,6 +572,7 @@ final class AdminRoutes
                 exit;
             }
             try {
+                $admin = Auth::user();
                 $repo()->savePartner([
                     'user_id' => $userId,
                     'partner_tier_id' => $tierId > 0 ? $tierId : null,
@@ -568,7 +580,8 @@ final class AdminRoutes
                     'organization' => trim((string) ($_POST['organization'] ?? '')) ?: null,
                     'phone' => trim((string) ($_POST['phone'] ?? '')) ?: null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                ], $id);
+                    'assignment_reason' => trim((string) ($_POST['assignment_reason'] ?? '')) ?: 'Asignación admin',
+                ], $id, $admin ? (int) $admin['id'] : null);
                 flash('info', 'Partner guardado.');
                 header('Location: /admin/partners');
                 exit;
@@ -577,6 +590,75 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/partners/edit?id=' . $id : '/admin/partners/create'));
                 exit;
             }
+        });
+
+        $router->get('/admin/settings', static function (): void {
+            Auth::requireAdmin();
+            view('admin/settings', [
+                'title' => 'Integraciones',
+                'checklist' => IntegrationSettings::checklist(),
+                'user' => Auth::user(),
+            ]);
+        });
+
+        $router->post('/admin/assets/upload', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $ownerType = (string) ($_POST['owner_type'] ?? '');
+            $ownerId = (int) ($_POST['owner_id'] ?? 0);
+            $assetType = (string) ($_POST['asset_type'] ?? 'other');
+            $redirect = (string) ($_POST['redirect'] ?? '/admin');
+            if (!str_starts_with($redirect, '/admin')) {
+                $redirect = '/admin';
+            }
+            $allowedOwners = ['provider', 'certification', 'course', 'agreement'];
+            if (!in_array($ownerType, $allowedOwners, true) || $ownerId < 1) {
+                flash('error', 'Destino de asset inválido.');
+                header('Location: ' . $redirect);
+                exit;
+            }
+            $allowedTypes = CatalogRepository::assetTypesFor($ownerType);
+            if (!in_array($assetType, $allowedTypes, true)) {
+                flash('error', 'Tipo de asset no válido.');
+                header('Location: ' . $redirect);
+                exit;
+            }
+            try {
+                if (empty($_FILES['file'])) {
+                    throw new \RuntimeException('Selecciona un archivo.');
+                }
+                $path = Uploader::store($_FILES['file'], $ownerType);
+                $repo()->saveAsset([
+                    'owner_type' => $ownerType,
+                    'owner_id' => $ownerId,
+                    'asset_type' => $assetType,
+                    'file_path' => $path,
+                    'title' => trim((string) ($_POST['title'] ?? '')) ?: null,
+                    'sort_order' => (int) ($_POST['sort_order'] ?? 0),
+                ]);
+                flash('info', 'Archivo subido.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $redirect);
+            exit;
+        });
+
+        $router->post('/admin/assets/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $assetId = (int) ($_POST['asset_id'] ?? 0);
+            $redirect = (string) ($_POST['redirect'] ?? '/admin');
+            if (!str_starts_with($redirect, '/admin')) {
+                $redirect = '/admin';
+            }
+            $asset = $repo()->deleteAsset($assetId);
+            if ($asset) {
+                Uploader::delete((string) $asset['file_path']);
+                flash('info', 'Asset eliminado.');
+            } else {
+                flash('error', 'Asset no encontrado.');
+            }
+            header('Location: ' . $redirect);
+            exit;
         });
     }
 }

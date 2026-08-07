@@ -5,6 +5,7 @@
     </div>
     <div class="actions">
         <a class="btn" href="/admin/salud">Salud del sistema</a>
+        <a class="btn btn-ghost" href="/admin/settings">Integraciones</a>
         <a class="btn btn-ghost" href="/admin/certifications">Certificaciones</a>
     </div>
 </section>

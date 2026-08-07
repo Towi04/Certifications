@@ -2,6 +2,24 @@
 /** @var array $item */
 /** @var array|null $partnerPrice */
 /** @var array $courses */
+/** @var array $assets */
+/** @var array $providerAssets */
+$assets = $assets ?? [];
+$providerAssets = $providerAssets ?? [];
+
+$findAsset = static function (array $list, string $type): ?array {
+    foreach ($list as $a) {
+        if (($a['asset_type'] ?? '') === $type) {
+            return $a;
+        }
+    }
+    return null;
+};
+
+$cover = $findAsset($assets, 'cover') ?? $findAsset($assets, 'exam_logo');
+$providerLogo = $findAsset($providerAssets, 'provider_logo');
+$samples = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['certificate_sample', 'badge', 'exam_logo', 'cover'], true)));
+$docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['syllabus_pdf', 'regulation_pdf'], true)));
 ?>
 <section class="page-head">
     <div>
@@ -13,6 +31,17 @@
         <a class="btn btn-ghost" href="/partner">Volver al catálogo</a>
     </div>
 </section>
+
+<?php if ($cover || $providerLogo): ?>
+<section class="sheet-visual">
+    <?php if ($cover): ?>
+        <img class="sheet-cover" src="/media?f=<?= e(rawurlencode($cover['file_path'])) ?>" alt="<?= e($cover['title'] ?? $item['name']) ?>">
+    <?php endif; ?>
+    <?php if ($providerLogo): ?>
+        <img class="sheet-logo" src="/media?f=<?= e(rawurlencode($providerLogo['file_path'])) ?>" alt="<?= e($item['provider_name']) ?>">
+    <?php endif; ?>
+</section>
+<?php endif; ?>
 
 <section class="note product-sheet">
     <div class="price-box">
@@ -63,6 +92,34 @@
             </ul>
         </div>
     </div>
+
+    <?php if ($samples): ?>
+        <h2>Visuales</h2>
+        <div class="asset-gallery">
+            <?php foreach ($samples as $a): ?>
+                <a class="asset-thumb" href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener">
+                    <?php if (str_ends_with(strtolower((string)$a['file_path']), '.pdf')): ?>
+                        <span><?= e($a['title'] ?: $a['asset_type']) ?></span>
+                    <?php else: ?>
+                        <img src="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" alt="<?= e($a['title'] ?? $a['asset_type']) ?>">
+                    <?php endif; ?>
+                </a>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($docs): ?>
+        <h2>Documentos</h2>
+        <ul class="facts">
+            <?php foreach ($docs as $a): ?>
+                <li>
+                    <a href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener">
+                        <?= e($a['title'] ?: $a['asset_type']) ?>
+                    </a>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
 
     <?php if (!empty($item['description_html'])): ?>
         <h2>Descripción</h2>

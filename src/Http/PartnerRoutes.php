@@ -67,6 +67,8 @@ final class PartnerRoutes
                 'item' => $item,
                 'partnerPrice' => $partnerPrice,
                 'courses' => $repo()->certificationCourses((int) $item['id']),
+                'assets' => $repo()->assets('certification', (int) $item['id']),
+                'providerAssets' => $repo()->assets('provider', (int) $item['provider_id']),
             ]);
         });
     }

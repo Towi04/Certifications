@@ -429,7 +429,7 @@ final class CatalogRepository
         return $stmt->fetchAll();
     }
 
-    public function savePartner(array $data, ?int $id = null): int
+    public function savePartner(array $data, ?int $id = null, ?int $createdBy = null): int
     {
         $this->pdo->beginTransaction();
         try {
@@ -437,6 +437,12 @@ final class CatalogRepository
             $this->pdo->prepare(
                 "UPDATE users SET role = 'partner' WHERE id = ? AND role <> 'admin'"
             )->execute([$userId]);
+
+            $previousAgreementId = null;
+            if ($id) {
+                $existing = $this->partner($id);
+                $previousAgreementId = $existing['current_agreement_id'] ?? null;
+            }
 
             $fields = [
                 $userId,
@@ -462,12 +468,106 @@ final class CatalogRepository
                 $id = (int) $this->pdo->lastInsertId();
             }
 
+            $newAgreementId = $data['current_agreement_id'] ?? null;
+            if ($newAgreementId && (int) $newAgreementId !== (int) ($previousAgreementId ?? 0)) {
+                if ($previousAgreementId) {
+                    $this->pdo->prepare(
+                        'UPDATE partner_agreement_assignments SET ended_at = NOW()
+                         WHERE partner_id = ? AND agreement_id = ? AND ended_at IS NULL'
+                    )->execute([$id, $previousAgreementId]);
+                }
+                $this->pdo->prepare(
+                    'INSERT INTO partner_agreement_assignments (partner_id, agreement_id, reason, created_by)
+                     VALUES (?,?,?,?)'
+                )->execute([
+                    $id,
+                    $newAgreementId,
+                    $data['assignment_reason'] ?? 'Asignación admin',
+                    $createdBy,
+                ]);
+            }
+
             $this->pdo->commit();
             return $id;
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function partnerAssignmentHistory(int $partnerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT paa.*, a.name AS agreement_name, a.year, t.name AS tier_name, u.name AS created_by_name
+             FROM partner_agreement_assignments paa
+             JOIN agreements a ON a.id = paa.agreement_id
+             JOIN partner_tiers t ON t.id = a.partner_tier_id
+             LEFT JOIN users u ON u.id = paa.created_by
+             WHERE paa.partner_id = ?
+             ORDER BY paa.assigned_at DESC'
+        );
+        $stmt->execute([$partnerId]);
+        return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function assets(string $ownerType, int $ownerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM product_assets WHERE owner_type = ? AND owner_id = ? ORDER BY sort_order, id'
+        );
+        $stmt->execute([$ownerType, $ownerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function asset(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM product_assets WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function saveAsset(array $data): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO product_assets (owner_type, owner_id, asset_type, file_path, title, sort_order)
+             VALUES (?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['owner_type'],
+            $data['owner_id'],
+            $data['asset_type'],
+            $data['file_path'],
+            $data['title'],
+            $data['sort_order'] ?? 0,
+        ]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteAsset(int $id): ?array
+    {
+        $asset = $this->asset($id);
+        if (!$asset) {
+            return null;
+        }
+        $this->pdo->prepare('DELETE FROM product_assets WHERE id = ?')->execute([$id]);
+        return $asset;
+    }
+
+    /** @return list<string> */
+    public static function assetTypesFor(string $ownerType): array
+    {
+        return match ($ownerType) {
+            'provider' => ['provider_logo', 'other'],
+            'certification' => [
+                'exam_logo', 'certificate_sample', 'badge', 'syllabus_pdf', 'regulation_pdf', 'cover', 'other',
+            ],
+            'course' => ['cover', 'other'],
+            'agreement' => ['regulation_pdf', 'other'],
+            default => ['other'],
+        };
     }
 
     public function findPartnerByUserId(int $userId): ?array
