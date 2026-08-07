@@ -87,7 +87,14 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                         <input name="name" required value="<?= e($item['name'] ?? '') ?>" placeholder="Ej. Cambridge, Certiport, TOEFL (IIE)">
                         <small class="muted">Nombre público que ven alumnos y Teacher Referral.</small>
                     </label>
-                    <label>Sitio web<input type="url" name="website_url" value="<?= e($item['website_url'] ?? '') ?>" placeholder="https://"></label>
+                    <label>Sitio web del convenio
+                        <input type="url" name="website_url" value="<?= e($item['website_url'] ?? '') ?>" placeholder="https://creativesolutions.com">
+                        <small class="muted">Solo admin (ETC, Creative Solutions, Lingua Franca…).</small>
+                    </label>
+                    <label>Sitio web de la marca
+                        <input type="url" name="brand_website_url" value="<?= e($item['brand_website_url'] ?? '') ?>" placeholder="https://www.cambridge.org">
+                        <small class="muted">Público: Cambridge, Certiport, TOEFL/IIE… Visible a alumnos y TR.</small>
+                    </label>
                     <label>Logo icono / escudo
                         <input type="file" name="logo_icon" accept="image/*">
                         <small class="muted">Se redimensiona automáticamente (máx. 320×320).</small>

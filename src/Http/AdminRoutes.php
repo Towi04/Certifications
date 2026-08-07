@@ -123,10 +123,12 @@ final class AdminRoutes
                 $authUrl = $existing['auth_proof_url'] ?? null;
                 $authPath = $existing['auth_proof_path'] ?? null;
                 $website = $existing['website_url'] ?? null;
+                $brandWebsite = $existing['brand_website_url'] ?? null;
                 $isActive = $existing ? (int) $existing['is_active'] : 1;
 
                 if ($tab === 'proveedor' || !$existing) {
                     $website = trim((string) ($_POST['website_url'] ?? '')) ?: null;
+                    $brandWebsite = trim((string) ($_POST['brand_website_url'] ?? '')) ?: null;
                     if (!empty($_FILES['logo_icon']['name'])) {
                         $newIcon = Uploader::storeImage($_FILES['logo_icon'], 'providers/icons', 320, 320);
                         if ($iconPath) {
@@ -182,6 +184,7 @@ final class AdminRoutes
                     'code' => $code,
                     'name' => $name,
                     'website_url' => $website,
+                    'brand_website_url' => $brandWebsite,
                     'logo_path' => $iconPath,
                     'logo_icon_path' => $iconPath,
                     'logo_full_path' => $fullPath,
