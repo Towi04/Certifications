@@ -34,11 +34,32 @@ CREATE TABLE IF NOT EXISTS providers (
   name VARCHAR(190) NOT NULL,
   website_url VARCHAR(255) NULL,
   logo_path VARCHAR(255) NULL,
+  contact_name VARCHAR(190) NULL,
+  contact_email VARCHAR(190) NULL,
+  contact_phone VARCHAR(64) NULL,
+  contact_whatsapp VARCHAR(64) NULL,
+  auth_proof_type ENUM('none', 'url', 'document') NOT NULL DEFAULT 'none',
+  auth_proof_url VARCHAR(255) NULL,
+  auth_proof_path VARCHAR(255) NULL,
   notes TEXT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_providers_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS provider_agreements (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NOT NULL,
+  label VARCHAR(190) NOT NULL,
+  year SMALLINT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  signed_on DATE NULL,
+  notes TEXT NULL,
+  is_current TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_provider_agreements_provider (provider_id),
+  CONSTRAINT fk_provider_agreements_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS protocols (

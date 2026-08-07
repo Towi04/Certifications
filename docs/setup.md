@@ -95,12 +95,16 @@ Si falla, el error ahora dice si la clave del formulario no coincide con la del 
 
 ## 8. Catálogo Teacher Referral (Fase 1)
 
-1. Entra como admin → `/admin` o `/admin/settings` (checklist de integraciones).
-2. Carga: Proveedores → Protocolos → Cursos → Certificaciones (márcalas **publicadas**).
-3. En cada certificación/proveedor/convenio puedes subir **assets** (logos, muestra de certificado, PDF temario).
-4. Crea o edita el **convenio anual** del nivel TR y asigna precios partner.
-5. En **Partners**, asigna un usuario registrado a nivel + convenio (queda historial).
-6. Ese usuario entra y ve `/partner` con sus precios de convenio y la ficha dinámica.
+1. Entra como admin → `/admin`.
+2. **Proveedores:** crea cada casa certificadora con contacto, logo, convenio PDF (versiones) y prueba de autorización opcional (enlace o documento). Agrega ahí solo el **nombre** de cada certificación.
+3. Completa el detalle de cada certificación en **Certificaciones**.
+4. Crea o edita el **convenio anual TR** (niveles partner) y asigna precios.
+5. En **Partners**, asigna un usuario a nivel + convenio.
+6. Ese usuario entra a `/partner`.
+
+Si ya tenías la BD creada, importa también:
+- `sql/migration_providers_enrich_columns.sql` (ignora “Duplicate column”)
+- `sql/migration_providers_enrich.sql`
 
 Archivos se guardan en `storage/uploads/` y se sirven por `/media?f=…`.
 

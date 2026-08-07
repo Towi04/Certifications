@@ -30,7 +30,10 @@ final class AdminRoutes
             view('admin/providers/form', [
                 'title' => 'Nuevo proveedor',
                 'item' => null,
+                'agreements' => [],
+                'certifications' => [],
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -46,8 +49,8 @@ final class AdminRoutes
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
-                'assets' => $repo()->assets('provider', $id),
-                'assetTypes' => CatalogRepository::assetTypesFor('provider'),
+                'agreements' => $repo()->providerAgreements($id),
+                'certifications' => $repo()->certificationsByProvider($id),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -63,20 +66,152 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/providers/edit?id=' . $id : '/admin/providers/create'));
                 exit;
             }
+
+            $authType = (string) ($_POST['auth_proof_type'] ?? 'none');
+            if (!in_array($authType, ['none', 'url', 'document'], true)) {
+                $authType = 'none';
+            }
+
             try {
-                $repo()->saveProvider([
+                $existing = $id ? $repo()->provider($id) : null;
+                $logoPath = $existing['logo_path'] ?? null;
+                $authPath = $existing['auth_proof_path'] ?? null;
+
+                if (!empty($_FILES['logo']['name'])) {
+                    $logoPath = Uploader::store($_FILES['logo'], 'providers/logos');
+                    if (!empty($existing['logo_path'])) {
+                        Uploader::delete((string) $existing['logo_path']);
+                    }
+                }
+
+                $authUrl = null;
+                if ($authType === 'url') {
+                    $authUrl = trim((string) ($_POST['auth_proof_url'] ?? '')) ?: null;
+                    if ($authUrl === null) {
+                        throw new \RuntimeException('Indica el enlace de distribuidor autorizado, o elige otra opción.');
+                    }
+                    if ($authPath) {
+                        Uploader::delete((string) $authPath);
+                        $authPath = null;
+                    }
+                } elseif ($authType === 'document') {
+                    if (!empty($_FILES['auth_proof_file']['name'])) {
+                        $authPath = Uploader::store($_FILES['auth_proof_file'], 'providers/auth');
+                        if (!empty($existing['auth_proof_path'])) {
+                            Uploader::delete((string) $existing['auth_proof_path']);
+                        }
+                    }
+                    if (!$authPath) {
+                        throw new \RuntimeException('Sube el documento de autorización, o elige otra opción.');
+                    }
+                    $authUrl = null;
+                } else {
+                    if ($authPath) {
+                        Uploader::delete((string) $authPath);
+                    }
+                    $authPath = null;
+                    $authUrl = null;
+                }
+
+                $savedId = $repo()->saveProvider([
                     'code' => $code,
                     'name' => $name,
                     'website_url' => trim((string) ($_POST['website_url'] ?? '')) ?: null,
+                    'logo_path' => $logoPath,
+                    'contact_name' => trim((string) ($_POST['contact_name'] ?? '')) ?: null,
+                    'contact_email' => trim((string) ($_POST['contact_email'] ?? '')) ?: null,
+                    'contact_phone' => trim((string) ($_POST['contact_phone'] ?? '')) ?: null,
+                    'contact_whatsapp' => trim((string) ($_POST['contact_whatsapp'] ?? '')) ?: null,
+                    'auth_proof_type' => $authType,
+                    'auth_proof_url' => $authUrl,
+                    'auth_proof_path' => $authPath,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
+
                 flash('info', 'Proveedor guardado.');
-                header('Location: /admin/providers');
+                header('Location: /admin/providers/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
                 header('Location: ' . ($id ? '/admin/providers/edit?id=' . $id : '/admin/providers/create'));
+                exit;
+            }
+        });
+
+        $router->post('/admin/providers/agreement', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $label = trim((string) ($_POST['label'] ?? ''));
+            if ($providerId < 1 || $label === '') {
+                flash('error', 'Indica una etiqueta para el convenio.');
+                header('Location: /admin/providers/edit?id=' . $providerId);
+                exit;
+            }
+            try {
+                if (empty($_FILES['agreement_file']['name'])) {
+                    throw new \RuntimeException('Sube el PDF del convenio.');
+                }
+                $path = Uploader::store($_FILES['agreement_file'], 'providers/agreements');
+                $year = trim((string) ($_POST['year'] ?? ''));
+                $signedOn = trim((string) ($_POST['signed_on'] ?? ''));
+                $repo()->addProviderAgreement([
+                    'provider_id' => $providerId,
+                    'label' => $label,
+                    'year' => $year !== '' ? (int) $year : null,
+                    'file_path' => $path,
+                    'signed_on' => $signedOn !== '' ? $signedOn : null,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'is_current' => isset($_POST['is_current']),
+                ]);
+                flash('info', 'Convenio subido.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/providers/edit?id=' . $providerId);
+            exit;
+        });
+
+        $router->post('/admin/providers/agreement/current', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $agreementId = (int) ($_POST['agreement_id'] ?? 0);
+            $repo()->setCurrentProviderAgreement($providerId, $agreementId);
+            flash('info', 'Convenio marcado como vigente.');
+            header('Location: /admin/providers/edit?id=' . $providerId);
+            exit;
+        });
+
+        $router->post('/admin/providers/agreement/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $agreementId = (int) ($_POST['agreement_id'] ?? 0);
+            $row = $repo()->deleteProviderAgreement($providerId, $agreementId);
+            if ($row) {
+                Uploader::delete((string) $row['file_path']);
+                flash('info', 'Convenio eliminado.');
+            }
+            header('Location: /admin/providers/edit?id=' . $providerId);
+            exit;
+        });
+
+        $router->post('/admin/providers/certification', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $name = trim((string) ($_POST['name'] ?? ''));
+            if ($providerId < 1 || $name === '') {
+                flash('error', 'Escribe el nombre de la certificación.');
+                header('Location: /admin/providers/edit?id=' . $providerId);
+                exit;
+            }
+            try {
+                $certId = $repo()->createCertificationStub($providerId, $name);
+                flash('info', 'Certificación agregada. Completa el detalle en Certificaciones cuando quieras.');
+                header('Location: /admin/providers/edit?id=' . $providerId . '#certs');
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: /admin/providers/edit?id=' . $providerId);
                 exit;
             }
         });

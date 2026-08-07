@@ -19,11 +19,13 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function providers(bool $onlyActive = false): array
     {
-        $sql = 'SELECT * FROM providers';
+        $sql = 'SELECT p.*,
+                       (SELECT COUNT(*) FROM certifications c WHERE c.provider_id = p.id) AS certifications_count
+                FROM providers p';
         if ($onlyActive) {
-            $sql .= ' WHERE is_active = 1';
+            $sql .= ' WHERE p.is_active = 1';
         }
-        $sql .= ' ORDER BY name';
+        $sql .= ' ORDER BY p.name';
         return $this->pdo->query($sql)->fetchAll();
     }
 
@@ -37,23 +39,164 @@ final class CatalogRepository
 
     public function saveProvider(array $data, ?int $id = null): int
     {
+        $fields = [
+            $data['code'],
+            $data['name'],
+            $data['website_url'],
+            $data['logo_path'],
+            $data['contact_name'],
+            $data['contact_email'],
+            $data['contact_phone'],
+            $data['contact_whatsapp'],
+            $data['auth_proof_type'],
+            $data['auth_proof_url'],
+            $data['auth_proof_path'],
+            $data['notes'],
+            $data['is_active'],
+        ];
+
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE providers SET code=?, name=?, website_url=?, notes=?, is_active=? WHERE id=?'
+                'UPDATE providers SET code=?, name=?, website_url=?, logo_path=?,
+                 contact_name=?, contact_email=?, contact_phone=?, contact_whatsapp=?,
+                 auth_proof_type=?, auth_proof_url=?, auth_proof_path=?, notes=?, is_active=?
+                 WHERE id=?'
             );
-            $stmt->execute([
-                $data['code'], $data['name'], $data['website_url'], $data['notes'], $data['is_active'], $id,
-            ]);
+            $stmt->execute([...$fields, $id]);
             return $id;
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO providers (code, name, website_url, notes, is_active) VALUES (?,?,?,?,?)'
+            'INSERT INTO providers (
+                code, name, website_url, logo_path, contact_name, contact_email, contact_phone,
+                contact_whatsapp, auth_proof_type, auth_proof_url, auth_proof_path, notes, is_active
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute($fields);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerAgreements(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_agreements WHERE provider_id = ? ORDER BY is_current DESC, year DESC, id DESC'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function addProviderAgreement(array $data): int
+    {
+        if (!empty($data['is_current'])) {
+            $this->pdo->prepare(
+                'UPDATE provider_agreements SET is_current = 0 WHERE provider_id = ?'
+            )->execute([$data['provider_id']]);
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_agreements (provider_id, label, year, file_path, signed_on, notes, is_current)
+             VALUES (?,?,?,?,?,?,?)'
         );
         $stmt->execute([
-            $data['code'], $data['name'], $data['website_url'], $data['notes'], $data['is_active'],
+            $data['provider_id'],
+            $data['label'],
+            $data['year'],
+            $data['file_path'],
+            $data['signed_on'],
+            $data['notes'],
+            $data['is_current'] ? 1 : 0,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function setCurrentProviderAgreement(int $providerId, int $agreementId): void
+    {
+        $this->pdo->prepare(
+            'UPDATE provider_agreements SET is_current = 0 WHERE provider_id = ?'
+        )->execute([$providerId]);
+        $this->pdo->prepare(
+            'UPDATE provider_agreements SET is_current = 1 WHERE id = ? AND provider_id = ?'
+        )->execute([$agreementId, $providerId]);
+    }
+
+    public function deleteProviderAgreement(int $providerId, int $agreementId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM provider_agreements WHERE id = ? AND provider_id = ?'
+        );
+        $stmt->execute([$agreementId, $providerId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return null;
+        }
+        $this->pdo->prepare('DELETE FROM provider_agreements WHERE id = ?')->execute([$agreementId]);
+        return $row;
+    }
+
+    /** Crea una certificación mínima (solo nombre) ligada al proveedor. */
+    public function createCertificationStub(int $providerId, string $name): int
+    {
+        $baseSlug = \App\Support\Str::slug($name);
+        $slug = $baseSlug;
+        $code = strtoupper(substr(preg_replace('/[^A-Z0-9]+/', '_', strtoupper($baseSlug)) ?: 'CERT', 0, 48));
+        $n = 1;
+        while ($this->certificationCodeExists($code) || $this->certificationSlugExists($slug)) {
+            $n++;
+            $slug = $baseSlug . '-' . $n;
+            $code = strtoupper(substr(($baseSlug ?: 'cert'), 0, 40)) . '_' . $n;
+            $code = strtoupper(preg_replace('/[^A-Z0-9_]/', '_', $code) ?: ('CERT_' . $n));
+        }
+
+        return $this->saveCertification([
+            'provider_id' => $providerId,
+            'protocol_id' => null,
+            'code' => $code,
+            'slug' => $slug,
+            'name' => $name,
+            'modality' => 'online',
+            'short_description' => null,
+            'description_html' => null,
+            'syllabus_html' => null,
+            'duration_label' => null,
+            'audience' => null,
+            'public_price' => null,
+            'currency' => 'MXN',
+            'cenni_eligible' => 0,
+            'cenni_doc_type' => 'none',
+            'cenni_included' => 0,
+            'cenni_fee' => null,
+            'conocer_eligible' => 0,
+            'conocer_fee' => null,
+            'is_published' => 0,
+            'sort_order' => 0,
+        ]);
+    }
+
+    private function certificationCodeExists(string $code): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE code = ? LIMIT 1');
+        $stmt->execute([$code]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    private function certificationSlugExists(string $slug): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM certifications WHERE slug = ? LIMIT 1');
+        $stmt->execute([$slug]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function certificationsByProvider(int $providerId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, code, slug, name, is_published, sort_order
+             FROM certifications WHERE provider_id = ?
+             ORDER BY sort_order, name'
+        );
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
     }
 
     /** @return list<array<string, mixed>> */
