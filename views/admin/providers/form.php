@@ -6,9 +6,11 @@ $agreements = $agreements ?? [];
 $certifications = $certifications ?? [];
 $contacts = $contacts ?? [];
 $venues = $venues ?? [];
+$accounts = $accounts ?? [];
 $notes = $notes ?? [];
 $editVenue = $editVenue ?? null;
 $editContact = $editContact ?? null;
+$editAccount = $editAccount ?? null;
 $showForm = (bool) ($showForm ?? false);
 $authType = $item['auth_proof_type'] ?? 'none';
 $icon = $item['logo_icon_path'] ?? $item['logo_path'] ?? null;
@@ -27,6 +29,7 @@ $tabs = $item ? [
     'sedes' => 'Sedes',
     'autorizacion' => 'Autorización',
     'convenio' => 'Convenio',
+    'cuentas' => 'Cuentas',
     'certificaciones' => 'Certificaciones',
     'notas' => 'Notas',
 ] : ['proveedor' => 'Proveedor'];
@@ -492,6 +495,133 @@ $iconChevron = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d=
                     <label class="check"><input type="checkbox" name="is_current" checked> Queda vigente (no desactiva los anteriores)</label>
                     <div class="actions"><button class="btn" type="submit">Subir acuerdo</button></div>
                 </form>
+            </section>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'cuentas'): ?>
+            <?php
+            $accountFormOpen = $showForm || $editAccount;
+            ?>
+            <section class="provider-panel">
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Cuentas de portales</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">
+                            Accesos que nos dan los partners (capacitaciones, admin de exámenes, cursos…). Solo admin.
+                            Las contraseñas se guardan cifradas con <code>APP_KEY</code>.
+                        </p>
+                    </div>
+                    <?php if (!$accountFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas&form=1">Agregar cuenta</a>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($accountFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 style="margin:0"><?= $editAccount ? 'Editar cuenta' : 'Nueva cuenta' ?></h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/account" class="form-grid" style="margin-top:0.75rem" autocomplete="off">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <?php if ($editAccount): ?><input type="hidden" name="account_id" value="<?= (int)$editAccount['id'] ?>"><?php endif; ?>
+                            <label>Portal / etiqueta
+                                <input name="label" required value="<?= e($editAccount['label'] ?? '') ?>" placeholder="Ej. LMS capacitaciones / Admin de exámenes">
+                            </label>
+                            <label>URL del portal
+                                <input type="url" name="portal_url" value="<?= e($editAccount['portal_url'] ?? '') ?>" placeholder="https://…">
+                            </label>
+                            <label>Usuario
+                                <input name="username" required value="<?= e($editAccount['username'] ?? '') ?>" autocomplete="off">
+                            </label>
+                            <label>Contraseña
+                                <input type="password" name="password" <?= $editAccount ? '' : 'required' ?> autocomplete="new-password" placeholder="<?= $editAccount ? 'Dejar vacío para no cambiar' : '' ?>">
+                                <?php if ($editAccount): ?>
+                                    <small class="muted">Vacío = conservar la actual.</small>
+                                <?php endif; ?>
+                            </label>
+                            <label class="field-wide">Notas
+                                <textarea name="notes" rows="2" placeholder="Para qué sirve, quién la usa, MFA, etc."><?= e($editAccount['notes'] ?? '') ?></textarea>
+                            </label>
+                            <?php if ($editAccount): ?>
+                                <label class="check"><input type="checkbox" name="is_active" <?= !empty($editAccount['is_active']) ? 'checked' : '' ?>> Cuenta activa</label>
+                            <?php endif; ?>
+                            <div class="actions">
+                                <button class="btn" type="submit"><?= $editAccount ? 'Guardar cambios' : 'Agregar cuenta' ?></button>
+                            </div>
+                        </form>
+                    </div>
+                <?php else: ?>
+                    <?php if ($accounts): ?>
+                        <div class="account-cards">
+                            <?php foreach ($accounts as $acc): ?>
+                                <?php
+                                $accActive = (int)($acc['is_active'] ?? 1) === 1;
+                                $plainPass = '';
+                                try {
+                                    $plainPass = \App\Support\SecretBox::decrypt((string)($acc['password_enc'] ?? ''));
+                                } catch (\Throwable $e) {
+                                    $plainPass = '— (no se pudo descifrar)';
+                                }
+                                ?>
+                                <article class="account-card <?= $accActive ? '' : 'is-inactive' ?>">
+                                    <header>
+                                        <div>
+                                            <strong><?= e($acc['label']) ?></strong>
+                                            <?php if (!empty($acc['portal_url'])): ?>
+                                                <p class="muted" style="margin:0.2rem 0 0">
+                                                    <a href="<?= e($acc['portal_url']) ?>" target="_blank" rel="noopener"><?= e(preg_replace('#^https?://#i', '', rtrim((string)$acc['portal_url'], '/'))) ?></a>
+                                                </p>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="icon-actions">
+                                            <a class="icon-btn" href="/admin/providers/edit?id=<?= $id ?>&tab=cuentas&edit_account=<?= (int)$acc['id'] ?>" title="Editar" aria-label="Editar"><?= $iconEdit ?></a>
+                                            <form method="post" action="/admin/providers/account/delete" class="inline-form" onsubmit="return confirm('¿Eliminar esta cuenta?');">
+                                                <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                                <input type="hidden" name="account_id" value="<?= (int)$acc['id'] ?>">
+                                                <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
+                                            </form>
+                                        </div>
+                                    </header>
+                                    <dl class="account-creds">
+                                        <div>
+                                            <dt>Usuario</dt>
+                                            <dd><code class="js-copy" data-copy="<?= e($acc['username']) ?>"><?= e($acc['username']) ?></code></dd>
+                                        </div>
+                                        <div>
+                                            <dt>Contraseña</dt>
+                                            <dd>
+                                                <code class="secret-mask js-secret" data-secret="<?= e($plainPass) ?>">••••••••</code>
+                                                <button type="button" class="linkish js-toggle-secret">Mostrar</button>
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                    <?php if (!empty($acc['notes'])): ?>
+                                        <p class="muted"><?= nl2br(e($acc['notes'])) ?></p>
+                                    <?php endif; ?>
+                                    <?php if (!$accActive): ?>
+                                        <p class="muted"><em>Cuenta inactiva</em></p>
+                                    <?php endif; ?>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                        <script>
+                        (() => {
+                          document.querySelectorAll('.js-toggle-secret').forEach((btn) => {
+                            btn.addEventListener('click', () => {
+                              const code = btn.parentElement.querySelector('.js-secret');
+                              if (!code) return;
+                              const shown = code.classList.toggle('is-revealed');
+                              code.textContent = shown ? (code.dataset.secret || '') : '••••••••';
+                              btn.textContent = shown ? 'Ocultar' : 'Mostrar';
+                            });
+                          });
+                        })();
+                        </script>
+                    <?php else: ?>
+                        <p class="muted">Sin cuentas registradas. Agrega portales de capacitación, admin de exámenes, etc.</p>
+                    <?php endif; ?>
+                <?php endif; ?>
             </section>
         <?php endif; ?>
 
