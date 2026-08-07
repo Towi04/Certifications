@@ -79,25 +79,20 @@ Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max
 
 Exim rechazó AUTH en ese momento. No implica que el formulario de usuarios esté mal: si el `.env` no cambió y antes funcionó, algo del lado correo/servidor puede haber cambiado (bloqueo cPHulk, política SMTP, cert, resolución de `mail.`).
 
-1. Abre `/admin/salud?smtp=1` y mira el meta: `user` y `pass_len` (longitud leída; la clave no se muestra).
-2. Entra a **webmail** con `certificaciones@institutodoceo.com` y la misma contraseña.
-3. Si webmail OK pero SMTP 535, prueba en el `.env`:
+1. Abre `/admin/salud?smtp=1` y mira el meta: `user`, `pass_len` y, si OK, `used_endpoint`.
+2. **Compara `pass_len` con la longitud real** de la clave en cPanel. Si no coincide, el `.env` está mal parseado → ponla entre comillas dobles: `SMTP_PASS="tu-clave"`.
+3. Entra a **webmail** con esa cuenta.
+4. El Mailer prueba solo `mail.…`, también `localhost` / `127.0.0.1` y `587/tls`. Si uno funciona, deja ese host fijo en el `.env`.
+5. Si el usuario quedó pendiente, en Usuarios **reenvía activación**.
 
 ```env
 SMTP_HOST=localhost
 SMTP_PORT=465
 SMTP_ENCRYPTION=ssl
+SMTP_USER=certificaciones@institutodoceo.com
+SMTP_PASS="tu-clave-entre-comillas"
+SMTP_FROM=certificaciones@institutodoceo.com
 ```
-
-o:
-
-```env
-SMTP_HOST=mail.institutodoceo.com
-SMTP_PORT=587
-SMTP_ENCRYPTION=tls
-```
-
-4. Si el usuario quedó pendiente, en Usuarios **reenvía activación** (no hace falta recrearlo).
 
 ## 7. Verificación
 

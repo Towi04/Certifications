@@ -8,21 +8,112 @@ use App\Config\Env;
 
 /**
  * Cliente SMTP mínimo (SSL/TLS) sin dependencias Composer.
- * Suficiente para pruebas de salud y correos simples en Neubox.
+ * En Neubox/cPanel, mail.dominio:465 desde el mismo servidor a menudo
+ * responde 535 aunque la contraseña sea correcta; localhost suele funcionar.
  */
 final class Mailer
 {
+    /** @var array{host: string, port: int, encryption: string}|null */
+    private static ?array $lastEndpoint = null;
+
+    /** @return array{host: string, port: int, encryption: string}|null */
+    public static function lastEndpoint(): ?array
+    {
+        return self::$lastEndpoint;
+    }
+
     public function send(string $to, string $subject, string $bodyText): void
     {
-        $host = trim(Env::require('SMTP_HOST'));
-        $port = (int) (Env::get('SMTP_PORT', '465') ?? '465');
         $user = trim(Env::require('SMTP_USER'));
-        // No hacer trim de la contraseña: debe coincidir byte a byte con cPanel.
         $pass = Env::require('SMTP_PASS');
         $from = trim(Env::get('SMTP_FROM', $user) ?? $user);
         $fromName = Env::get('SMTP_FROM_NAME', 'Instituto Doceo') ?? 'Instituto Doceo';
-        $encryption = strtolower(trim(Env::get('SMTP_ENCRYPTION', 'ssl') ?? 'ssl'));
 
+        $attempts = $this->endpoints();
+        $errors = [];
+
+        foreach ($attempts as $endpoint) {
+            $label = $endpoint['host'] . ':' . $endpoint['port'] . '/' . $endpoint['encryption'];
+            try {
+                $this->sendVia(
+                    $endpoint['host'],
+                    $endpoint['port'],
+                    $endpoint['encryption'],
+                    $user,
+                    $pass,
+                    $from,
+                    $fromName,
+                    $to,
+                    $subject,
+                    $bodyText
+                );
+                self::$lastEndpoint = $endpoint;
+
+                return;
+            } catch (\Throwable $e) {
+                $errors[] = $label . ' → ' . $e->getMessage();
+            }
+        }
+
+        $passLen = strlen($pass);
+        throw new \RuntimeException(
+            'SMTP: todos los endpoints fallaron (user=' . $user . ', pass_len=' . $passLen . '). '
+            . 'Comprueba que la contraseña tenga exactamente ' . $passLen . ' caracteres (como en cPanel/webmail). '
+            . "Intentos:\n- " . implode("\n- ", $errors)
+        );
+    }
+
+    /**
+     * Endpoints a probar: el configurado y variantes típicas de hosting compartido.
+     *
+     * @return list<array{host: string, port: int, encryption: string}>
+     */
+    private function endpoints(): array
+    {
+        $host = trim(Env::require('SMTP_HOST'));
+        $port = (int) (Env::get('SMTP_PORT', '465') ?? '465');
+        $encryption = strtolower(trim(Env::get('SMTP_ENCRYPTION', 'ssl') ?? 'ssl'));
+        if ($encryption !== 'tls' && $encryption !== 'none') {
+            $encryption = 'ssl';
+        }
+
+        $candidates = [
+            ['host' => $host, 'port' => $port, 'encryption' => $encryption],
+            ['host' => 'localhost', 'port' => $port, 'encryption' => $encryption],
+            ['host' => '127.0.0.1', 'port' => $port, 'encryption' => $encryption],
+            ['host' => $host, 'port' => 587, 'encryption' => 'tls'],
+            ['host' => 'localhost', 'port' => 587, 'encryption' => 'tls'],
+            ['host' => '127.0.0.1', 'port' => 587, 'encryption' => 'tls'],
+            ['host' => 'localhost', 'port' => 465, 'encryption' => 'ssl'],
+            ['host' => $host, 'port' => 465, 'encryption' => 'ssl'],
+        ];
+
+        $seen = [];
+        $out = [];
+        foreach ($candidates as $c) {
+            $key = $c['host'] . '|' . $c['port'] . '|' . $c['encryption'];
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $c;
+        }
+
+        return $out;
+    }
+
+    private function sendVia(
+        string $host,
+        int $port,
+        string $encryption,
+        string $user,
+        string $pass,
+        string $from,
+        string $fromName,
+        string $to,
+        string $subject,
+        string $bodyText
+    ): void {
         $fp = $this->connect($host, $port, $encryption);
 
         try {
@@ -57,51 +148,54 @@ final class Mailer
      */
     private function connect(string $host, int $port, string $encryption)
     {
-        $remote = ($encryption === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
-        $context = stream_context_create([
-            'ssl' => [
-                'crypto_method' => STREAM_CRYPTO_METHOD_TLS_CLIENT,
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-                'peer_name' => $host,
-                // Neubox a veces presenta cert del hostname del servidor, no del dominio del correo.
-                'allow_self_signed' => false,
-            ],
-        ]);
+        $scheme = match ($encryption) {
+            'ssl' => 'ssl://',
+            default => 'tcp://',
+        };
+        $remote = $scheme . $host . ':' . $port;
 
-        $fp = @stream_socket_client(
-            $remote,
-            $errno,
-            $errstr,
-            30,
-            STREAM_CLIENT_CONNECT,
-            $context
-        );
-
-        // Si el certificado no coincide (común en hosting compartido), reintentar sin verify estricto.
-        if ($fp === false && $encryption === 'ssl') {
-            $relaxed = stream_context_create([
+        $contexts = [
+            stream_context_create([
+                'ssl' => [
+                    'crypto_method' => STREAM_CRYPTO_METHOD_TLS_CLIENT,
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                    'peer_name' => $host,
+                    'allow_self_signed' => false,
+                ],
+            ]),
+            // Cert del servidor compartido suele no coincidir con mail.dominio / localhost.
+            stream_context_create([
                 'ssl' => [
                     'verify_peer' => false,
                     'verify_peer_name' => false,
                     'allow_self_signed' => true,
                 ],
-            ]);
+            ]),
+        ];
+
+        $fp = false;
+        $errno = 0;
+        $errstr = '';
+        foreach ($contexts as $context) {
             $fp = @stream_socket_client(
                 $remote,
                 $errno,
                 $errstr,
-                30,
+                20,
                 STREAM_CLIENT_CONNECT,
-                $relaxed
+                $context
             );
+            if ($fp !== false) {
+                break;
+            }
         }
 
         if ($fp === false) {
-            throw new \RuntimeException("No se pudo conectar a SMTP ({$remote}): {$errstr} ({$errno})");
+            throw new \RuntimeException("No se pudo conectar a {$remote}: {$errstr} ({$errno})");
         }
 
-        stream_set_timeout($fp, 30);
+        stream_set_timeout($fp, 20);
         $this->expect($fp, 220);
         $this->command($fp, 'EHLO pdv.institutodoceo.com', 250);
 
@@ -118,67 +212,29 @@ final class Mailer
     }
 
     /**
-     * AUTH PLAIN primero (un solo round-trip); si el servidor no lo acepta, AUTH LOGIN.
-     *
      * @param resource $fp
      * @return resource
      */
     private function authenticate($fp, string $user, string $pass, string $host, int $port, string $encryption)
     {
-        $lastError = null;
-
         try {
             $plain = base64_encode("\0{$user}\0{$pass}");
             $this->command($fp, 'AUTH PLAIN ' . $plain, 235);
 
             return $fp;
-        } catch (\RuntimeException $e) {
-            $lastError = $e;
-            // 504/535/503 → probar LOGIN en sesión nueva
+        } catch (\RuntimeException) {
+            // seguir con LOGIN
         }
 
         $newFp = $this->connect($host, $port, $encryption);
         fclose($fp);
         $fp = $newFp;
 
-        try {
-            $this->command($fp, 'AUTH LOGIN', 334);
-            $this->command($fp, base64_encode($user), 334);
-            $this->command($fp, base64_encode($pass), 235);
+        $this->command($fp, 'AUTH LOGIN', 334);
+        $this->command($fp, base64_encode($user), 334);
+        $this->command($fp, base64_encode($pass), 235);
 
-            return $fp;
-        } catch (\RuntimeException $loginError) {
-            throw $this->wrapAuthError($loginError, $lastError);
-        }
-    }
-
-    private function wrapAuthError(\RuntimeException $e, ?\RuntimeException $previousAttempt = null): \RuntimeException
-    {
-        $detail = $e->getMessage();
-        $is535 = str_contains($detail, '535')
-            || str_contains(strtolower($detail), 'incorrect authentication');
-
-        if (!$is535) {
-            return $e;
-        }
-
-        $user = trim((string) Env::get('SMTP_USER', ''));
-        $passLen = strlen((string) Env::get('SMTP_PASS', ''));
-        $host = trim((string) Env::get('SMTP_HOST', ''));
-        $port = (string) (Env::get('SMTP_PORT', '465') ?? '465');
-
-        $msg = 'SMTP: el servidor Exim rechazó la autenticación (535). '
-            . 'El alta de usuario y “Probar SMTP” usan el mismo Mailer/.env — no es un fallo del formulario de usuarios. '
-            . "Config leída: user={$user}, pass_len={$passLen}, host={$host}:{$port}. "
-            . 'Reprueba en /admin/salud?smtp=1. Si falla igual: entra a webmail con esa cuenta; '
-            . 'si webmail entra, prueba SMTP_HOST=localhost o puerto 587 con SMTP_ENCRYPTION=tls. '
-            . 'Detalle: ' . $detail;
-
-        if ($previousAttempt !== null) {
-            $msg .= ' | Intento previo: ' . $previousAttempt->getMessage();
-        }
-
-        return new \RuntimeException($msg, 0, $e);
+        return $fp;
     }
 
     private function encodeAddress(string $name, string $email): string

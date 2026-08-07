@@ -146,6 +146,7 @@ final class HealthChecker
             'pass_len' => strlen((string) Env::get('SMTP_PASS', '')),
             'from' => Env::get('SMTP_FROM'),
             'to' => $to,
+            'note' => 'Si pass_len no coincide con la longitud real de la clave en cPanel, el .env está mal parseado (usa comillas dobles).',
         ];
 
         try {
@@ -156,10 +157,16 @@ final class HealthChecker
                 "Este es un correo de prueba del panel de salud del PDV.\n\nFecha: " . date('c') . "\n"
             );
 
+            $used = Mailer::lastEndpoint();
+            if ($used !== null) {
+                $meta['used_endpoint'] = $used;
+            }
+
             return [
                 'name' => $name,
                 'ok' => true,
-                'message' => "Correo de prueba enviado a {$to}",
+                'message' => "Correo de prueba enviado a {$to}"
+                    . ($used ? ' vía ' . $used['host'] . ':' . $used['port'] . '/' . $used['encryption'] : ''),
                 'meta' => $meta,
             ];
         } catch (\Throwable $e) {
