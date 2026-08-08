@@ -487,10 +487,20 @@ $router->get('/media', static function (): void {
     }
 
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($path) ?: 'application/octet-stream';
+    $download = isset($_GET['download']) && $_GET['download'] === '1';
+    $filename = basename($path);
+    if ($download && isset($_GET['name']) && trim((string) $_GET['name']) !== '') {
+        $safe = preg_replace('/[^\w.\- ()áéíóúÁÉÍÓÚñÑ]+/u', '_', trim((string) $_GET['name'])) ?: 'documento';
+        $ext = pathinfo($path, PATHINFO_EXTENSION);
+        $filename = $safe . ($ext !== '' ? '.' . $ext : '');
+    }
+
     header('Content-Type: ' . $mime);
     header('Content-Length: ' . (string) filesize($path));
     header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, max-age=86400');
+    $disposition = $download ? 'attachment' : 'inline';
+    header('Content-Disposition: ' . $disposition . '; filename="' . str_replace('"', '', $filename) . '"');
     readfile($path);
     exit;
 });
