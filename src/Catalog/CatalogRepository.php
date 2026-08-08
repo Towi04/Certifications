@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Catalog;
 
 use App\Database\Connection;
+use App\Support\Uploader;
 use PDO;
 
 final class CatalogRepository
@@ -1619,9 +1620,99 @@ final class CatalogRepository
             'agreements' => (int) $this->pdo->query('SELECT COUNT(*) FROM agreements')->fetchColumn(),
             'protocols' => (int) $this->pdo->query('SELECT COUNT(*) FROM protocols')->fetchColumn(),
             'cases' => $this->safeCount('certification_cases'),
+            'documents' => $this->safeCount('documents'),
             'tiers' => (int) $this->pdo->query('SELECT COUNT(*) FROM partner_tiers')->fetchColumn(),
             'users' => (int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
         ];
+    }
+
+    /** @return array<string, string> */
+    public static function documentTypes(): array
+    {
+        return [
+            'regulation' => 'Reglamento',
+            'form' => 'Formulario',
+            'checklist' => 'Checklist',
+            'instructions' => 'Instrucciones',
+            'other' => 'Otro',
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function documents(?int $providerId = null, bool $onlyActive = false): array
+    {
+        $sql = 'SELECT d.*, p.name AS provider_name
+                FROM documents d
+                LEFT JOIN providers p ON p.id = d.provider_id
+                WHERE 1=1';
+        $params = [];
+        if ($providerId !== null && $providerId > 0) {
+            $sql .= ' AND d.provider_id = ?';
+            $params[] = $providerId;
+        }
+        if ($onlyActive) {
+            $sql .= ' AND d.is_active = 1';
+        }
+        $sql .= ' ORDER BY p.name IS NULL, p.name, d.title, d.version DESC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    public function document(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT d.*, p.name AS provider_name
+             FROM documents d
+             LEFT JOIN providers p ON p.id = d.provider_id
+             WHERE d.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function saveDocument(array $data, ?int $id = null): int
+    {
+        $fields = [
+            $data['provider_id'],
+            $data['code'],
+            $data['title'],
+            $data['version'],
+            $data['doc_type'],
+            $data['file_path'],
+            $data['body_html'] ?? null,
+            $data['is_active'],
+        ];
+
+        if ($id) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE documents SET provider_id=?, code=?, title=?, version=?, doc_type=?,
+                 file_path=?, body_html=?, is_active=? WHERE id=?'
+            );
+            $stmt->execute([...$fields, $id]);
+            return $id;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO documents (provider_id, code, title, version, doc_type, file_path, body_html, is_active)
+             VALUES (?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute($fields);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteDocument(int $id): void
+    {
+        $doc = $this->document($id);
+        if (!$doc) {
+            return;
+        }
+        $stmt = $this->pdo->prepare('DELETE FROM documents WHERE id = ?');
+        $stmt->execute([$id]);
+        if (!empty($doc['file_path'])) {
+            Uploader::delete((string) $doc['file_path']);
+        }
     }
 
     private function safeCount(string $table): int

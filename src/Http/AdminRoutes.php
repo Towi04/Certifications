@@ -629,6 +629,139 @@ final class AdminRoutes
             exit;
         });
 
+        $router->get('/admin/documents', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerFilter = (int) ($_GET['provider_id'] ?? 0) ?: null;
+            view('admin/documents/index', [
+                'title' => 'Documentos',
+                'items' => $repo()->documents($providerFilter),
+                'providers' => $repo()->providers(true),
+                'docTypes' => CatalogRepository::documentTypes(),
+                'providerFilter' => $providerFilter,
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/documents/create', static function () use ($repo): void {
+            Auth::requireAdmin();
+            view('admin/documents/form', [
+                'title' => 'Nuevo documento',
+                'item' => null,
+                'providers' => $repo()->providers(true),
+                'docTypes' => CatalogRepository::documentTypes(),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/documents/edit', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $repo()->document($id);
+            if (!$item) {
+                flash('error', 'Documento no encontrado.');
+                header('Location: /admin/documents');
+                exit;
+            }
+            view('admin/documents/form', [
+                'title' => 'Editar documento',
+                'item' => $item,
+                'providers' => $repo()->providers(true),
+                'docTypes' => CatalogRepository::documentTypes(),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/documents/save', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            $existing = $id ? $repo()->document($id) : null;
+            if ($id && !$existing) {
+                flash('error', 'Documento no encontrado.');
+                header('Location: /admin/documents');
+                exit;
+            }
+
+            $title = trim((string) ($_POST['title'] ?? ''));
+            $version = trim((string) ($_POST['version'] ?? ''));
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $docType = (string) ($_POST['doc_type'] ?? 'other');
+            if (!isset(CatalogRepository::documentTypes()[$docType])) {
+                $docType = 'other';
+            }
+
+            if ($title === '' || $version === '' || $providerId <= 0) {
+                flash('error', 'Nombre, versión y proveedor son obligatorios.');
+                header('Location: ' . ($id ? '/admin/documents/edit?id=' . $id : '/admin/documents/create'));
+                exit;
+            }
+
+            $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
+            if ($code === '') {
+                $code = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '_', Str::slug($title) ?: 'DOC') ?? 'DOC');
+                $code = trim($code, '_');
+                if (strlen($code) > 48) {
+                    $code = substr($code, 0, 48);
+                }
+                // Evitar choque de códigos entre versiones: título + versión
+                $verSlug = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '', $version) ?: 'V');
+                $code = $code . '_V' . $verSlug;
+            }
+
+            $filePath = $existing['file_path'] ?? null;
+            $hasUpload = isset($_FILES['file']) && (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+
+            try {
+                if ($hasUpload) {
+                    $newPath = Uploader::store($_FILES['file'], 'documents');
+                    if (!empty($filePath) && $filePath !== $newPath) {
+                        Uploader::delete((string) $filePath);
+                    }
+                    $filePath = $newPath;
+                }
+
+                if (($filePath === null || $filePath === '') && !$id) {
+                    flash('error', 'Debes subir el archivo del documento (PDF).');
+                    header('Location: /admin/documents/create');
+                    exit;
+                }
+
+                $repo()->saveDocument([
+                    'provider_id' => $providerId,
+                    'code' => $code,
+                    'title' => $title,
+                    'version' => $version,
+                    'doc_type' => $docType,
+                    'file_path' => $filePath,
+                    'body_html' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $id);
+
+                flash('info', 'Documento guardado.');
+                header('Location: /admin/documents');
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: ' . ($id ? '/admin/documents/edit?id=' . $id : '/admin/documents/create'));
+                exit;
+            }
+        });
+
+        $router->post('/admin/documents/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            try {
+                if ($id > 0) {
+                    $repo()->deleteDocument($id);
+                    flash('info', 'Documento eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo eliminar: ' . $e->getMessage());
+            }
+            header('Location: /admin/documents');
+            exit;
+        });
+
         $router->get('/admin/protocols', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/protocols/index', [
