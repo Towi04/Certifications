@@ -56,6 +56,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_protocol_steps.sql` (pasos del protocolo + casos de progreso)
 - Luego el seed ELET: `sql/seed_protocol_elet.sql`
 - `sql/migration_documents_admin.sql` (documentos con proveedor y versión)
+- `sql/migration_public_storefront.sql` (productos estrella en vitrina pública)
 
 ### Subida de PDFs de convenio
 

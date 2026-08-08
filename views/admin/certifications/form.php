@@ -203,6 +203,10 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         </div>
 
         <label>Orden<input type="number" name="sort_order" value="<?= e((string)($item['sort_order'] ?? '0')) ?>"></label>
+        <label class="check">
+            <input type="checkbox" name="is_featured" <?= !empty($item['is_featured']) ? 'checked' : '' ?>>
+            Producto estrella (aparece arriba en la vitrina pública)
+        </label>
 
         <div class="actions">
             <button class="btn" type="submit" name="intent" value="save">Guardar</button>

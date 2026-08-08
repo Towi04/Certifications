@@ -304,12 +304,14 @@ CREATE TABLE IF NOT EXISTS certifications (
   conocer_fee DECIMAL(12,2) NULL,
   features_json JSON NULL,
   is_published TINYINT(1) NOT NULL DEFAULT 0,
+  is_featured TINYINT(1) NOT NULL DEFAULT 0,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_certifications_code (code),
   UNIQUE KEY uq_certifications_slug (slug),
   KEY idx_certifications_provider (provider_id),
+  KEY idx_certifications_featured (is_featured),
   CONSTRAINT fk_certifications_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE RESTRICT,
   CONSTRAINT fk_certifications_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

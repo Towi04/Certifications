@@ -21,13 +21,19 @@
                 </span>
             </a>
             <nav class="nav">
+                <a href="/#catalogo">Catálogo</a>
                 <?php if (\App\Auth\Auth::check()): ?>
-                    <?php $u = \App\Auth\Auth::user(); ?>
-                    <a href="/profile">Perfil</a>
-                    <?php if ($u && in_array($u['role'], ['partner', 'admin'], true)): ?>
-                        <a href="/partner">Catálogo TR</a>
+                    <?php $u = \App\Auth\Auth::user(); $role = $u['role'] ?? ''; ?>
+                    <?php if ($role === 'student'): ?>
+                        <a href="/alumno">Mi seguimiento</a>
                     <?php endif; ?>
-                    <?php if ($u && $u['role'] === 'admin'): ?>
+                    <a href="/profile">Perfil</a>
+                    <?php if ($u && in_array($role, ['partner', 'admin', 'assistant', 'manager'], true)): ?>
+                        <?php if ($role === 'partner' || \App\Auth\Auth::isStaffRole($role)): ?>
+                            <a href="/partner">Catálogo TR</a>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                    <?php if ($u && \App\Auth\Auth::isStaffRole($role)): ?>
                         <a href="/admin">Admin</a>
                     <?php endif; ?>
                     <form class="inline-form" method="post" action="/logout">
@@ -35,7 +41,6 @@
                     </form>
                 <?php else: ?>
                     <a href="/login">Entrar</a>
-                    <a href="/register">Registro</a>
                 <?php endif; ?>
             </nav>
         </div>

@@ -113,9 +113,9 @@ function app_name(): string
     return Env::get('APP_NAME', 'Instituto Doceo') ?? 'Instituto Doceo';
 }
 
-function flash(string $key, ?string $value = null): ?string
+function flash(string $key, mixed $value = null): mixed
 {
-    if ($value !== null) {
+    if (func_num_args() >= 2) {
         $_SESSION['_flash'][$key] = $value;
         return null;
     }
