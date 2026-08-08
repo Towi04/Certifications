@@ -364,13 +364,19 @@ CREATE TABLE IF NOT EXISTS product_assets (
 
 CREATE TABLE IF NOT EXISTS documents (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NULL,
   code VARCHAR(64) NOT NULL,
   title VARCHAR(190) NOT NULL,
-  doc_type ENUM('regulation', 'form', 'checklist', 'other') NOT NULL DEFAULT 'other',
+  version VARCHAR(64) NOT NULL DEFAULT '1.0',
+  doc_type ENUM('regulation', 'form', 'checklist', 'instructions', 'other') NOT NULL DEFAULT 'other',
   file_path VARCHAR(255) NULL,
   body_html MEDIUMTEXT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_documents_code (code)
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_documents_code (code),
+  KEY idx_documents_provider (provider_id),
+  CONSTRAINT fk_documents_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS certification_docs (
