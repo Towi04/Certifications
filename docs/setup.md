@@ -59,6 +59,8 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_public_storefront.sql` (productos estrella en vitrina pública)
 - `sql/migration_cert_value_cenni.sql` (tipos CENNI + valor agregado Doceo)
 - `sql/migration_case_ops_exports.sql` (mesa de casos: pago, plantillas de correo, exportaciones UKS/TOEFL/Linguaskill)
+- `sql/migration_student_acquire_flow.sql` (firma de reglamento + link de pago OpenPay en casos del alumno)
+- Opcional: `sql/seed_elet_certification.sql` (publica ELET en la vitrina si aún no existe)
 
 ### Subida de PDFs de convenio
 

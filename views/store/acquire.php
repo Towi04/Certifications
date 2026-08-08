@@ -1,7 +1,9 @@
 <?php
 $item = $item ?? [];
 $old = is_array($old ?? null) ? $old : [];
-$showLogin = !empty($old['show_login']);
+$user = $user ?? null;
+$showLogin = !empty($old['show_login']) && !$user;
+$loggedIn = is_array($user) && !empty($user['id']);
 ?>
 <section class="page-head">
     <div>
@@ -22,36 +24,90 @@ $showLogin = !empty($old['show_login']);
 <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
 <?php if (!empty($info)): ?><div class="alert alert-ok"><?= e($info) ?></div><?php endif; ?>
 
-<div class="acquire-grid">
+<div class="acquire-layout">
     <section class="note <?= $showLogin ? 'is-dim' : '' ?>" id="register-panel">
-        <h2>Soy nuevo · crear acceso de alumno</h2>
-        <p class="muted">Con estos datos creamos tu cuenta solo para seguimiento de la certificación.</p>
+        <h2>Datos para agendar tu examen</h2>
+        <div class="alert alert-warn">
+            <strong>Importante:</strong> los datos que captures aquí serán los que aparezcan en tu certificación.
+            Escribe tu nombre y apellidos <em>exactamente</em> como figuran en tu identificación oficial.
+        </div>
+
         <form method="post" action="/adquirir" class="stack form-grid">
             <input type="hidden" name="slug" value="<?= e($item['slug']) ?>">
-            <input type="hidden" name="mode" value="register">
-            <label>Nombre<input name="first_name" required value="<?= e((string)($old['first_name'] ?? '')) ?>"></label>
-            <label>Apellido<input name="last_name" required value="<?= e((string)($old['last_name'] ?? '')) ?>"></label>
-            <label>Correo<input type="email" name="email" required value="<?= e((string)($old['email'] ?? '')) ?>"></label>
-            <label>Teléfono<input name="phone" value="<?= e((string)($old['phone'] ?? '')) ?>"></label>
-            <label>Contraseña<input type="password" name="password" required minlength="8"></label>
-            <label>Confirmar contraseña<input type="password" name="password_confirm" required minlength="8"></label>
+            <input type="hidden" name="mode" value="<?= $loggedIn ? 'confirm' : 'register' ?>">
+
+            <label>Nombre(s)
+                <input name="first_name" required autocomplete="given-name"
+                       value="<?= e((string)($old['first_name'] ?? '')) ?>"
+                       placeholder="Tal cual en tu identificación">
+            </label>
+            <label>Apellido paterno
+                <input name="last_name_p" required autocomplete="family-name"
+                       value="<?= e((string)($old['last_name_p'] ?? '')) ?>">
+            </label>
+            <label>Apellido materno
+                <input name="last_name_m" autocomplete="additional-name"
+                       value="<?= e((string)($old['last_name_m'] ?? '')) ?>">
+            </label>
+            <label>Correo
+                <input type="email" name="email" required autocomplete="email"
+                       value="<?= e((string)($old['email'] ?? '')) ?>">
+            </label>
+            <label>Teléfono / WhatsApp
+                <input name="phone" required autocomplete="tel"
+                       value="<?= e((string)($old['phone'] ?? '')) ?>"
+                       placeholder="10 dígitos">
+            </label>
+            <label>Fecha de nacimiento
+                <input type="date" name="birth_date" required
+                       value="<?= e((string)($old['birth_date'] ?? '')) ?>">
+            </label>
+            <label>Sexo
+                <select name="sex" required>
+                    <?php $sx = (string)($old['sex'] ?? ''); ?>
+                    <option value="">—</option>
+                    <option value="F" <?= $sx === 'F' ? 'selected' : '' ?>>Femenino</option>
+                    <option value="M" <?= $sx === 'M' ? 'selected' : '' ?>>Masculino</option>
+                </select>
+            </label>
+            <label>Nacionalidad (código)
+                <input name="nationality" required maxlength="3"
+                       value="<?= e((string)($old['nationality'] ?? 'MEX')) ?>"
+                       placeholder="MEX">
+            </label>
+            <label>Fecha deseada de examen
+                <input type="date" name="exam_date" required min="<?= e(date('Y-m-d')) ?>"
+                       value="<?= e((string)($old['exam_date'] ?? '')) ?>">
+            </label>
+            <label>Hora preferida
+                <input name="exam_time" placeholder="11:00"
+                       value="<?= e((string)($old['exam_time'] ?? '')) ?>">
+            </label>
+
             <div class="actions" style="grid-column:1/-1">
-                <button class="btn" type="submit">Crear cuenta y continuar</button>
+                <button class="btn" type="submit">Continuar</button>
             </div>
+            <p class="muted field-wide" style="margin:0">
+                Al continuar verás el reglamento para firmar y el link de pago.
+                Te enviaremos un correo para dar seguimiento a tu examen.
+            </p>
         </form>
     </section>
 
-    <section class="note" id="login-panel">
-        <h2>Ya tengo cuenta</h2>
-        <p class="muted">Inicia sesión para vincular esta certificación a tu seguimiento.</p>
-        <form method="post" action="/adquirir" class="stack form-grid">
-            <input type="hidden" name="slug" value="<?= e($item['slug']) ?>">
-            <input type="hidden" name="mode" value="login">
-            <label>Correo<input type="email" name="email" required value="<?= e((string)($old['email'] ?? '')) ?>"></label>
-            <label>Contraseña<input type="password" name="password" required></label>
-            <div class="actions" style="grid-column:1/-1">
-                <button class="btn" type="submit">Entrar y adquirir</button>
-            </div>
-        </form>
-    </section>
+    <?php if (!$loggedIn): ?>
+        <section class="note" id="login-panel">
+            <h2>Ya tengo acceso</h2>
+            <p class="muted">Si ya adquiriste antes, inicia sesión y completa el formulario de esta misma página.</p>
+            <form method="post" action="/adquirir" class="stack form-grid">
+                <input type="hidden" name="slug" value="<?= e($item['slug']) ?>">
+                <input type="hidden" name="mode" value="login">
+                <label>Correo<input type="email" name="email" required value="<?= e((string)($old['email'] ?? '')) ?>"></label>
+                <label>Contraseña<input type="password" name="password" required></label>
+                <div class="actions" style="grid-column:1/-1">
+                    <button class="btn btn-ghost" type="submit">Entrar</button>
+                </div>
+            </form>
+            <p class="muted"><a href="/forgot-password">Olvidé mi contraseña</a></p>
+        </section>
+    <?php endif; ?>
 </div>

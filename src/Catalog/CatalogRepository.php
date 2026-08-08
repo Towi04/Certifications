@@ -1068,7 +1068,8 @@ final class CatalogRepository
             'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
             'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
-            'moodle_user', 'moodle_password', 'payment_proof_path', 'payment_confirmed_at',
+            'moodle_user', 'moodle_password', 'payment_proof_path', 'payment_link_url', 'payment_link_id',
+            'payment_confirmed_at', 'regulation_signed_at', 'regulation_signer_name',
             'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
             'cc_email', 'notes', 'status', 'partner_id',
         ];
@@ -1138,6 +1139,158 @@ final class CatalogRepository
         );
         $stmt->execute([$caseId]);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Reglamento activo del proveedor (o genérico sin proveedor).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function activeRegulationDocument(?int $providerId): ?array
+    {
+        $sql = "SELECT d.* FROM documents d
+                WHERE d.doc_type = 'regulation' AND d.is_active = 1";
+        $params = [];
+        if ($providerId !== null && $providerId > 0) {
+            $sql .= ' AND (d.provider_id = ? OR d.provider_id IS NULL)';
+            $params[] = $providerId;
+            $sql .= ' ORDER BY (d.provider_id = ?) DESC, d.version DESC, d.id DESC LIMIT 1';
+            $params[] = $providerId;
+        } else {
+            $sql .= ' AND d.provider_id IS NULL ORDER BY d.version DESC, d.id DESC LIMIT 1';
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * Completa el paso current si su sort_order o título coincide; luego avanza.
+     * Útil tras firmar reglamento para saltar registro (ya capturado) y generación de link.
+     */
+    public function completeCurrentCaseStepIfMatches(
+        int $caseId,
+        ?int $completedBy,
+        ?string $notes,
+        ?int $sortOrder = null,
+        ?string $titleContains = null
+    ): bool {
+        $steps = $this->certificationCaseSteps($caseId);
+        $current = null;
+        foreach ($steps as $step) {
+            if (($step['status'] ?? '') === 'current') {
+                $current = $step;
+                break;
+            }
+        }
+        if ($current === null) {
+            return false;
+        }
+        if ($sortOrder !== null && (int) $current['sort_order'] !== $sortOrder) {
+            return false;
+        }
+        if ($titleContains !== null && !str_contains(mb_strtolower((string) $current['title']), mb_strtolower($titleContains))) {
+            return false;
+        }
+        $this->completeCaseStep($caseId, (int) $current['id'], $completedBy, $notes);
+        return true;
+    }
+
+    /**
+     * Tras firmar el reglamento: avanza automáticamente el registro (datos ya capturados
+     * en /adquirir) y el paso de generación del link OpenPay si ya hay URL.
+     */
+    public function advanceStudentPreExamAfterRegulation(int $caseId, ?int $userId): void
+    {
+        // Registro del candidato (sort 2 / título)
+        if ($this->completeCurrentCaseStepIfMatches($caseId, $userId, 'Datos capturados al adquirir', 2, null)
+            || $this->completeCurrentCaseStepIfMatches($caseId, $userId, 'Datos capturados al adquirir', null, 'registro')) {
+            // ok
+        }
+
+        $case = $this->certificationCase($caseId);
+        if ($case && !empty($case['payment_link_url'])) {
+            $this->completeCurrentCaseStepIfMatches($caseId, $userId, 'Link OpenPay generado', 3, null)
+                || $this->completeCurrentCaseStepIfMatches($caseId, $userId, 'Link OpenPay generado', null, 'openpay');
+        }
+    }
+
+    /**
+     * Etapas simplificadas que ve el alumno (no el protocolo completo).
+     *
+     * @param array<string, mixed> $case
+     * @param list<array<string, mixed>> $steps
+     * @return list<array{key:string,label:string,status:string,hint:string}>
+     */
+    public static function studentFacingStages(array $case, array $steps): array
+    {
+        $signed = !empty($case['regulation_signed_at']);
+        $paid = !empty($case['payment_confirmed_at']);
+        $hasAccess = trim((string) ($case['folio_id'] ?? '')) !== ''
+            || trim((string) ($case['access_key'] ?? '')) !== '';
+        $examDate = (string) ($case['exam_date'] ?? '');
+        $examPassed = $examDate !== '' && $examDate < date('Y-m-d');
+
+        $postExamDone = 0;
+        $postExamTotal = 0;
+        foreach ($steps as $step) {
+            if (($step['phase'] ?? '') !== 'post_exam') {
+                continue;
+            }
+            $postExamTotal++;
+            if (in_array($step['status'] ?? '', ['done', 'skipped'], true)) {
+                $postExamDone++;
+            }
+        }
+
+        $stages = [
+            [
+                'key' => 'registro',
+                'label' => 'Registro',
+                'status' => 'done',
+                'hint' => 'Datos para agendar tu examen',
+            ],
+            [
+                'key' => 'reglamento',
+                'label' => 'Reglamento',
+                'status' => $signed ? 'done' : 'current',
+                'hint' => $signed ? 'Firmado' : 'Pendiente de firma',
+            ],
+            [
+                'key' => 'pago',
+                'label' => 'Pago',
+                'status' => $paid ? 'done' : ($signed ? 'current' : 'pending'),
+                'hint' => $paid ? 'Confirmado' : 'Link OpenPay',
+            ],
+            [
+                'key' => 'examen',
+                'label' => 'Examen',
+                'status' => $hasAccess ? ($examPassed ? 'done' : 'current') : ($paid ? 'current' : 'pending'),
+                'hint' => $hasAccess
+                    ? 'Código de acceso disponible'
+                    : ($paid ? 'El código se asigna cerca de la fecha' : 'Después del pago'),
+            ],
+            [
+                'key' => 'cenni',
+                'label' => 'Certificado / CENNI',
+                'status' => $postExamTotal > 0 && $postExamDone >= $postExamTotal
+                    ? 'done'
+                    : ($examPassed || $hasAccess && $examDate !== '' && $examDate <= date('Y-m-d')
+                        ? 'current'
+                        : 'pending'),
+                'hint' => $postExamTotal > 0
+                    ? ($postExamDone . '/' . $postExamTotal . ' trámites')
+                    : 'Seguimiento post-examen',
+            ],
+        ];
+
+        // Si el pago aún no está firmado el reglamento, el pago sigue visible como acción paralela
+        if (!$signed && !$paid) {
+            $stages[2]['status'] = 'current';
+        }
+
+        return $stages;
     }
 
     /** @return list<array<string, mixed>> */

@@ -175,7 +175,10 @@ final class Auth
     /**
      * Alta de alumno (compra pública o registro).
      *
-     * @param array{email:string,password:string,name?:string,first_name?:string,last_name?:string,phone?:string} $data
+     * Si no se envía password (o use_default_password=true), se asigna la contraseña
+     * por defecto del sistema y se informa por correo — el alumno no la elige en el formulario.
+     *
+     * @param array{email:string,password?:string,use_default_password?:bool,name?:string,first_name?:string,last_name?:string,phone?:string} $data
      */
     public static function registerStudent(array $data): int
     {
@@ -194,7 +197,12 @@ final class Auth
             throw new \RuntimeException('Nombre inválido.');
         }
 
-        $password = (string) ($data['password'] ?? '');
+        $useDefault = !empty($data['use_default_password'])
+            || !array_key_exists('password', $data)
+            || (string) ($data['password'] ?? '') === '';
+        $password = $useDefault
+            ? \App\Users\UserRepository::DEFAULT_PASSWORD
+            : (string) ($data['password'] ?? '');
         if (strlen($password) < 8) {
             throw new \RuntimeException('La contraseña debe tener al menos 8 caracteres.');
         }
@@ -213,8 +221,8 @@ final class Auth
 
         $pdo = Connection::get();
         $stmt = $pdo->prepare(
-            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, email_verified_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())'
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password, email_verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())'
         );
         $stmt->execute([
             $normalizedEmail,
@@ -225,6 +233,8 @@ final class Auth
             $first !== '' ? $first : null,
             $last !== '' ? $last : null,
             'student',
+            // No forzar cambio inmediato: tras adquirir debe poder firmar y pagar.
+            0,
         ]);
 
         return (int) $pdo->lastInsertId();

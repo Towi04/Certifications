@@ -998,6 +998,7 @@ final class AdminRoutes
                     'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
                     'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
                     'moodle_user', 'moodle_password', 'results_url', 'cancel_reason', 'cc_email', 'notes',
+                    'payment_link_url', 'payment_link_id',
                 ];
                 $fields = [];
                 foreach ($map as $key) {
