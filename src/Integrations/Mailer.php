@@ -42,7 +42,15 @@ final class Mailer
         ];
     }
 
-    public function send(string $to, string $subject, string $bodyText): void
+    /**
+     * @param array{
+     *   cc?: string|null,
+     *   html?: bool,
+     *   body_html?: string|null,
+     *   attachments?: list<array{path: string, name?: string, mime?: string}>
+     * } $options
+     */
+    public function send(string $to, string $subject, string $bodyText, array $options = []): void
     {
         $transport = strtolower(trim(Env::get('SMTP_TRANSPORT', 'auto') ?? 'auto'));
         if (!in_array($transport, ['auto', 'smtp', 'mail'], true)) {
@@ -53,7 +61,7 @@ final class Mailer
 
         if ($transport === 'mail' || $transport === 'auto') {
             try {
-                $this->sendViaPhpMail($to, $subject, $bodyText);
+                $this->sendViaPhpMail($to, $subject, $bodyText, $options);
                 self::$lastEndpoint = ['transport' => 'mail'];
 
                 return;
@@ -67,7 +75,7 @@ final class Mailer
 
         if ($transport === 'smtp' || $transport === 'auto') {
             try {
-                $this->sendViaSmtp($to, $subject, $bodyText, $errors);
+                $this->sendViaSmtp($to, $subject, $bodyText, $errors, $options);
 
                 return;
             } catch (\Throwable $e) {
@@ -99,8 +107,11 @@ final class Mailer
         );
     }
 
-    /** @param list<string> $errors */
-    private function sendViaSmtp(string $to, string $subject, string $bodyText, array &$errors): void
+    /**
+     * @param list<string> $errors
+     * @param array<string, mixed> $options
+     */
+    private function sendViaSmtp(string $to, string $subject, string $bodyText, array &$errors, array $options = []): void
     {
         $user = trim(Env::require('SMTP_USER'));
         $pass = Env::require('SMTP_PASS');
@@ -127,7 +138,8 @@ final class Mailer
                         $fromName,
                         $to,
                         $subject,
-                        $bodyText
+                        $bodyText,
+                        $options
                     );
                     self::$lastEndpoint = [
                         'transport' => 'smtp',
@@ -147,7 +159,8 @@ final class Mailer
         throw new \RuntimeException('SMTP AUTH falló en todos los endpoints.');
     }
 
-    private function sendViaPhpMail(string $to, string $subject, string $bodyText): void
+    /** @param array<string, mixed> $options */
+    private function sendViaPhpMail(string $to, string $subject, string $bodyText, array $options = []): void
     {
         $user = trim((string) Env::get('SMTP_USER', ''));
         $from = trim((string) (Env::get('SMTP_FROM', $user !== '' ? $user : null) ?? 'certificaciones@institutodoceo.com'));
@@ -155,21 +168,21 @@ final class Mailer
 
         $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
         $encodedFrom = '=?UTF-8?B?' . base64_encode($fromName) . '?= <' . $from . '>';
+        $payload = $this->buildMimePayload($to, $from, $fromName, $subject, $bodyText, $options);
 
         $headers = [
             'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
             'From: ' . $encodedFrom,
             'Reply-To: ' . $from,
             'X-Mailer: Instituto-Doceo-PDV',
         ];
-
-        $body = str_replace(["\r\n", "\r"], "\n", $bodyText);
-        $body = str_replace("\n", "\r\n", $body);
+        if ($payload['cc'] !== '') {
+            $headers[] = 'Cc: ' . $payload['cc'];
+        }
+        $headers[] = $payload['content_type_header'];
 
         $params = '-f' . $from;
-        $ok = @mail($to, $encodedSubject, $body, implode("\r\n", $headers), $params);
+        $ok = @mail($to, $encodedSubject, $payload['body'], implode("\r\n", $headers), $params);
         if ($ok !== true) {
             throw new \RuntimeException(
                 'PHP mail() devolvió false. Revisa que From (' . $from
@@ -212,6 +225,7 @@ final class Mailer
         return $out;
     }
 
+    /** @param array<string, mixed> $options */
     private function sendViaSocket(
         string $host,
         int $port,
@@ -222,15 +236,20 @@ final class Mailer
         string $fromName,
         string $to,
         string $subject,
-        string $bodyText
+        string $bodyText,
+        array $options = []
     ): void {
         $fp = $this->connect($host, $port, $encryption);
 
         try {
             $fp = $this->authenticate($fp, $user, $pass, $host, $port, $encryption);
+            $payload = $this->buildMimePayload($to, $from, $fromName, $subject, $bodyText, $options);
 
             $this->command($fp, 'MAIL FROM:<' . $from . '>', 250);
             $this->command($fp, 'RCPT TO:<' . $to . '>', 250);
+            foreach ($payload['cc_list'] as $ccAddr) {
+                $this->command($fp, 'RCPT TO:<' . $ccAddr . '>', 250);
+            }
             $this->command($fp, 'DATA', 354);
 
             $headers = [
@@ -238,12 +257,14 @@ final class Mailer
                 'To: <' . $to . '>',
                 'Subject: =?UTF-8?B?' . base64_encode($subject) . '?=',
                 'MIME-Version: 1.0',
-                'Content-Type: text/plain; charset=UTF-8',
-                'Content-Transfer-Encoding: 8bit',
                 'Date: ' . date('r'),
+                $payload['content_type_header'],
             ];
+            if ($payload['cc'] !== '') {
+                $headers[] = 'Cc: ' . $payload['cc'];
+            }
 
-            $data = implode("\r\n", $headers) . "\r\n\r\n" . $this->dotStuff($bodyText) . "\r\n.";
+            $data = implode("\r\n", $headers) . "\r\n\r\n" . $this->dotStuff($payload['body']) . "\r\n.";
             $this->command($fp, $data, 250);
             $this->command($fp, 'QUIT', 221);
         } finally {
@@ -251,6 +272,107 @@ final class Mailer
                 fclose($fp);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array{body: string, content_type_header: string, cc: string, cc_list: list<string>}
+     */
+    private function buildMimePayload(
+        string $to,
+        string $from,
+        string $fromName,
+        string $subject,
+        string $bodyText,
+        array $options
+    ): array {
+        unset($to, $from, $fromName, $subject);
+        $ccRaw = trim((string) ($options['cc'] ?? ''));
+        $ccList = [];
+        if ($ccRaw !== '') {
+            foreach (preg_split('/\s*,\s*/', $ccRaw) ?: [] as $addr) {
+                $addr = trim($addr);
+                if ($addr !== '' && filter_var($addr, FILTER_VALIDATE_EMAIL)) {
+                    $ccList[] = $addr;
+                }
+            }
+        }
+        $ccHeader = implode(', ', $ccList);
+
+        $isHtml = !empty($options['html']) || !empty($options['body_html']);
+        $html = (string) ($options['body_html'] ?? '');
+        if ($isHtml && $html === '') {
+            $html = nl2br(htmlspecialchars($bodyText, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        }
+        $text = $bodyText !== '' ? $bodyText : strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html));
+
+        /** @var list<array{path: string, name?: string, mime?: string}> $attachments */
+        $attachments = $options['attachments'] ?? [];
+        $validAttachments = [];
+        foreach ($attachments as $att) {
+            $path = (string) ($att['path'] ?? '');
+            if ($path !== '' && is_file($path) && is_readable($path)) {
+                $validAttachments[] = $att;
+            }
+        }
+
+        if ($validAttachments === []) {
+            if ($isHtml) {
+                return [
+                    'body' => $this->normalizeEol($html),
+                    'content_type_header' => 'Content-Type: text/html; charset=UTF-8',
+                    'cc' => $ccHeader,
+                    'cc_list' => $ccList,
+                ];
+            }
+
+            return [
+                'body' => $this->normalizeEol($text),
+                'content_type_header' => 'Content-Type: text/plain; charset=UTF-8',
+                'cc' => $ccHeader,
+                'cc_list' => $ccList,
+            ];
+        }
+
+        $boundary = 'pdv_' . bin2hex(random_bytes(12));
+        $parts = [];
+        if ($isHtml) {
+            $parts[] = '--' . $boundary
+                . "\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+                . $this->normalizeEol($html);
+        } else {
+            $parts[] = '--' . $boundary
+                . "\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+                . $this->normalizeEol($text);
+        }
+
+        foreach ($validAttachments as $att) {
+            $path = (string) $att['path'];
+            $name = (string) ($att['name'] ?? basename($path));
+            $mime = (string) ($att['mime'] ?? 'application/octet-stream');
+            $data = base64_encode((string) file_get_contents($path));
+            $data = chunk_split($data, 76, "\r\n");
+            $parts[] = '--' . $boundary
+                . "\r\nContent-Type: {$mime}; name=\"{$name}\""
+                . "\r\nContent-Transfer-Encoding: base64"
+                . "\r\nContent-Disposition: attachment; filename=\"{$name}\"\r\n\r\n"
+                . $data;
+        }
+        $parts[] = '--' . $boundary . '--';
+
+        return [
+            'body' => implode("\r\n", $parts),
+            'content_type_header' => 'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
+            'cc' => $ccHeader,
+            'cc_list' => $ccList,
+        ];
+    }
+
+    private function normalizeEol(string $body): string
+    {
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
+
+        return str_replace("\n", "\r\n", $body);
     }
 
     /**

@@ -58,6 +58,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_documents_admin.sql` (documentos con proveedor y versión)
 - `sql/migration_public_storefront.sql` (productos estrella en vitrina pública)
 - `sql/migration_cert_value_cenni.sql` (tipos CENNI + valor agregado Doceo)
+- `sql/migration_case_ops_exports.sql` (mesa de casos: pago, plantillas de correo, exportaciones UKS/TOEFL/Linguaskill)
 
 ### Subida de PDFs de convenio
 

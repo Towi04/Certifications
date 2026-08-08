@@ -779,6 +779,8 @@ final class AdminRoutes
                 'item' => null,
                 'steps' => [],
                 'providers' => $repo()->providers(true),
+                'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
+                'mail_templates' => $repo()->mailTemplates(true),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
@@ -800,6 +802,8 @@ final class AdminRoutes
                 'item' => $item,
                 'steps' => $repo()->protocolSteps($id),
                 'providers' => $repo()->providers(true),
+                'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
+                'mail_templates' => $repo()->mailTemplates(true),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
@@ -829,6 +833,9 @@ final class AdminRoutes
                     'requires_zoom' => isset($_POST['requires_zoom']) ? 1 : 0,
                     'requires_vm' => isset($_POST['requires_vm']) ? 1 : 0,
                     'uses_inventory' => isset($_POST['uses_inventory']) ? 1 : 0,
+                    'export_format' => (string) ($_POST['export_format'] ?? 'none'),
+                    'provider_request_template' => trim((string) ($_POST['provider_request_template'] ?? '')) ?: null,
+                    'student_access_template' => trim((string) ($_POST['student_access_template'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
                 flash('info', 'Protocolo guardado. Ahora define los pasos del flujo.');
@@ -955,7 +962,7 @@ final class AdminRoutes
         $router->get('/admin/cases/view', static function () use ($repo): void {
             Auth::requireAdmin();
             $id = (int) ($_GET['id'] ?? 0);
-            $item = $repo()->certificationCase($id);
+            $item = $repo()->certificationCaseDetailed($id);
             if (!$item) {
                 flash('error', 'Caso no encontrado.');
                 header('Location: /admin/cases');
@@ -965,11 +972,137 @@ final class AdminRoutes
                 'title' => 'Caso #' . $id,
                 'item' => $item,
                 'steps' => $repo()->certificationCaseSteps($id),
+                'attachments' => $repo()->caseAttachments($id),
+                'mail_log' => $repo()->caseMailLog($id),
+                'mail_templates' => $repo()->mailTemplates(true),
+                'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/admin/cases/update', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            if ($caseId <= 0 || !$repo()->certificationCase($caseId)) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /admin/cases');
+                exit;
+            }
+            try {
+                $map = [
+                    'student_name', 'student_last_name_p', 'student_last_name_m', 'student_email', 'student_phone',
+                    'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
+                    'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
+                    'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
+                    'moodle_user', 'moodle_password', 'results_url', 'cancel_reason', 'cc_email', 'notes',
+                ];
+                $fields = [];
+                foreach ($map as $key) {
+                    if (!array_key_exists($key, $_POST)) {
+                        continue;
+                    }
+                    $val = is_string($_POST[$key]) ? trim($_POST[$key]) : $_POST[$key];
+                    if ($key === 'student_email' || $key === 'cc_email') {
+                        $val = strtolower((string) $val);
+                    }
+                    $fields[$key] = $val;
+                }
+                $repo()->updateCertificationCase($caseId, $fields);
+                flash('info', 'Datos del caso guardados.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/confirm-payment', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->confirmPaymentAndRequestProvider(
+                    $caseId,
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null,
+                    $user ? (int) $user['id'] : null
+                );
+                $msg = 'Pago confirmado.';
+                if ($result['export']) {
+                    $msg .= ' Exportación generada: ' . $result['export']['filename'] . '.';
+                }
+                if ($result['mailed']) {
+                    $msg .= ' Correo enviado a ' . $result['to'] . '.';
+                } else {
+                    $msg .= ' Sin plantilla de solicitud al proveedor; descarga el archivo si aplica.';
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/regenerate-export', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $export = $svc->regenerateExport($caseId, $user ? (int) $user['id'] : null);
+                flash('info', 'Archivo regenerado: ' . $export['filename']);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/send-mail', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $code = trim((string) ($_POST['template_code'] ?? ''));
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->sendTemplate($caseId, $code, $user ? (int) $user['id'] : null);
+                flash('info', 'Correo enviado a ' . $result['to'] . ' (' . $result['subject'] . ').');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->get('/admin/cases/download-export', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_GET['id'] ?? 0);
+            $item = $repo()->certificationCase($caseId);
+            if (!$item || empty($item['provider_export_path'])) {
+                flash('error', 'No hay archivo de exportación en este caso.');
+                header('Location: /admin/cases/view?id=' . $caseId);
+                exit;
+            }
+            $rel = ltrim((string) $item['provider_export_path'], '/');
+            $abs = BASE_PATH . '/storage/' . $rel;
+            if (!is_file($abs)) {
+                flash('error', 'El archivo ya no existe en disco.');
+                header('Location: /admin/cases/view?id=' . $caseId);
+                exit;
+            }
+            $name = basename($abs);
+            $mime = str_ends_with(strtolower($name), '.csv')
+                ? 'text/csv'
+                : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            header('Content-Type: ' . $mime);
+            header('Content-Disposition: attachment; filename="' . $name . '"');
+            header('Content-Length: ' . (string) filesize($abs));
+            readfile($abs);
+            exit;
         });
 
         $router->post('/admin/cases/complete-step', static function () use ($repo): void {
