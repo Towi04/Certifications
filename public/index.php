@@ -6,6 +6,7 @@ use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
 use App\Http\AdminRoutes;
 use App\Http\PartnerRoutes;
+use App\Http\PublicRoutes;
 use App\Http\Router;
 use App\Integrations\HealthChecker;
 
@@ -80,6 +81,8 @@ $runLogin = static function (bool $fromGet = false): void {
         header('Location: /admin');
     } elseif ($role === 'partner') {
         header('Location: /partner');
+    } elseif ($role === 'student') {
+        header('Location: /alumno');
     } else {
         header('Location: /');
     }
@@ -98,12 +101,29 @@ $postLoginPath = static function (): string {
     if ($role === 'partner') {
         return '/partner';
     }
+    if ($role === 'student') {
+        return '/alumno';
+    }
     return '/';
 };
 
 $router->get('/', static function (): void {
+    $repo = new CatalogRepository();
+    $featured = [];
+    $groups = [];
+    $courses = [];
+    try {
+        $featured = $repo->publicFeaturedCertifications();
+        $groups = $repo->publicCatalogGroupedByProvider(true);
+        $courses = $repo->publicCourses();
+    } catch (Throwable $e) {
+        error_log('[PDV] home catalog: ' . $e->getMessage());
+    }
     view('home', [
         'title' => 'Inicio',
+        'featured' => $featured,
+        'groups' => $groups,
+        'courses' => $courses,
     ]);
 });
 
@@ -476,6 +496,7 @@ $router->get('/admin', static function (): void {
 
 AdminRoutes::register($router);
 PartnerRoutes::register($router);
+PublicRoutes::register($router);
 
 $router->get('/media', static function (): void {
     $relative = (string) ($_GET['f'] ?? '');

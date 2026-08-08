@@ -1389,6 +1389,7 @@ final class AdminRoutes
                     'conocer_eligible' => $conocerEligible,
                     'conocer_fee' => $conocerFee,
                     'is_published' => $isPublished,
+                    'is_featured' => isset($_POST['is_featured']) ? 1 : 0,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ], $id);
 

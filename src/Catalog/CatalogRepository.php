@@ -1266,7 +1266,10 @@ final class CatalogRepository
             $data['cost_price'] ?? null,
             $data['currency'] ?? 'MXN',
             $data['cenni_eligible'], $data['cenni_doc_type'], $data['cenni_included'], $data['cenni_fee'],
-            $data['conocer_eligible'], $data['conocer_fee'], $data['is_published'], $data['sort_order'],
+            $data['conocer_eligible'], $data['conocer_fee'],
+            (int) ($data['is_published'] ?? 0),
+            (int) ($data['is_featured'] ?? 0),
+            $data['sort_order'],
         ];
 
         if ($id) {
@@ -1275,7 +1278,7 @@ final class CatalogRepository
                  short_description=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
                  is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
                  public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
-                 conocer_eligible=?, conocer_fee=?, is_published=?, sort_order=? WHERE id=?'
+                 conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
@@ -1286,8 +1289,8 @@ final class CatalogRepository
                 provider_id, protocol_id, code, slug, name, modality, short_description, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
-                cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -1606,6 +1609,120 @@ final class CatalogRepository
         $sql .= ' ORDER BY p.name, c.sort_order, c.name';
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Productos estrella para la vitrina pública (orden preferido).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function publicFeaturedCertifications(): array
+    {
+        $sql = 'SELECT c.*, p.name AS provider_name, p.code AS provider_code,
+                       p.logo_icon_path, p.logo_full_path, p.logo_path
+                FROM certifications c
+                JOIN providers p ON p.id = c.provider_id
+                WHERE c.is_published = 1 AND c.is_featured = 1
+                ORDER BY
+                  CASE
+                    WHEN UPPER(c.code) LIKE \'%ELET%\' OR UPPER(c.name) LIKE \'%ELET%\' THEN 1
+                    WHEN UPPER(c.code) LIKE \'%ITEP%\' OR UPPER(c.name) LIKE \'%ITEP%\' THEN 2
+                    WHEN UPPER(c.code) LIKE \'%TOEFL%\' OR UPPER(c.name) LIKE \'%TOEFL%\' THEN 3
+                    WHEN UPPER(c.code) LIKE \'%LINGUA%\' OR UPPER(c.name) LIKE \'%LINGUA%\' THEN 4
+                    WHEN UPPER(c.code) LIKE \'%EXCEL%\' OR UPPER(c.name) LIKE \'%EXCEL%\' THEN 5
+                    ELSE 50
+                  END,
+                  c.sort_order, c.name';
+        try {
+            return $this->pdo->query($sql)->fetchAll();
+        } catch (\Throwable) {
+            // Columna is_featured aún no migrada
+            return [];
+        }
+    }
+
+    /**
+     * Catálogo público agrupado por proveedor (excluye estrellas si $excludeFeatured).
+     *
+     * @return list<array{provider_id:int, provider_name:string, provider_code:?string, logo:?string, items:list<array<string,mixed>>}>
+     */
+    public function publicCatalogGroupedByProvider(bool $excludeFeatured = true): array
+    {
+        $sql = 'SELECT c.*, p.name AS provider_name, p.code AS provider_code,
+                       p.logo_icon_path, p.logo_full_path, p.logo_path
+                FROM certifications c
+                JOIN providers p ON p.id = c.provider_id
+                WHERE c.is_published = 1';
+        if ($excludeFeatured) {
+            $sql .= ' AND (c.is_featured = 0 OR c.is_featured IS NULL)';
+        }
+        $sql .= ' ORDER BY p.name, c.sort_order, c.name';
+
+        try {
+            $rows = $this->pdo->query($sql)->fetchAll();
+        } catch (\Throwable) {
+            $rows = $this->pdo->query(
+                'SELECT c.*, p.name AS provider_name, p.code AS provider_code,
+                        p.logo_icon_path, p.logo_full_path, p.logo_path
+                 FROM certifications c
+                 JOIN providers p ON p.id = c.provider_id
+                 WHERE c.is_published = 1
+                 ORDER BY p.name, c.sort_order, c.name'
+            )->fetchAll();
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $pid = (int) $row['provider_id'];
+            if (!isset($groups[$pid])) {
+                $groups[$pid] = [
+                    'provider_id' => $pid,
+                    'provider_name' => (string) $row['provider_name'],
+                    'provider_code' => $row['provider_code'] ?? null,
+                    'logo' => $row['logo_icon_path'] ?? $row['logo_full_path'] ?? $row['logo_path'] ?? null,
+                    'items' => [],
+                ];
+            }
+            $groups[$pid]['items'][] = $row;
+        }
+
+        return array_values($groups);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function publicCourses(): array
+    {
+        try {
+            return $this->pdo->query(
+                'SELECT c.*, p.name AS protocol_name
+                 FROM courses c
+                 LEFT JOIN protocols p ON p.id = c.protocol_id
+                 WHERE c.is_active = 1
+                 ORDER BY c.name'
+            )->fetchAll();
+        } catch (\Throwable) {
+            return $this->pdo->query(
+                'SELECT * FROM courses WHERE is_active = 1 ORDER BY name'
+            )->fetchAll();
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function casesForStudentUser(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code, cert.slug AS certification_slug,
+                    pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order,
+                    ps.phase AS current_step_phase
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
+             WHERE c.student_user_id = ?
+             ORDER BY c.updated_at DESC, c.id DESC'
+        );
+        $stmt->execute([$userId]);
         return $stmt->fetchAll();
     }
 

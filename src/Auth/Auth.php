@@ -165,20 +165,42 @@ final class Auth
 
     public static function register(string $email, string $name, string $password): int
     {
-        $normalizedEmail = self::normalizeIdentifier($email);
+        return self::registerStudent([
+            'email' => $email,
+            'name' => $name,
+            'password' => $password,
+        ]);
+    }
+
+    /**
+     * Alta de alumno (compra pública o registro).
+     *
+     * @param array{email:string,password:string,name?:string,first_name?:string,last_name?:string,phone?:string} $data
+     */
+    public static function registerStudent(array $data): int
+    {
+        $normalizedEmail = self::normalizeIdentifier((string) ($data['email'] ?? ''));
         if ($normalizedEmail === '' || !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('Correo inválido.');
         }
-        $name = trim($name);
+
+        $first = trim((string) ($data['first_name'] ?? ''));
+        $last = trim((string) ($data['last_name'] ?? ''));
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            $name = trim($first . ' ' . $last);
+        }
         if ($name === '') {
             throw new \RuntimeException('Nombre inválido.');
         }
-        if ($password === '') {
-            throw new \RuntimeException('La contraseña no puede estar vacía.');
+
+        $password = (string) ($data['password'] ?? '');
+        if (strlen($password) < 8) {
+            throw new \RuntimeException('La contraseña debe tener al menos 8 caracteres.');
         }
 
         if (self::findUserByEmail($normalizedEmail)) {
-            throw new \RuntimeException('Ya existe una cuenta con ese correo.');
+            throw new \RuntimeException('Ya existe una cuenta con ese correo. Inicia sesión para continuar.');
         }
 
         $username = self::generateUniqueUsername($normalizedEmail);
@@ -187,13 +209,64 @@ final class Auth
             throw new \RuntimeException('No se pudo generar la contraseña.');
         }
 
+        $phone = trim((string) ($data['phone'] ?? '')) ?: null;
+
         $pdo = Connection::get();
         $stmt = $pdo->prepare(
-            'INSERT INTO users (email, username, password_hash, name, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, email_verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())'
         );
-        $stmt->execute([$normalizedEmail, $username, $hash, $name, 'student']);
+        $stmt->execute([
+            $normalizedEmail,
+            $phone,
+            $username,
+            $hash,
+            $name,
+            $first !== '' ? $first : null,
+            $last !== '' ? $last : null,
+            'student',
+        ]);
 
         return (int) $pdo->lastInsertId();
+    }
+
+    /** Inicia sesión de un usuario ya existente por id (tras registro). */
+    public static function loginById(int $userId): void
+    {
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'SELECT id, email, username, name, first_name, last_name, phone, role, is_active, must_change_password
+             FROM users WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row || (int) $row['is_active'] !== 1) {
+            throw new \RuntimeException('No se pudo iniciar sesión.');
+        }
+        $_SESSION['user'] = [
+            'id' => (int) $row['id'],
+            'email' => (string) $row['email'],
+            'username' => $row['username'] ?? null,
+            'name' => (string) $row['name'],
+            'first_name' => $row['first_name'] ?? null,
+            'last_name' => $row['last_name'] ?? null,
+            'phone' => $row['phone'] ?? null,
+            'role' => (string) $row['role'],
+            'must_change_password' => !empty($row['must_change_password']),
+        ];
+    }
+
+    public static function requireStudent(): void
+    {
+        self::requireLogin();
+        self::requirePasswordChanged();
+        $user = self::user();
+        $role = $user['role'] ?? null;
+        if ($user === null || (!self::isStaffRole($role) && $role !== 'student')) {
+            http_response_code(403);
+            echo 'Acceso denegado. Esta área es para seguimiento del alumno.';
+            exit;
+        }
     }
 
     public static function updatePassword(int $userId, string $password): void
