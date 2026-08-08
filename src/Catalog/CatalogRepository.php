@@ -1010,14 +1010,19 @@ final class CatalogRepository
         $fields = [
             $data['provider_id'], $data['code'], $data['name'], $data['modality'], $data['procedure_html'],
             $data['requires_regulation_signature'], $data['requires_software'], $data['requires_zoom'],
-            $data['requires_vm'], $data['uses_inventory'], $data['is_active'],
+            $data['requires_vm'], $data['uses_inventory'],
+            $data['export_format'] ?? 'none',
+            $data['provider_request_template'] ?? null,
+            $data['student_access_template'] ?? null,
+            $data['is_active'],
         ];
 
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE protocols SET provider_id=?, code=?, name=?, modality=?, procedure_html=?,
                  requires_regulation_signature=?, requires_software=?, requires_zoom=?, requires_vm=?,
-                 uses_inventory=?, is_active=? WHERE id=?'
+                 uses_inventory=?, export_format=?, provider_request_template=?, student_access_template=?,
+                 is_active=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
@@ -1025,11 +1030,137 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO protocols (provider_id, code, name, modality, procedure_html,
-             requires_regulation_signature, requires_software, requires_zoom, requires_vm, uses_inventory, is_active)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             requires_regulation_signature, requires_software, requires_zoom, requires_vm, uses_inventory,
+             export_format, provider_request_template, student_access_template, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function certificationCaseDetailed(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+                    pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
+                    pr.student_access_template, pr.provider_id,
+                    prov.code AS provider_code, prov.name AS provider_name,
+                    prov.contact_email AS provider_contact_email,
+                    pu.email AS partner_email, p.organization AS partner_organization
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             LEFT JOIN providers prov ON prov.id = pr.provider_id
+             LEFT JOIN partners p ON p.id = c.partner_id
+             LEFT JOIN users pu ON pu.id = p.user_id
+             WHERE c.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /** @param array<string, mixed> $fields */
+    public function updateCertificationCase(int $id, array $fields): void
+    {
+        $allowed = [
+            'student_name', 'student_last_name_p', 'student_last_name_m', 'student_email', 'student_phone',
+            'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
+            'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
+            'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
+            'moodle_user', 'moodle_password', 'payment_proof_path', 'payment_confirmed_at',
+            'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
+            'cc_email', 'notes', 'status', 'partner_id',
+        ];
+        $sets = [];
+        $params = [];
+        foreach ($allowed as $col) {
+            if (!array_key_exists($col, $fields)) {
+                continue;
+            }
+            $sets[] = $col . ' = ?';
+            $val = $fields[$col];
+            $params[] = $val === '' ? null : $val;
+        }
+        if ($sets === []) {
+            return;
+        }
+        $params[] = $id;
+        $sql = 'UPDATE certification_cases SET ' . implode(', ', $sets) . ', updated_at = NOW() WHERE id = ?';
+        $this->pdo->prepare($sql)->execute($params);
+    }
+
+    public function addCaseAttachment(int $caseId, string $kind, ?string $label, string $filePath, ?int $uploadedBy): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO case_attachments (case_id, kind, label, file_path, uploaded_by) VALUES (?,?,?,?,?)'
+        );
+        $stmt->execute([$caseId, $kind, $label, $filePath, $uploadedBy]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function caseAttachments(int $caseId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM case_attachments WHERE case_id = ? ORDER BY id DESC'
+        );
+        $stmt->execute([$caseId]);
+        return $stmt->fetchAll();
+    }
+
+    /** @param array<string, mixed> $data */
+    public function logCaseMail(array $data): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO case_mail_log
+             (case_id, template_code, to_email, cc_email, subject, attachment_path, status, error_message, sent_by)
+             VALUES (?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $data['case_id'],
+            $data['template_code'] ?? null,
+            $data['to_email'],
+            $data['cc_email'] ?? null,
+            $data['subject'],
+            $data['attachment_path'] ?? null,
+            $data['status'] ?? 'sent',
+            $data['error_message'] ?? null,
+            $data['sent_by'] ?? null,
+        ]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function caseMailLog(int $caseId, int $limit = 50): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM case_mail_log WHERE case_id = ? ORDER BY id DESC LIMIT ' . (int) $limit
+        );
+        $stmt->execute([$caseId]);
+        return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function mailTemplates(bool $onlyActive = false): array
+    {
+        try {
+            $sql = 'SELECT * FROM mail_templates';
+            if ($onlyActive) {
+                $sql .= ' WHERE is_active = 1';
+            }
+            $sql .= ' ORDER BY name';
+            return $this->pdo->query($sql)->fetchAll();
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    public function mailTemplateByCode(string $code): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM mail_templates WHERE code = ?');
+        $stmt->execute([$code]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     /** @return list<array<string, mixed>> */

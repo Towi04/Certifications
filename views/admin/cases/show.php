@@ -2,6 +2,10 @@
 require __DIR__ . '/../_nav.php';
 $phases = $phases ?? [];
 $responsibles = $responsibles ?? [];
+$attachments = $attachments ?? [];
+$mail_log = $mail_log ?? [];
+$mail_templates = $mail_templates ?? [];
+$export_formats = $export_formats ?? [];
 $statusLabels = [
     'pending' => 'Pendiente',
     'current' => 'En curso',
@@ -9,22 +13,151 @@ $statusLabels = [
     'skipped' => 'Omitido',
     'blocked' => 'Bloqueado',
 ];
+$exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['export_format'] ?? 'none');
 ?>
 <section class="note">
     <div class="page-head" style="margin:0">
         <div>
             <h2 style="margin:0"><?= e($title) ?></h2>
             <p class="muted" style="margin:0.35rem 0 0">
-                <?= e($item['student_name']) ?> · <?= e($item['student_email']) ?><br>
-                <?= e($item['certification_code']) ?> · <?= e($item['certification_name']) ?> ·
+                <?= e($item['certification_code']) ?> · <?= e($item['certification_name']) ?><br>
                 Protocolo: <?= e($item['protocol_name']) ?> ·
-                Estado: <?= e($item['status']) ?>
-                <?php if (!empty($item['exam_date'])): ?> · Examen: <?= e($item['exam_date']) ?><?php endif; ?>
+                Estado: <?= e($item['status']) ?> ·
+                Export: <?= e($exportLabel) ?>
             </p>
         </div>
         <a class="btn btn-ghost" href="/admin/cases">Volver</a>
     </div>
+    <?php if (!empty($info)): ?><p class="alert alert-ok"><?= e($info) ?></p><?php endif; ?>
+    <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
+</section>
 
+<section class="note">
+    <h3>Datos del alumno y agenda</h3>
+    <form method="post" action="/admin/cases/update" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Nombre(s)<input name="student_name" required value="<?= e($item['student_name'] ?? '') ?>"></label>
+        <label>Apellido paterno<input name="student_last_name_p" value="<?= e($item['student_last_name_p'] ?? '') ?>"></label>
+        <label>Apellido materno<input name="student_last_name_m" value="<?= e($item['student_last_name_m'] ?? '') ?>"></label>
+        <label>E-mail<input type="email" name="student_email" required value="<?= e($item['student_email'] ?? '') ?>"></label>
+        <label>Teléfono<input name="student_phone" value="<?= e($item['student_phone'] ?? '') ?>"></label>
+        <label>CC (TR)<input type="email" name="cc_email" value="<?= e($item['cc_email'] ?? $item['partner_email'] ?? '') ?>" placeholder="correo del TR"></label>
+        <label>CURP<input name="student_curp" value="<?= e($item['student_curp'] ?? '') ?>"></label>
+        <label>Fecha nacimiento<input type="date" name="student_birth_date" value="<?= e($item['student_birth_date'] ?? '') ?>"></label>
+        <label>Sexo
+            <select name="student_sex">
+                <?php $sx = (string)($item['student_sex'] ?? ''); ?>
+                <option value="">—</option>
+                <option value="F" <?= $sx === 'F' || str_starts_with(strtolower($sx), 'f') ? 'selected' : '' ?>>Femenino</option>
+                <option value="M" <?= $sx === 'M' || str_starts_with(strtolower($sx), 'm') ? 'selected' : '' ?>>Masculino</option>
+            </select>
+        </label>
+        <label>Nacionalidad<input name="student_nationality" value="<?= e($item['student_nationality'] ?? 'MEX') ?>"></label>
+        <label>Fecha examen<input type="date" name="exam_date" value="<?= e($item['exam_date'] ?? '') ?>"></label>
+        <label>Hora examen<input name="exam_time" value="<?= e($item['exam_time'] ?? '') ?>" placeholder="11:00"></label>
+        <label>Reagenda fecha<input type="date" name="reschedule_date" value="<?= e($item['reschedule_date'] ?? '') ?>"></label>
+        <label>Reagenda hora<input name="reschedule_time" value="<?= e($item['reschedule_time'] ?? '') ?>"></label>
+        <label>Notas<textarea name="notes" rows="2"><?= e($item['notes'] ?? '') ?></textarea></label>
+        <div class="actions"><button class="btn" type="submit">Guardar datos</button></div>
+    </form>
+</section>
+
+<section class="note">
+    <h3>Credenciales y links operativos</h3>
+    <form method="post" action="/admin/cases/update" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Folio / ID<input name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
+        <label>Clave<input name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
+        <label>Zoom (TOEFL)<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>"></label>
+        <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>"></label>
+        <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>"></label>
+        <label>Moodle user<input name="moodle_user" value="<?= e($item['moodle_user'] ?? '') ?>"></label>
+        <label>Moodle password<input name="moodle_password" value="<?= e($item['moodle_password'] ?? '') ?>"></label>
+        <label>URL resultados<input name="results_url" value="<?= e($item['results_url'] ?? '') ?>"></label>
+        <label>Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
+        <div class="actions"><button class="btn" type="submit">Guardar credenciales</button></div>
+    </form>
+</section>
+
+<section class="note">
+    <h3>Pago → generar plantilla → correo al proveedor</h3>
+    <p class="muted">
+        Al confirmar el pago el sistema genera el archivo del proveedor
+        (UKS CSV, TOEFL Excel o Linguaskill Excel) y, si el protocolo tiene plantilla de solicitud, envía el correo adjuntando el archivo y el comprobante.
+    </p>
+    <p class="muted">
+        Pago confirmado:
+        <?= !empty($item['payment_confirmed_at']) ? e($item['payment_confirmed_at']) : 'aún no' ?>
+        <?php if (!empty($item['provider_request_sent_at'])): ?>
+            · Solicitud enviada: <?= e($item['provider_request_sent_at']) ?>
+        <?php endif; ?>
+    </p>
+    <form method="post" action="/admin/cases/confirm-payment" enctype="multipart/form-data" class="stack">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Comprobante de pago (PDF/imagen)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+        <button class="btn" type="submit">Confirmar pago y solicitar al proveedor</button>
+    </form>
+    <div class="actions" style="margin-top:1rem">
+        <?php if (!empty($item['provider_export_path'])): ?>
+            <a class="btn btn-ghost" href="/admin/cases/download-export?id=<?= (int)$item['id'] ?>">Descargar exportación</a>
+        <?php endif; ?>
+        <?php if (($item['export_format'] ?? 'none') !== 'none'): ?>
+            <form method="post" action="/admin/cases/regenerate-export">
+                <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                <button class="btn btn-ghost" type="submit">Regenerar archivo</button>
+            </form>
+        <?php endif; ?>
+    </div>
+</section>
+
+<section class="note">
+    <h3>Enviar plantilla de correo</h3>
+    <form method="post" action="/admin/cases/send-mail" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Plantilla
+            <select name="template_code" required>
+                <option value="">—</option>
+                <?php foreach ($mail_templates as $tpl): ?>
+                    <option value="<?= e($tpl['code']) ?>"><?= e($tpl['name']) ?> (<?= e($tpl['code']) ?>)</option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <div class="actions"><button class="btn" type="submit">Enviar ahora</button></div>
+    </form>
+    <?php if ($mail_log): ?>
+        <table class="table" style="margin-top:1rem">
+            <thead><tr><th>Cuándo</th><th>Plantilla</th><th>Para</th><th>Estado</th></tr></thead>
+            <tbody>
+            <?php foreach ($mail_log as $log): ?>
+                <tr>
+                    <td><?= e($log['created_at']) ?></td>
+                    <td><?= e($log['template_code'] ?? '') ?></td>
+                    <td><?= e($log['to_email']) ?><?php if (!empty($log['cc_email'])): ?><br><small>CC <?= e($log['cc_email']) ?></small><?php endif; ?></td>
+                    <td><?= e($log['status']) ?><?php if (!empty($log['error_message'])): ?><br><small><?= e($log['error_message']) ?></small><?php endif; ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</section>
+
+<?php if ($attachments): ?>
+<section class="note">
+    <h3>Adjuntos del caso</h3>
+    <ul>
+        <?php foreach ($attachments as $att): ?>
+            <li>
+                <?= e($att['kind']) ?> — <?= e($att['label'] ?? basename((string)$att['file_path'])) ?>
+                · <a href="/media?f=<?= e(rawurlencode((string)$att['file_path'])) ?>" target="_blank" rel="noopener">ver</a>
+                <small class="muted"><?= e($att['created_at']) ?></small>
+            </li>
+        <?php endforeach; ?>
+    </ul>
+</section>
+<?php endif; ?>
+
+<section class="note">
+    <h3>Progreso del protocolo</h3>
     <ol class="protocol-timeline protocol-timeline--progress">
         <?php
         $lastPhase = null;

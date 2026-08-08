@@ -44,6 +44,30 @@ foreach ($steps as $s) {
         <label class="check"><input type="checkbox" name="requires_zoom" <?= !empty($item['requires_zoom']) ? 'checked' : '' ?>> Zoom</label>
         <label class="check"><input type="checkbox" name="requires_vm" <?= !empty($item['requires_vm']) ? 'checked' : '' ?>> Máquina virtual</label>
         <label class="check"><input type="checkbox" name="uses_inventory" <?= !empty($item['uses_inventory']) ? 'checked' : '' ?>> Inventario de códigos</label>
+        <label>Formato exportación proveedor
+            <select name="export_format">
+                <?php foreach (($export_formats ?? ['none' => 'Ninguno']) as $code => $label): ?>
+                    <option value="<?= e($code) ?>" <?= ($item['export_format'] ?? 'none') === $code ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>Plantilla solicitud a empresa
+            <select name="provider_request_template">
+                <option value="">— ninguna —</option>
+                <?php foreach (($mail_templates ?? []) as $tpl): ?>
+                    <?php if (($tpl['audience'] ?? '') !== 'provider' && ($tpl['to_mode'] ?? '') !== 'provider') continue; ?>
+                    <option value="<?= e($tpl['code']) ?>" <?= ($item['provider_request_template'] ?? '') === $tpl['code'] ? 'selected' : '' ?>><?= e($tpl['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>Plantilla datos de acceso (alumno)
+            <select name="student_access_template">
+                <option value="">— ninguna —</option>
+                <?php foreach (($mail_templates ?? []) as $tpl): ?>
+                    <option value="<?= e($tpl['code']) ?>" <?= ($item['student_access_template'] ?? '') === $tpl['code'] ? 'selected' : '' ?>><?= e($tpl['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>
         <div class="actions"><button class="btn" type="submit">Guardar protocolo</button><a class="btn btn-ghost" href="/admin/protocols">Volver</a></div>
     </form>
