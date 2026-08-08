@@ -490,9 +490,78 @@ final class CatalogRepository
     {
         return [
             'constancia' => 'Constancia',
-            'constancia_certificado' => 'Constancia, Certificado',
+            'certificado' => 'Certificado',
+            'constancia_certificado' => 'Constancia y Certificado',
+            'certificado_diploma' => 'Certificado y Diploma',
             'constancia_certificado_diploma' => 'Constancia, Certificado y Diploma',
         ];
+    }
+
+    /**
+     * @param mixed $raw
+     * @return list<string>
+     */
+    public static function decodeValuePoints(mixed $raw): array
+    {
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+        if (is_string($raw) && !str_starts_with(trim($raw), '[') && !str_starts_with(trim($raw), '{')) {
+            // Texto plano: una viñeta por línea
+            $lines = preg_split("/\r\n|\n|\r/", $raw) ?: [];
+            $out = [];
+            foreach ($lines as $line) {
+                $line = trim($line);
+                $line = ltrim($line, "•\t-–—* ");
+                if ($line !== '') {
+                    $out[] = $line;
+                }
+            }
+            return $out;
+        }
+        $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $row) {
+            if (is_string($row)) {
+                $t = trim($row);
+                if ($t !== '') {
+                    $out[] = $t;
+                }
+                continue;
+            }
+            if (is_array($row)) {
+                $t = trim((string) ($row['text'] ?? $row['point'] ?? ''));
+                if ($t !== '') {
+                    $out[] = $t;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** @param list<string>|string|null $points */
+    public static function encodeValuePoints(array|string|null $points): ?string
+    {
+        if (is_string($points)) {
+            $points = self::decodeValuePoints($points);
+        }
+        if ($points === null || $points === []) {
+            return null;
+        }
+        $clean = [];
+        foreach ($points as $p) {
+            $t = trim((string) $p);
+            if ($t !== '') {
+                $clean[] = $t;
+            }
+        }
+        if ($clean === []) {
+            return null;
+        }
+        return json_encode(array_values($clean), JSON_UNESCAPED_UNICODE) ?: null;
     }
 
     /**
@@ -1256,7 +1325,9 @@ final class CatalogRepository
 
         $fields = [
             $data['provider_id'], $data['protocol_id'], $data['code'], $data['slug'], $data['name'],
-            $data['modality'], $data['short_description'], $data['description_html'], $data['syllabus_html'] ?? null,
+            $data['modality'], $data['short_description'],
+            $data['value_points_json'] ?? null,
+            $data['description_html'], $data['syllabus_html'] ?? null,
             $data['duration_label'], $data['audience'],
             (int) ($data['is_level_exam'] ?? 0),
             $skillsJson,
@@ -1275,7 +1346,7 @@ final class CatalogRepository
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
-                 short_description=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
+                 short_description=?, value_points_json=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
                  is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
                  public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
                  conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
@@ -1286,11 +1357,11 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO certifications (
-                provider_id, protocol_id, code, slug, name, modality, short_description, description_html,
+                provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
                 cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();

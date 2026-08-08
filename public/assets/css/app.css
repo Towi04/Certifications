@@ -1305,3 +1305,44 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 @media (max-width: 800px) {
   .product-layout { grid-template-columns: 1fr; }
 }
+
+/* Valor agregado Doceo en ficha */
+.value-block {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(245, 223, 37, 0.22), rgba(49, 82, 133, 0.06));
+  border: 1px solid rgba(49, 82, 133, 0.16);
+}
+.value-block h2 {
+  margin: 0 0 0.65rem;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  color: var(--blue-deep);
+}
+.value-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.value-list li {
+  position: relative;
+  padding-left: 1.35rem;
+  line-height: 1.45;
+  color: var(--ink);
+  font-weight: 500;
+}
+.value-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  background: var(--yellow);
+  box-shadow: 0 0 0 2px rgba(49, 82, 133, 0.2);
+}

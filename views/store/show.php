@@ -38,6 +38,20 @@ $samples = array_values(array_filter($assets, static fn ($a) => in_array($a['ass
 
 <div class="product-layout">
     <div class="product-main note">
+        <?php
+        $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
+        ?>
+        <?php if ($valuePoints): ?>
+            <div class="value-block">
+                <h2>Por qué con Instituto Doceo</h2>
+                <ul class="value-list">
+                    <?php foreach ($valuePoints as $point): ?>
+                        <li><?= e($point) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
+
         <p class="price price-lg">
             <?php if ($item['public_price'] !== null): ?>
                 <?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'] ?? 'MXN')) ?>
