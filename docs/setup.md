@@ -55,6 +55,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_user_activation.sql` (activación por correo + email_verified_at)
 - `sql/migration_protocol_steps.sql` (pasos del protocolo + casos de progreso)
 - Luego el seed ELET: `sql/seed_protocol_elet.sql`
+- `sql/migration_documents_admin.sql` (documentos con proveedor y versión)
 
 ### Subida de PDFs de convenio
 

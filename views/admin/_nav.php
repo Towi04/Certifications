@@ -15,6 +15,7 @@
 
 <nav class="admin-nav">
     <a href="/admin/providers">Proveedores</a>
+    <a href="/admin/documents">Documentos</a>
     <a href="/admin/protocols">Protocolos</a>
     <a href="/admin/cases">Casos</a>
     <a href="/admin/courses">Cursos</a>

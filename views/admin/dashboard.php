@@ -22,6 +22,14 @@ $menus = [
         'icon' => 'building',
     ],
     [
+        'href' => '/admin/documents',
+        'title' => 'Documentos',
+        'desc' => 'Reglamentos y archivos para alumnos',
+        'count' => (int) ($counts['documents'] ?? 0),
+        'tone' => 'green',
+        'icon' => 'file',
+    ],
+    [
         'href' => '/admin/certifications',
         'title' => 'Certificaciones',
         'desc' => (int) $counts['published'] . ' publicadas · fichas de producto',
