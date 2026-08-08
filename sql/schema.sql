@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS certifications (
   name VARCHAR(255) NOT NULL,
   modality ENUM('online', 'paper') NOT NULL DEFAULT 'online',
   short_description TEXT NULL,
+  value_points_json JSON NULL COMMENT 'Viñetas de valor agregado Doceo (por qué con nosotros)',
   description_html MEDIUMTEXT NULL,
   syllabus_html MEDIUMTEXT NULL,
   duration_label VARCHAR(120) NULL,
@@ -297,7 +298,14 @@ CREATE TABLE IF NOT EXISTS certifications (
   cost_price DECIMAL(12,2) NULL,
   currency CHAR(3) NOT NULL DEFAULT 'MXN',
   cenni_eligible TINYINT(1) NOT NULL DEFAULT 0,
-  cenni_doc_type ENUM('none', 'constancia', 'constancia_certificado', 'constancia_certificado_diploma') NOT NULL DEFAULT 'none',
+  cenni_doc_type ENUM(
+    'none',
+    'constancia',
+    'certificado',
+    'constancia_certificado',
+    'certificado_diploma',
+    'constancia_certificado_diploma'
+  ) NOT NULL DEFAULT 'none',
   cenni_included TINYINT(1) NOT NULL DEFAULT 0,
   cenni_fee DECIMAL(12,2) NULL,
   conocer_eligible TINYINT(1) NOT NULL DEFAULT 0,

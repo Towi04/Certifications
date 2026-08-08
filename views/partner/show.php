@@ -168,6 +168,20 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
         </ul>
     <?php endif; ?>
 
+    <?php
+    $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
+    ?>
+    <?php if ($valuePoints): ?>
+        <div class="value-block">
+            <h2>Por qué con Instituto Doceo</h2>
+            <ul class="value-list">
+                <?php foreach ($valuePoints as $point): ?>
+                    <li><?= e($point) ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+    <?php endif; ?>
+
     <?php if (!empty($item['description_html'])): ?>
         <h2>Descripción</h2>
         <div class="prose"><?= $item['description_html'] ?></div>

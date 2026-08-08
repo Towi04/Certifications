@@ -1371,6 +1371,9 @@ final class AdminRoutes
                     'name' => $name,
                     'modality' => $modality,
                     'short_description' => trim((string) ($_POST['short_description'] ?? '')) ?: null,
+                    'value_points_json' => CatalogRepository::encodeValuePoints(
+                        (string) ($_POST['value_points'] ?? '')
+                    ),
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
                     'syllabus_html' => is_array($existing) ? ($existing['syllabus_html'] ?? null) : null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,

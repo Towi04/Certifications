@@ -6,10 +6,6 @@ $courses = $courses ?? [];
 <section class="store-hero">
     <p class="eyebrow">Instituto Doceo · Certificaciones</p>
     <h1>Elige tu certificación</h1>
-    <p class="lede">
-        Compra sin crear cuenta de antemano: al adquirir, registras tus datos y das seguimiento a tu proceso.
-        Teacher Referral y administración entran por su panel.
-    </p>
     <div class="actions">
         <a class="btn" href="#catalogo">Ver catálogo</a>
         <?php if (\App\Auth\Auth::check()): ?>
