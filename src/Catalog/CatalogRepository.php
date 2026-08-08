@@ -1693,13 +1693,19 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function publicCourses(): array
     {
-        return $this->pdo->query(
-            'SELECT c.*, p.name AS protocol_name
-             FROM courses c
-             LEFT JOIN protocols p ON p.id = c.protocol_id
-             WHERE c.is_active = 1
-             ORDER BY c.name'
-        )->fetchAll();
+        try {
+            return $this->pdo->query(
+                'SELECT c.*, p.name AS protocol_name
+                 FROM courses c
+                 LEFT JOIN protocols p ON p.id = c.protocol_id
+                 WHERE c.is_active = 1
+                 ORDER BY c.name'
+            )->fetchAll();
+        } catch (\Throwable) {
+            return $this->pdo->query(
+                'SELECT * FROM courses WHERE is_active = 1 ORDER BY name'
+            )->fetchAll();
+        }
     }
 
     /** @return list<array<string, mixed>> */

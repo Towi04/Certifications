@@ -262,7 +262,7 @@ final class Auth
         self::requirePasswordChanged();
         $user = self::user();
         $role = $user['role'] ?? null;
-        if ($user === null || (!self::isStaffRole($role) && $role !== 'student' && $role !== 'partner')) {
+        if ($user === null || (!self::isStaffRole($role) && $role !== 'student')) {
             http_response_code(403);
             echo 'Acceso denegado. Esta área es para seguimiento del alumno.';
             exit;
