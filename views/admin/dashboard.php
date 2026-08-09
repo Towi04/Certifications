@@ -38,6 +38,14 @@ $menus = [
         'icon' => 'badge',
     ],
     [
+        'href' => '/admin/certifications/pricing',
+        'title' => 'Precios / reglamentos',
+        'desc' => 'Matriz masiva por empresa (costo, público, TR)',
+        'count' => (int) $counts['certifications'],
+        'tone' => 'yellow',
+        'icon' => 'badge',
+    ],
+    [
         'href' => '/admin/protocols',
         'title' => 'Protocolos',
         'desc' => 'Pasos pre / examen / post',
