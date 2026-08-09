@@ -1433,6 +1433,153 @@ final class CatalogRepository
         }
     }
 
+    /** Actualiza solo costo Doceo y precio público (vista masiva). */
+    public function updateCertificationPrices(int $certificationId, mixed $costPrice, mixed $publicPrice): void
+    {
+        $cost = is_string($costPrice) ? trim($costPrice) : $costPrice;
+        $public = is_string($publicPrice) ? trim($publicPrice) : $publicPrice;
+        $stmt = $this->pdo->prepare(
+            'UPDATE certifications SET cost_price = ?, public_price = ?, updated_at = NOW() WHERE id = ?'
+        );
+        $stmt->execute([
+            $cost === null || $cost === '' ? null : (float) $cost,
+            $public === null || $public === '' ? null : (float) $public,
+            $certificationId,
+        ]);
+    }
+
+    /**
+     * Certificaciones con precios por nivel y reglamento (stage purchase) para la matriz admin.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function certificationsPricingMatrix(?int $providerId = null, ?string $q = null): array
+    {
+        $filters = [];
+        if ($providerId !== null && $providerId > 0) {
+            $filters['provider_id'] = $providerId;
+        }
+        if ($q !== null && trim($q) !== '') {
+            $filters['q'] = trim($q);
+        }
+        $items = $this->certifications($filters !== [] ? $filters : null);
+        if ($items === []) {
+            return [];
+        }
+
+        $ids = array_map(static fn (array $row): int => (int) $row['id'], $items);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $tierMap = [];
+        $stmt = $this->pdo->prepare(
+            "SELECT certification_id, partner_tier_id, price
+             FROM certification_tier_prices
+             WHERE certification_id IN ($placeholders)"
+        );
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll() as $row) {
+            $cid = (int) $row['certification_id'];
+            $tierMap[$cid][(int) $row['partner_tier_id']] = (float) $row['price'];
+        }
+
+        $regMap = [];
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT certification_id, document_id
+                 FROM certification_docs
+                 WHERE stage = 'purchase' AND certification_id IN ($placeholders)
+                 ORDER BY id DESC"
+            );
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll() as $row) {
+                $cid = (int) $row['certification_id'];
+                if (!isset($regMap[$cid])) {
+                    $regMap[$cid] = (int) $row['document_id'];
+                }
+            }
+        } catch (\Throwable) {
+            // tabla puede no existir hasta migrar
+        }
+
+        foreach ($items as &$item) {
+            $cid = (int) $item['id'];
+            $item['tier_prices'] = $tierMap[$cid] ?? [];
+            $item['regulation_document_id'] = $regMap[$cid] ?? null;
+        }
+        unset($item);
+
+        return $items;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function regulationDocuments(?int $providerId = null): array
+    {
+        $sql = "SELECT d.*, p.name AS provider_name
+                FROM documents d
+                LEFT JOIN providers p ON p.id = d.provider_id
+                WHERE d.is_active = 1 AND d.doc_type = 'regulation'";
+        $params = [];
+        if ($providerId !== null && $providerId > 0) {
+            $sql .= ' AND (d.provider_id = ? OR d.provider_id IS NULL)';
+            $params[] = $providerId;
+        }
+        $sql .= ' ORDER BY (d.provider_id IS NULL), d.title, d.version DESC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    public function setCertificationRegulationDocument(int $certificationId, ?int $documentId): void
+    {
+        $this->ensureCertificationDocsTable();
+        $this->pdo->prepare(
+            "DELETE FROM certification_docs WHERE certification_id = ? AND stage = 'purchase'"
+        )->execute([$certificationId]);
+
+        if ($documentId === null || $documentId <= 0) {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO certification_docs (certification_id, document_id, is_required, stage)
+             VALUES (?,?,1,?)'
+        );
+        $stmt->execute([$certificationId, $documentId, 'purchase']);
+    }
+
+    /** Asigna el mismo reglamento a todas las certificaciones del proveedor. @return int filas afectadas */
+    public function assignRegulationToProviderCertifications(int $providerId, int $documentId): int
+    {
+        $certs = $this->certifications(['provider_id' => $providerId]);
+        $n = 0;
+        foreach ($certs as $cert) {
+            $this->setCertificationRegulationDocument((int) $cert['id'], $documentId);
+            $n++;
+        }
+        return $n;
+    }
+
+    private function ensureCertificationDocsTable(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $this->pdo->exec(
+            "CREATE TABLE IF NOT EXISTS certification_docs (
+              id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+              certification_id BIGINT UNSIGNED NOT NULL,
+              document_id BIGINT UNSIGNED NOT NULL,
+              is_required TINYINT(1) NOT NULL DEFAULT 1,
+              stage ENUM('purchase', 'exam', 'cenni', 'conocer', 'other') NOT NULL DEFAULT 'purchase',
+              UNIQUE KEY uq_cert_doc (certification_id, document_id, stage),
+              CONSTRAINT fk_cd_cert FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE,
+              CONSTRAINT fk_cd_doc FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        $done = true;
+    }
+
     public function certificationTierPrice(int $certificationId, int $partnerTierId): ?array
     {
         $stmt = $this->pdo->prepare(
