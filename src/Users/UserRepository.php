@@ -347,6 +347,62 @@ final class UserRepository
         $stmt->execute([$active ? 1 : 0, $id]);
     }
 
+    /**
+     * Elimina un usuario (útil en pruebas). No permite borrarte a ti mismo
+     * ni al último administrador activo. Si es Partner TR, también se elimina su ficha
+     * (FK ON DELETE CASCADE). Los casos de certificación quedan sin student_user_id.
+     */
+    public function delete(int $id, ?int $actorId = null): void
+    {
+        $existing = $this->find($id);
+        if (!$existing) {
+            throw new \RuntimeException('Usuario no encontrado.');
+        }
+        if ($actorId !== null && $actorId === $id) {
+            throw new \RuntimeException('No puedes eliminar tu propia cuenta.');
+        }
+        if (
+            $existing['role'] === 'admin'
+            && (int) $existing['is_active'] === 1
+            && $this->countActiveAdmins($id) < 1
+        ) {
+            throw new \RuntimeException('Debe quedar al menos un Administrador activo.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            try {
+                $this->pdo->prepare('DELETE FROM account_activations WHERE user_id = ?')->execute([$id]);
+            } catch (\Throwable) {
+                // tabla puede no existir en installs muy viejos
+            }
+            $email = strtolower(trim((string) $existing['email']));
+            if ($email !== '') {
+                try {
+                    $this->pdo->prepare('DELETE FROM password_resets WHERE LOWER(TRIM(email)) = ?')->execute([$email]);
+                } catch (\Throwable) {
+                }
+            }
+            $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = ?');
+            $stmt->execute([$id]);
+            if ($stmt->rowCount() === 0) {
+                throw new \RuntimeException('No se pudo eliminar el usuario.');
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            $msg = $e->getMessage();
+            if (str_contains($msg, 'foreign key') || str_contains($msg, 'CONSTRAINT')) {
+                throw new \RuntimeException(
+                    'No se pudo eliminar: hay registros relacionados que lo bloquean. '
+                    . 'Deshabilita la cuenta o elimina primero partners/casos asociados. '
+                    . $msg
+                );
+            }
+            throw $e;
+        }
+    }
+
     public function createActivationToken(int $userId): string
     {
         $this->ensureActivationTable();

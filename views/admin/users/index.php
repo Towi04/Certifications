@@ -8,13 +8,14 @@ $iconKey = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="
 $iconDisable = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconEnable = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconMail = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="m4.5 7.5 7.5 6 7.5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+$iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2m-6 3v8m4-8v8M7 7l1 12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 ?>
 <section class="note">
     <div class="page-head" style="margin:0">
         <div>
             <h2 style="margin:0">Usuarios</h2>
             <p class="muted" style="margin:0.35rem 0 0">
-                Personal Doceo y Partners TR. Los usuarios no se borran: solo se deshabilitan.
+                Personal Doceo, Partners TR y alumnos. Puedes deshabilitar o eliminar (útil en pruebas).
             </p>
         </div>
         <div class="actions">
@@ -109,6 +110,11 @@ $iconMail = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.
                                     <button type="submit" class="icon-btn" title="<?= $active ? 'Deshabilitar' : 'Habilitar' ?>" aria-label="<?= $active ? 'Deshabilitar' : 'Habilitar' ?>">
                                         <?= $active ? $iconDisable : $iconEnable ?>
                                     </button>
+                                </form>
+                                <form method="post" action="/admin/users/delete" class="inline-form"
+                                      onsubmit="return confirm(<?= json_encode('¿Eliminar permanentemente a “' . $display . '” (' . $item['email'] . ')? Esta acción no se puede deshacer.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                                    <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                                    <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
                                 </form>
                             <?php endif; ?>
                         </div>
