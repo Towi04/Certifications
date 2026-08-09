@@ -108,14 +108,16 @@ final class HealthChecker
         try {
             $client = new OpenPayClient();
             $merchant = $client->getMerchant();
+            $sandbox = Env::getBool('OPENPAY_SANDBOX', true);
+            $mode = $sandbox ? 'sandbox (CLABEs de prueba; no cobran dinero real)' : 'producción';
             return [
                 'name' => $name,
                 'ok' => true,
-                'message' => 'Sandbox autenticado correctamente',
+                'message' => 'Autenticado correctamente · modo ' . $mode,
                 'meta' => [
                     'id' => $merchant['id'] ?? Env::get('OPENPAY_MERCHANT_ID'),
                     'name' => $merchant['name'] ?? null,
-                    'sandbox' => Env::getBool('OPENPAY_SANDBOX', true),
+                    'sandbox' => $sandbox,
                 ],
             ];
         } catch (\Throwable $e) {
