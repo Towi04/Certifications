@@ -1411,6 +1411,118 @@ final class AdminRoutes
             ]);
         });
 
+        $router->get('/admin/certifications/pricing', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_GET['provider_id'] ?? 0);
+            $q = trim((string) ($_GET['q'] ?? ''));
+            $items = [];
+            $regulations = [];
+            if ($providerId > 0) {
+                $items = $repo()->certificationsPricingMatrix($providerId, $q !== '' ? $q : null);
+                $regulations = $repo()->regulationDocuments($providerId);
+            }
+            view('admin/certifications/pricing', [
+                'title' => 'Precios y reglamentos',
+                'providers' => $repo()->providers(true),
+                'tiers' => $repo()->partnerTiers(true),
+                'items' => $items,
+                'regulations' => $regulations,
+                'filters' => [
+                    'provider_id' => $providerId > 0 ? (string) $providerId : '',
+                    'q' => $q,
+                ],
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/certifications/pricing/save', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $q = trim((string) ($_POST['q'] ?? ''));
+            $rows = $_POST['rows'] ?? [];
+            if (!is_array($rows) || $rows === []) {
+                flash('error', 'No hay filas para guardar.');
+                header('Location: /admin/certifications/pricing?provider_id=' . $providerId);
+                exit;
+            }
+            try {
+                $allowedIds = [];
+                foreach ($repo()->certifications($providerId > 0 ? ['provider_id' => $providerId] : null) as $cert) {
+                    $allowedIds[(int) $cert['id']] = true;
+                }
+                $tierIds = [];
+                foreach ($repo()->partnerTiers(true) as $tier) {
+                    $tierIds[(int) $tier['id']] = true;
+                }
+                $saved = 0;
+                foreach ($rows as $certId => $row) {
+                    $certId = (int) $certId;
+                    if ($certId < 1 || !isset($allowedIds[$certId]) || !is_array($row)) {
+                        continue;
+                    }
+                    $repo()->updateCertificationPrices(
+                        $certId,
+                        $row['cost_price'] ?? null,
+                        $row['public_price'] ?? null
+                    );
+                    $tierPrices = [];
+                    $rawTiers = $row['tier_prices'] ?? [];
+                    if (is_array($rawTiers)) {
+                        foreach ($rawTiers as $tid => $price) {
+                            $tid = (int) $tid;
+                            if (!isset($tierIds[$tid])) {
+                                continue;
+                            }
+                            $tierPrices[$tid] = $price;
+                        }
+                    }
+                    $repo()->saveCertificationTierPrices($certId, $tierPrices);
+                    $docId = (int) ($row['regulation_document_id'] ?? 0);
+                    $repo()->setCertificationRegulationDocument($certId, $docId > 0 ? $docId : null);
+                    $saved++;
+                }
+                flash('info', "Guardado: {$saved} certificación(es).");
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            $loc = '/admin/certifications/pricing?provider_id=' . $providerId;
+            if ($q !== '') {
+                $loc .= '&q=' . rawurlencode($q);
+            }
+            header('Location: ' . $loc);
+            exit;
+        });
+
+        $router->post('/admin/certifications/pricing/assign-regulation', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $documentId = (int) ($_POST['document_id'] ?? 0);
+            $q = trim((string) ($_POST['q'] ?? ''));
+            try {
+                if ($providerId <= 0 || $documentId <= 0) {
+                    throw new \RuntimeException('Proveedor y reglamento son obligatorios.');
+                }
+                $doc = $repo()->document($documentId);
+                if (!$doc || ($doc['doc_type'] ?? '') !== 'regulation') {
+                    throw new \RuntimeException('El documento no es un reglamento válido.');
+                }
+                if (!empty($doc['provider_id']) && (int) $doc['provider_id'] !== $providerId) {
+                    throw new \RuntimeException('Ese reglamento pertenece a otro proveedor.');
+                }
+                $n = $repo()->assignRegulationToProviderCertifications($providerId, $documentId);
+                flash('info', "Reglamento asignado a {$n} certificación(es) de la empresa.");
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            $loc = '/admin/certifications/pricing?provider_id=' . $providerId;
+            if ($q !== '') {
+                $loc .= '&q=' . rawurlencode($q);
+            }
+            header('Location: ' . $loc);
+            exit;
+        });
+
         $router->get('/admin/certifications/create', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/certifications/form', [

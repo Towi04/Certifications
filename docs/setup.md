@@ -60,6 +60,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_cert_value_cenni.sql` (tipos CENNI + valor agregado Doceo)
 - `sql/migration_case_ops_exports.sql` (mesa de casos: pago, plantillas de correo, exportaciones UKS/TOEFL/Linguaskill)
 - `sql/migration_openpay_cenni.sql` (CLABE SPEI OpenPay + webhook + estatus CENNI ELET/UKS vs Doceo)
+- `sql/migration_certification_docs.sql` (vínculo certificación ↔ reglamento; también se crea al usar Precios/reglamentos)
 
 ### Subida de PDFs de convenio
 

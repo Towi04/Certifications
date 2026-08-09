@@ -1346,3 +1346,34 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   background: var(--yellow);
   box-shadow: 0 0 0 2px rgba(49, 82, 133, 0.2);
 }
+
+.pricing-matrix-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.pricing-matrix th,
+.pricing-matrix td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.pricing-matrix .price-input {
+  width: 6.5rem;
+  min-width: 5.5rem;
+}
+.pricing-matrix select {
+  min-width: 11rem;
+  max-width: 16rem;
+}
+.pricing-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  min-width: 12rem;
+  max-width: 16rem;
+  white-space: normal !important;
+  box-shadow: 4px 0 8px -6px rgba(0, 0, 0, 0.25);
+}
+.pricing-matrix thead .pricing-sticky-col {
+  z-index: 2;
+}

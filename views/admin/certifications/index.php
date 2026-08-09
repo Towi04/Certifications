@@ -10,6 +10,9 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <h2 style="margin:0">Certificaciones</h2>
             <p class="muted" style="margin:0.35rem 0 0">Se dan de alta desde Proveedores. Aquí editas la ficha y publicas/ocultas.</p>
         </div>
+        <div class="actions">
+            <a class="btn" href="/admin/certifications/pricing">Precios y reglamentos (masivo)</a>
+        </div>
     </div>
     <form method="get" class="filters stack form-grid" style="margin-top:1rem">
         <label>Buscar<input name="q" value="<?= e($filters['q'] ?? '') ?>" placeholder="nombre o código"></label>
