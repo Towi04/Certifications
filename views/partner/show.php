@@ -25,16 +25,37 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
     <div>
         <p class="eyebrow"><?= e($item['provider_name']) ?></p>
         <h1><?= e($item['name']) ?></h1>
-        <p class="muted"><?php if (!empty($item['short_description'])): ?><span class="prose prose-inline"><?= $item['short_description'] ?></span><?php endif; ?></p>
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/partner">Volver al catálogo</a>
     </div>
 </section>
 
+<?php
+$valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
+$examLogoAsset = $findAsset($assets, 'exam_logo') ?? $findAsset($assets, 'badge') ?? $cover;
+?>
+<?php if ($examLogoAsset || $valuePoints): ?>
+<section class="note value-block value-block--hero">
+    <?php if ($examLogoAsset): ?>
+        <div class="value-block-logo">
+            <img src="/media?f=<?= e(rawurlencode((string)$examLogoAsset['file_path'])) ?>" alt="<?= e($examLogoAsset['title'] ?? $item['name']) ?>">
+        </div>
+    <?php endif; ?>
+    <?php if ($valuePoints): ?>
+        <h2>Por qué con Instituto Doceo</h2>
+        <ul class="value-list">
+            <?php foreach ($valuePoints as $point): ?>
+                <li><?= e($point) ?></li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
+
 <?php if ($cover || $providerLogo): ?>
 <section class="sheet-visual">
-    <?php if ($cover): ?>
+    <?php if ($cover && (!$examLogoAsset || ($cover['file_path'] ?? '') !== ($examLogoAsset['file_path'] ?? ''))): ?>
         <img class="sheet-cover" src="/media?f=<?= e(rawurlencode($cover['file_path'])) ?>" alt="<?= e($cover['title'] ?? $item['name']) ?>">
     <?php endif; ?>
     <?php if ($providerLogo): ?>
@@ -166,20 +187,6 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
                 </li>
             <?php endforeach; ?>
         </ul>
-    <?php endif; ?>
-
-    <?php
-    $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
-    ?>
-    <?php if ($valuePoints): ?>
-        <div class="value-block">
-            <h2>Por qué con Instituto Doceo</h2>
-            <ul class="value-list">
-                <?php foreach ($valuePoints as $point): ?>
-                    <li><?= e($point) ?></li>
-                <?php endforeach; ?>
-            </ul>
-        </div>
     <?php endif; ?>
 
     <?php if (!empty($item['description_html'])): ?>

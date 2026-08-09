@@ -34,7 +34,10 @@ $courses = $courses ?? [];
             <a class="store-card store-card--featured" href="/certificacion?slug=<?= e(rawurlencode($item['slug'])) ?>">
                 <p class="eyebrow"><?= e($item['provider_name']) ?></p>
                 <h3><?= e($item['name']) ?></h3>
-                <p class="muted"><?= e(mb_substr(trim(strip_tags((string)($item['short_description'] ?? ''))), 0, 120)) ?></p>
+                <?php
+                $maxPoints = 4;
+                require __DIR__ . '/partials/catalog_card_value.php';
+                ?>
                 <p class="price">
                     <?php if ($item['public_price'] !== null): ?>
                         <?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'] ?? 'MXN')) ?>
@@ -71,7 +74,10 @@ $courses = $courses ?? [];
                 <?php foreach ($group['items'] as $item): ?>
                     <a class="store-card" href="/certificacion?slug=<?= e(rawurlencode($item['slug'])) ?>">
                         <h4><?= e($item['name']) ?></h4>
-                        <p class="muted"><?= e(mb_substr(trim(strip_tags((string)($item['short_description'] ?? ''))), 0, 100)) ?></p>
+                        <?php
+                        $maxPoints = 3;
+                        require __DIR__ . '/partials/catalog_card_value.php';
+                        ?>
                         <p class="price">
                             <?php if ($item['public_price'] !== null): ?>
                                 <?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'] ?? 'MXN')) ?>
