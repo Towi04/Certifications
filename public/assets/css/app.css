@@ -282,6 +282,26 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 }
 .protocol-step .actions { margin-top: 0.5rem; }
 .protocol-step form { display: inline; }
+.protocol-drag-handle {
+  cursor: grab;
+  user-select: none;
+  color: var(--muted);
+  font-size: 1rem;
+  letter-spacing: -0.12em;
+  padding: 0 0.15rem;
+}
+.protocol-step.is-dragging {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.protocol-step.drag-over {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(49, 82, 133, 0.15);
+}
+.protocol-timeline--sortable .protocol-step .actions .btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 
 .admin-nav {
   display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
