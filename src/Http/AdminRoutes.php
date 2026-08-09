@@ -2059,5 +2059,24 @@ final class AdminRoutes
             header('Location: ' . $redirect);
             exit;
         });
+
+        $router->post('/admin/users/delete', static function () use ($users): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $actorId = (int) (Auth::user()['id'] ?? 0);
+            try {
+                $users()->delete($id, $actorId);
+                flash('info', 'Usuario eliminado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                $redirectFail = (string) ($_POST['redirect_fail'] ?? '');
+                if (str_starts_with($redirectFail, '/admin/users')) {
+                    header('Location: ' . $redirectFail);
+                    exit;
+                }
+            }
+            header('Location: /admin/users');
+            exit;
+        });
     }
 }

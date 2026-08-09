@@ -75,6 +75,12 @@ $defaultPassword = \App\Users\UserRepository::DEFAULT_PASSWORD;
                     form="toggleActiveForm"
                     onclick="return confirm(<?= json_encode(($active ? '¿Deshabilitar' : '¿Habilitar') . ' este usuario?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);"
                 ><?= $active ? 'Deshabilitar' : 'Habilitar' ?></button>
+                <button
+                    class="btn btn-ghost"
+                    type="submit"
+                    form="deleteUserForm"
+                    onclick="return confirm(<?= json_encode('¿Eliminar permanentemente a este usuario? Esta acción no se puede deshacer.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);"
+                >Eliminar</button>
             <?php endif; ?>
         </div>
     </form>
@@ -83,6 +89,10 @@ $defaultPassword = \App\Users\UserRepository::DEFAULT_PASSWORD;
         <form id="toggleActiveForm" method="post" action="/admin/users/toggle-active" class="hidden-form">
             <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
             <input type="hidden" name="redirect" value="/admin/users/edit?id=<?= (int)$item['id'] ?>">
+        </form>
+        <form id="deleteUserForm" method="post" action="/admin/users/delete" class="hidden-form">
+            <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+            <input type="hidden" name="redirect_fail" value="/admin/users/edit?id=<?= (int)$item['id'] ?>">
         </form>
     <?php endif; ?>
 </section>
