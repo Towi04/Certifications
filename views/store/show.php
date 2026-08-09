@@ -17,15 +17,22 @@ $respLabels = [
     'sep' => 'SEP',
     'system' => 'Sistema',
 ];
+$findAsset = static function (array $list, string $type): ?array {
+    foreach ($list as $a) {
+        if (($a['asset_type'] ?? '') === $type) {
+            return $a;
+        }
+    }
+    return null;
+};
+$examLogo = $findAsset($assets, 'exam_logo') ?? $findAsset($assets, 'badge') ?? $findAsset($assets, 'cover');
 $samples = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['certificate_sample', 'badge', 'cover', 'exam_logo'], true)));
+$valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
 ?>
 <section class="page-head">
     <div>
         <p class="eyebrow"><?= e($item['provider_name'] ?? '') ?></p>
         <h1><?= e($item['name']) ?></h1>
-        <?php if (!empty($item['short_description'])): ?>
-            <p class="lede"><?= e(trim(strip_tags((string)$item['short_description']))) ?></p>
-        <?php endif; ?>
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/#catalogo">Volver al catálogo</a>
@@ -38,19 +45,23 @@ $samples = array_values(array_filter($assets, static fn ($a) => in_array($a['ass
 
 <div class="product-layout">
     <div class="product-main note">
-        <?php
-        $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
-        ?>
-        <?php if ($valuePoints): ?>
-            <div class="value-block">
+        <div class="value-block value-block--hero">
+            <?php if ($examLogo): ?>
+                <div class="value-block-logo">
+                    <img src="/media?f=<?= e(rawurlencode((string)$examLogo['file_path'])) ?>" alt="<?= e($examLogo['title'] ?? $item['name']) ?>">
+                </div>
+            <?php endif; ?>
+            <?php if ($valuePoints): ?>
                 <h2>Por qué con Instituto Doceo</h2>
                 <ul class="value-list">
                     <?php foreach ($valuePoints as $point): ?>
                         <li><?= e($point) ?></li>
                     <?php endforeach; ?>
                 </ul>
-            </div>
-        <?php endif; ?>
+            <?php elseif (!$examLogo): ?>
+                <p class="muted">Pronto publicaremos los puntos clave de esta certificación.</p>
+            <?php endif; ?>
+        </div>
 
         <p class="price price-lg">
             <?php if ($item['public_price'] !== null): ?>

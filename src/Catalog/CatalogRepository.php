@@ -2037,7 +2037,7 @@ final class CatalogRepository
         $sql .= ' ORDER BY p.name, c.sort_order, c.name';
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetchAll();
+        return $this->attachCertificationVisuals($stmt->fetchAll());
     }
 
     /**
@@ -2063,7 +2063,7 @@ final class CatalogRepository
                   END,
                   c.sort_order, c.name';
         try {
-            return $this->pdo->query($sql)->fetchAll();
+            return $this->attachCertificationVisuals($this->pdo->query($sql)->fetchAll());
         } catch (\Throwable) {
             // Columna is_featured aún no migrada
             return [];
@@ -2100,6 +2100,8 @@ final class CatalogRepository
             )->fetchAll();
         }
 
+        $rows = $this->attachCertificationVisuals($rows);
+
         $groups = [];
         foreach ($rows as $row) {
             $pid = (int) $row['provider_id'];
@@ -2116,6 +2118,62 @@ final class CatalogRepository
         }
 
         return array_values($groups);
+    }
+
+    /**
+     * Adjunta logo de la certificación (exam_logo > badge > cover) a cada fila.
+     *
+     * @param list<array<string, mixed>> $items
+     * @return list<array<string, mixed>>
+     */
+    public function attachCertificationVisuals(array $items): array
+    {
+        if ($items === []) {
+            return [];
+        }
+        $ids = [];
+        foreach ($items as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        $idList = array_keys($ids);
+        if ($idList === []) {
+            return $items;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($idList), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT owner_id, asset_type, file_path
+             FROM product_assets
+             WHERE owner_type = 'certification'
+               AND owner_id IN ($placeholders)
+               AND asset_type IN ('exam_logo', 'badge', 'cover')
+             ORDER BY
+               CASE asset_type
+                 WHEN 'exam_logo' THEN 1
+                 WHEN 'badge' THEN 2
+                 ELSE 3
+               END,
+               sort_order, id"
+        );
+        $stmt->execute($idList);
+        $logos = [];
+        foreach ($stmt->fetchAll() as $asset) {
+            $oid = (int) $asset['owner_id'];
+            if (!isset($logos[$oid]) && !empty($asset['file_path'])) {
+                $logos[$oid] = (string) $asset['file_path'];
+            }
+        }
+
+        foreach ($items as &$row) {
+            $cid = (int) ($row['id'] ?? 0);
+            $row['exam_logo_path'] = $logos[$cid] ?? null;
+        }
+        unset($row);
+
+        return $items;
     }
 
     /** @return list<array<string, mixed>> */
