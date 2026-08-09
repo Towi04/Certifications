@@ -86,6 +86,7 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
     ?>
     <?php if (!empty($item['openpay_clabe'])): ?>
         <ul>
+            <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
             <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
             <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? '') ?></li>
             <li><strong>Referencia:</strong> <?= e($item['openpay_reference'] ?? '') ?></li>
@@ -93,9 +94,12 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             <li><strong>Estatus OpenPay:</strong> <?= e($item['openpay_status'] ?? '') ?><?= $opPaid ? ' · confirmado' : '' ?></li>
             <li><strong>Charge ID:</strong> <?= e($item['openpay_charge_id'] ?? '') ?></li>
         </ul>
-        <?php if (!empty($item['openpay_pdf_url'])): ?>
-            <p><a href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">Ficha SPEI PDF</a></p>
-        <?php endif; ?>
+        <p class="actions">
+            <a class="btn btn-ghost" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ficha SPEI Doceo</a>
+            <?php if (!empty($item['openpay_pdf_url'])): ?>
+                <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
+            <?php endif; ?>
+        </p>
     <?php else: ?>
         <p class="muted">Aún no hay cargo SPEI. Genera la CLABE para este alumno.</p>
     <?php endif; ?>

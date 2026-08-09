@@ -60,6 +60,11 @@ function view(string $name, array $data = []): void
     if (!is_file($viewFile)) {
         throw new RuntimeException("Vista no encontrada: {$name}");
     }
+    $layout = (string) ($layout ?? 'default');
+    if ($layout === 'bare' || $layout === 'print') {
+        require BASE_PATH . '/views/layout_bare.php';
+        return;
+    }
     require BASE_PATH . '/views/layout.php';
 }
 

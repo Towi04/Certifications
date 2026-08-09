@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= e(($title ?? 'PDV') . ' · ' . app_name()) ?></title>
+    <link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/assets/brand/favicon.png" type="image/png" sizes="64x64">
+    <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,11 +17,7 @@
     <header class="site-header">
         <div class="wrap header-inner">
             <a class="brand" href="/">
-                <span class="brand-hex" aria-hidden="true">⬡</span>
-                <span class="brand-text">
-                    <strong><?= e(app_name()) ?></strong>
-                    <small>be different, be better</small>
-                </span>
+                <img class="brand-logo" src="/assets/brand/logo-doceo.svg" width="200" height="67" alt="<?= e(app_name()) ?>">
             </a>
             <nav class="nav">
                 <a href="/#catalogo">Catálogo</a>
@@ -50,8 +49,13 @@
     </main>
     <footer class="site-footer">
         <div class="wrap footer-inner">
-            <p>PDV Certificaciones · <?= e(app_name()) ?></p>
-            <p class="slogan">be different, be better</p>
+            <div class="footer-brand">
+                <img src="/assets/brand/escudo.svg" width="36" height="43" alt="">
+                <div>
+                    <p>PDV Certificaciones · <?= e(app_name()) ?></p>
+                    <p class="slogan">be different, be better</p>
+                </div>
+            </div>
         </div>
     </footer>
 </body>
