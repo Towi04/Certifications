@@ -52,7 +52,7 @@ INSERT INTO mail_templates (code, name, audience, to_mode, to_fixed, cc_mode, cc
 VALUES
 ('pago_clabe', 'Pago — CLABE SPEI OpenPay', 'student', 'student', NULL, 'case_cc', NULL,
  'Datos para tu pago — {{Certificación}}',
- '<p>¡Hola {{Nombre}}!</p><p>Para pagar tu certificación <strong>{{Certificación}}</strong> realiza una transferencia SPEI con estos datos:</p><p><strong>Banco:</strong> {{OpenPay Banco}}<br><strong>CLABE:</strong> {{OpenPay CLABE}}<br><strong>Convenio / referencia:</strong> {{OpenPay Referencia}}<br><strong>Monto:</strong> ${{OpenPay Monto}} MXN<br><strong>Beneficiario:</strong> {{OpenPay Beneficiario}}</p><p>El pago se confirma automáticamente. Cuando OpenPay lo registre te enviaremos un correo.</p><p>Instituto DOCEO</p>',
+ '<p>¡Hola {{Nombre}}!</p><p>Para pagar tu certificación <strong>{{Certificación}}</strong> realiza una transferencia SPEI con estos datos:</p><p><strong>Beneficiario:</strong> {{OpenPay Beneficiario}}<br><strong>Banco:</strong> {{OpenPay Banco}}<br><strong>CLABE:</strong> {{OpenPay CLABE}}<br><strong>Convenio / referencia:</strong> {{OpenPay Referencia}}<br><strong>Monto:</strong> ${{OpenPay Monto}} MXN</p><p><a href="{{OpenPay SPEI URL}}">Ver / imprimir ficha SPEI Doceo</a></p><p>El pago se confirma automáticamente. Cuando OpenPay lo registre te enviaremos un correo.</p><p>Instituto DOCEO</p>',
  0, 1),
 ('pago_confirmado', 'Pago confirmado (OpenPay)', 'student', 'student', NULL, 'case_cc', NULL,
  'Pago confirmado — {{Certificación}}',

@@ -274,6 +274,39 @@ final class PublicRoutes
             exit;
         });
 
+        $router->get('/pago/spei', static function () use ($repo): void {
+            Auth::requireLogin();
+            $user = Auth::user();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($id);
+            if (!$item) {
+                http_response_code(404);
+                echo 'Ficha de pago no encontrada.';
+                exit;
+            }
+            $isOwner = (int) ($item['student_user_id'] ?? 0) === (int) ($user['id'] ?? 0);
+            $isStaff = Auth::isStaffRole($user['role'] ?? null);
+            if (!$isOwner && !$isStaff) {
+                http_response_code(403);
+                echo 'No autorizado.';
+                exit;
+            }
+            if (empty($item['openpay_clabe'])) {
+                flash('error', 'Aún no hay datos SPEI para este caso.');
+                header('Location: ' . ($isStaff ? '/admin/cases/show?id=' . $id : '/alumno/caso?id=' . $id));
+                exit;
+            }
+
+            $beneficiary = (string) (\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO');
+            view('pago/spei', [
+                'title' => 'Ficha SPEI · caso #' . $id,
+                'layout' => 'print',
+                'print' => true,
+                'item' => $item,
+                'beneficiary' => $beneficiary,
+            ]);
+        });
+
         $router->post('/webhooks/openpay', static function () use ($repo): void {
             $raw = file_get_contents('php://input') ?: '';
             $payload = json_decode($raw, true);

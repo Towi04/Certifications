@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#315285"/>
+  <g transform="translate(12,6) scale(0.2)">
+    <path d="M100 4 L184 34 V112 C184 174 142 216 100 240 C58 216 16 174 16 112 V34 Z" fill="#ffffff"/>
+    <path d="M100 16 L168 40 V110 C168 160 136 198 100 218 C64 198 32 160 32 110 V40 Z" fill="#c8ced6"/>
+    <path d="M100 16 L168 40 V110 C168 160 136 198 100 218 Z" fill="#315285"/>
+    <path d="M100 78 C78 78 56 74 42 70 V150 C58 156 78 160 100 160 Z" fill="#315285"/>
+    <path d="M100 78 C122 78 144 74 158 70 V150 C142 156 122 160 100 160 Z" fill="#c8ced6"/>
+    <rect x="97" y="72" width="6" height="90" rx="2" fill="#ffffff"/>
+  </g>
+</svg>

@@ -1,5 +1,5 @@
 <section class="auth-card">
-    <p class="brand-mark" aria-hidden="true">⬡</p>
+    <p class="brand-mark"><img src="/assets/brand/escudo.svg" width="48" height="58" alt="Instituto DOCEO"></p>
     <h1>Mi perfil</h1>
     <p class="muted">Cambia tu contraseña segura y revisa tu información.</p>
 

@@ -4,7 +4,8 @@ $groups = $groups ?? [];
 $courses = $courses ?? [];
 ?>
 <section class="store-hero">
-    <p class="eyebrow">Instituto Doceo · Certificaciones</p>
+    <img class="store-hero__logo" src="/assets/brand/logo-doceo.svg" width="320" height="107" alt="Instituto DOCEO">
+    <p class="eyebrow">Certificaciones</p>
     <h1>Elige tu certificación</h1>
     <div class="actions">
         <a class="btn" href="#catalogo">Ver catálogo</a>

@@ -37,14 +37,18 @@ $cenniStatus = (string) ($item['cenni_status'] ?? 'none');
     <?php elseif (!empty($item['openpay_clabe'])): ?>
         <p>Realiza una transferencia SPEI con estos datos. OpenPay confirmará el pago automáticamente.</p>
         <ul>
+            <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
             <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? 'BBVA Bancomer') ?></li>
             <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
             <li><strong>Convenio / referencia:</strong> <?= e($item['openpay_reference'] ?? $item['openpay_agreement'] ?? '') ?></li>
             <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?> MXN</li>
         </ul>
-        <?php if (!empty($item['openpay_pdf_url'])): ?>
-            <p><a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">Descargar ficha SPEI (PDF)</a></p>
-        <?php endif; ?>
+        <p class="actions">
+            <a class="btn" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ver ficha SPEI Doceo</a>
+            <?php if (!empty($item['openpay_pdf_url'])): ?>
+                <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
+            <?php endif; ?>
+        </p>
     <?php else: ?>
         <p class="muted">Aún no hay CLABE generada. Si acabas de adquirir, espera un momento o contacta a Instituto Doceo.</p>
     <?php endif; ?>
