@@ -1296,14 +1296,65 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   align-items: start;
 }
 .price-lg { font-size: 1.45rem; font-weight: 700; color: var(--blue); }
-.acquire-grid {
+.acquire-grid,
+.acquire-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.85fr);
   gap: 1.25rem;
+  align-items: start;
 }
-.acquire-grid .is-dim { opacity: 0.72; }
+.acquire-grid .is-dim,
+.acquire-layout .is-dim { opacity: 0.72; }
+.alert-warn {
+  background: #fff7de;
+  color: #6a5310;
+  border: 1px solid rgba(245, 223, 37, 0.65);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin: 0 0 1rem;
+}
+.student-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+.student-stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+.student-stage.status-done { border-color: rgba(31, 122, 76, 0.35); background: #eef8f2; }
+.student-stage.status-current { border-color: rgba(49, 82, 133, 0.45); box-shadow: 0 0 0 2px rgba(49, 82, 133, 0.08); }
+.student-stage.status-pending { opacity: 0.72; }
+.student-action { border-left: 4px solid var(--brand); }
+.student-cenni-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.student-cenni-list li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.student-cenni-list li.status-done { background: #eef8f2; }
+.student-cenni-list li.status-current { background: #eef2f9; }
+.regulation-fallback ul { margin: 0.5rem 0 0; padding-left: 1.2rem; }
 @media (max-width: 800px) {
-  .product-layout { grid-template-columns: 1fr; }
+  .product-layout,
+  .acquire-layout,
+  .acquire-grid { grid-template-columns: 1fr; }
 }
 
 /* Valor agregado Doceo en ficha */

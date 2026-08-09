@@ -74,4 +74,56 @@ final class OpenPayClient
         // GET /v1/{merchantId} autentica con la llave privada
         return $this->request('GET', '');
     }
+
+    /**
+     * Crea un cargo con redirección al formulario hospedado de OpenPay.
+     * Devuelve id de transacción y URL de pago (payment_method.url).
+     *
+     * @param array{
+     *   amount: float|int|string,
+     *   description: string,
+     *   order_id: string,
+     *   redirect_url: string,
+     *   customer: array{name:string,last_name?:string,email:string,phone_number?:string},
+     *   currency?: string
+     * } $data
+     * @return array{id:string,url:string,raw:array<string,mixed>}
+     */
+    public function createRedirectCharge(array $data): array
+    {
+        $amount = round((float) $data['amount'], 2);
+        if ($amount <= 0) {
+            throw new \RuntimeException('El monto de OpenPay debe ser mayor a cero.');
+        }
+
+        $body = [
+            'method' => 'card',
+            'amount' => $amount,
+            'currency' => $data['currency'] ?? 'MXN',
+            'description' => $data['description'],
+            'order_id' => $data['order_id'],
+            'confirm' => false,
+            'send_email' => false,
+            'redirect_url' => $data['redirect_url'],
+            'customer' => $data['customer'],
+        ];
+
+        $raw = $this->request('POST', 'charges', $body);
+        $url = (string) ($raw['payment_method']['url'] ?? '');
+        $id = (string) ($raw['id'] ?? '');
+        if ($url === '' || $id === '') {
+            throw new \RuntimeException('OpenPay no devolvió URL de pago.');
+        }
+
+        return ['id' => $id, 'url' => $url, 'raw' => $raw];
+    }
+
+    public static function isConfigured(): bool
+    {
+        if (!Env::isFilled('OPENPAY_MERCHANT_ID') || !Env::isFilled('OPENPAY_PRIVATE_KEY')) {
+            return false;
+        }
+        $key = (string) Env::get('OPENPAY_PRIVATE_KEY', '');
+        return $key !== '' && !str_contains($key, 'MI_LLAVE');
+    }
 }

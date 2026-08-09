@@ -86,6 +86,20 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         (UKS CSV, TOEFL Excel o Linguaskill Excel) y, si el protocolo tiene plantilla de solicitud, envía el correo adjuntando el archivo y el comprobante.
     </p>
     <p class="muted">
+        Reglamento firmado:
+        <?= !empty($item['regulation_signed_at'])
+            ? e($item['regulation_signed_at']) . ' · ' . e($item['regulation_signer_name'] ?? '')
+            : 'aún no' ?>
+    </p>
+    <form method="post" action="/admin/cases/update" class="stack form-grid" style="margin-bottom:1rem">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label class="field-wide">Link de pago OpenPay
+            <input name="payment_link_url" value="<?= e($item['payment_link_url'] ?? '') ?>" placeholder="https://…">
+        </label>
+        <label>OpenPay charge id<input name="payment_link_id" value="<?= e($item['payment_link_id'] ?? '') ?>"></label>
+        <div class="actions"><button class="btn btn-ghost" type="submit">Guardar link de pago</button></div>
+    </form>
+    <p class="muted">
         Pago confirmado:
         <?= !empty($item['payment_confirmed_at']) ? e($item['payment_confirmed_at']) : 'aún no' ?>
         <?php if (!empty($item['provider_request_sent_at'])): ?>

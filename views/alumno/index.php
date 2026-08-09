@@ -40,8 +40,16 @@ $cases = $cases ?? [];
                                 —
                             <?php endif; ?>
                         </td>
-                        <td><?= e($c['status']) ?></td>
-                        <td><a href="/alumno/caso?id=<?= (int)$c['id'] ?>">Ver</a></td>
+                        <td><?php
+                            $st = (string) ($c['status'] ?? '');
+                            echo e(match ($st) {
+                                'in_progress' => 'En progreso',
+                                'completed' => 'Completado',
+                                'cancelled' => 'Cancelado',
+                                default => $st !== '' ? $st : '—',
+                            });
+                        ?></td>
+                        <td><a href="/alumno/caso?id=<?= (int)$c['id'] ?>">Continuar</a></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

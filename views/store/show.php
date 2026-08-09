@@ -73,33 +73,25 @@ $samples = array_values(array_filter($assets, static fn ($a) => in_array($a['ass
         <?php endif; ?>
 
         <?php if ($protocolSteps): ?>
-            <h2>Cómo se aplica</h2>
+            <h2>Lo que harás al adquirir</h2>
             <ol class="protocol-timeline">
-                <?php
-                $lastPhase = null;
-                foreach ($protocolSteps as $step):
-                    $phase = (string) ($step['phase'] ?? '');
-                    if ($phase !== $lastPhase):
-                        $lastPhase = $phase;
-                ?>
-                    <li class="protocol-phase-label"><?= e($phaseLabels[$phase] ?? $phase) ?></li>
-                <?php endif; ?>
+                <?php foreach ($protocolSteps as $i => $step): ?>
                     <li class="protocol-step">
                         <div class="protocol-step-head">
-                            <span class="protocol-step-num"><?= (int)$step['sort_order'] ?></span>
+                            <span class="protocol-step-num"><?= $i + 1 ?></span>
                             <strong><?= e($step['title']) ?></strong>
-                            <span class="pill"><?= e($respLabels[$step['responsible']] ?? $step['responsible']) ?></span>
                         </div>
                     </li>
                 <?php endforeach; ?>
             </ol>
+            <p class="muted">El resto del proceso (solicitud a la certificadora, código de acceso, certificado y CENNI) lo verás en tu seguimiento conforme avance.</p>
         <?php endif; ?>
     </div>
 
     <aside class="product-side note">
         <a class="btn" style="width:100%;text-align:center" href="/adquirir?slug=<?= e(rawurlencode($item['slug'])) ?>">Adquirir</a>
         <p class="muted" style="margin-top:0.75rem">
-            No necesitas cuenta previa. Al adquirir creas tu acceso de alumno para dar seguimiento.
+            Completa tus datos (tal cual en tu identificación), firma el reglamento y paga. Te enviaremos el acceso para dar seguimiento.
         </p>
         <?php if ($samples): ?>
             <h3>Visuales</h3>
