@@ -870,12 +870,31 @@ final class CatalogRepository
 
         $this->pdo->beginTransaction();
         try {
+            $cenniProcess = (string) ($cert['cenni_process'] ?? 'none');
+            if ($cenniProcess === '' || $cenniProcess === '0') {
+                // Compat si aún no corre la migración: inferir
+                if ((int) ($cert['cenni_eligible'] ?? 0) === 1) {
+                    $hayElet = stripos((string) ($cert['code'] ?? ''), 'ELET') !== false
+                        || stripos((string) ($cert['name'] ?? ''), 'ELET') !== false
+                        || stripos((string) ($cert['name'] ?? ''), 'ELeT') !== false;
+                    $cenniProcess = $hayElet ? 'uks_external' : 'doceo_managed';
+                } else {
+                    $cenniProcess = 'none';
+                }
+            }
+            $cenniStatus = match ($cenniProcess) {
+                'uks_external' => 'awaiting_uks_upload',
+                'doceo_managed' => 'awaiting_pdv_upload',
+                default => 'none',
+            };
+
             $firstStepId = (int) $steps[0]['id'];
             $stmt = $this->pdo->prepare(
                 'INSERT INTO certification_cases
                  (certification_id, protocol_id, student_user_id, partner_id, student_email, student_name,
-                  exam_date, status, current_step_id, notes)
-                 VALUES (?,?,?,?,?,?,?,?,?,?)'
+                  student_last_name_p, student_last_name_m, student_phone, exam_date, exam_time,
+                  cc_email, cenni_status, status, current_step_id, notes)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $stmt->execute([
                 $certId,
@@ -884,7 +903,13 @@ final class CatalogRepository
                 $data['partner_id'] ?? null,
                 $data['student_email'],
                 $data['student_name'],
+                $data['student_last_name_p'] ?? null,
+                $data['student_last_name_m'] ?? null,
+                $data['student_phone'] ?? null,
                 $data['exam_date'] ?? null,
+                $data['exam_time'] ?? null,
+                $data['cc_email'] ?? null,
+                $cenniStatus,
                 'in_progress',
                 $firstStepId,
                 $data['notes'] ?? null,
@@ -1042,6 +1067,8 @@ final class CatalogRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+                    cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
+                    cert.cenni_fee, cert.cenni_process,
                     pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id,
                     prov.code AS provider_code, prov.name AS provider_name,
@@ -1060,6 +1087,54 @@ final class CatalogRepository
         return $row ?: null;
     }
 
+    public function certificationCaseByOpenPayChargeId(string $chargeId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM certification_cases WHERE openpay_charge_id = ? LIMIT 1');
+        $stmt->execute([$chargeId]);
+        $row = $stmt->fetch();
+        return $row ? $this->certificationCaseDetailed((int) $row['id']) : null;
+    }
+
+    public function certificationCaseByOpenPayOrderId(string $orderId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM certification_cases WHERE openpay_order_id = ? LIMIT 1');
+        $stmt->execute([$orderId]);
+        $row = $stmt->fetch();
+        return $row ? $this->certificationCaseDetailed((int) $row['id']) : null;
+    }
+
+    /** @param array<string, mixed> $data */
+    public function logOpenPayWebhook(array $data): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO openpay_webhook_events
+             (event_type, openpay_charge_id, order_id, case_id, payload_json, processed)
+             VALUES (?,?,?,?,?,0)'
+        );
+        $stmt->execute([
+            $data['event_type'] ?? null,
+            $data['openpay_charge_id'] ?? null,
+            $data['order_id'] ?? null,
+            $data['case_id'] ?? null,
+            $data['payload_json'] ?? '{}',
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function attachOpenPayWebhookCase(int $eventId, int $caseId): void
+    {
+        $this->pdo->prepare('UPDATE openpay_webhook_events SET case_id = ? WHERE id = ?')
+            ->execute([$caseId, $eventId]);
+    }
+
+    public function markOpenPayWebhookProcessed(int $eventId, bool $ok, ?string $error): void
+    {
+        $this->pdo->prepare(
+            'UPDATE openpay_webhook_events SET processed = ?, error_message = ? WHERE id = ?'
+        )->execute([$ok ? 1 : 0, $error, $eventId]);
+    }
+
     /** @param array<string, mixed> $fields */
     public function updateCertificationCase(int $id, array $fields): void
     {
@@ -1068,9 +1143,12 @@ final class CatalogRepository
             'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
             'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
-            'moodle_user', 'moodle_password', 'payment_proof_path', 'payment_confirmed_at',
+            'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
             'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
             'cc_email', 'notes', 'status', 'partner_id',
+            'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
+            'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
+            'openpay_pdf_url', 'cenni_status', 'cenni_folio', 'cenni_notes', 'cenni_status_updated_at',
         ];
         $sets = [];
         $params = [];
@@ -1468,6 +1546,7 @@ final class CatalogRepository
             $data['cost_price'] ?? null,
             $data['currency'] ?? 'MXN',
             $data['cenni_eligible'], $data['cenni_doc_type'], $data['cenni_included'], $data['cenni_fee'],
+            $data['cenni_process'] ?? 'none',
             $data['conocer_eligible'], $data['conocer_fee'],
             (int) ($data['is_published'] ?? 0),
             (int) ($data['is_featured'] ?? 0),
@@ -1480,7 +1559,7 @@ final class CatalogRepository
                  short_description=?, value_points_json=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
                  is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
                  public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
-                 conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
+                 cenni_process=?, conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
@@ -1491,8 +1570,8 @@ final class CatalogRepository
                 provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
-                cenni_included, cenni_fee, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                cenni_included, cenni_fee, cenni_process, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();

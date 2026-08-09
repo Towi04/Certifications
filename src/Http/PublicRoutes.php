@@ -155,10 +155,21 @@ final class PublicRoutes
                     'student_email' => (string) $user['email'],
                     'student_name' => trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')))
                         ?: (string) $user['name'],
+                    'student_phone' => (string) ($user['phone'] ?? ''),
                     'notes' => 'Adquisición pública desde vitrina',
                 ]);
 
-                flash('info', 'Listo. Ya puedes dar seguimiento a tu certificación.');
+                $payNote = '';
+                try {
+                    $pay = new \App\Payments\OpenPayPaymentService($repo());
+                    $pay->ensureSpeiCharge($caseId, false, true);
+                    $payNote = ' Te enviamos la CLABE SPEI para pagar.';
+                } catch (\Throwable $payErr) {
+                    error_log('[PDV] OpenPay al adquirir caso #' . $caseId . ': ' . $payErr->getMessage());
+                    $payNote = ' El equipo generará tu liga/CLABE de pago en breve.';
+                }
+
+                flash('info', 'Listo. Ya puedes dar seguimiento a tu certificación.' . $payNote);
                 header('Location: /alumno/caso?id=' . $caseId);
                 exit;
             } catch (\Throwable $e) {
@@ -191,9 +202,8 @@ final class PublicRoutes
             Auth::requireStudent();
             $user = Auth::user();
             $id = (int) ($_GET['id'] ?? 0);
-            $item = $repo()->certificationCase($id);
+            $item = $repo()->certificationCaseDetailed($id);
             if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
-                // staff puede ver cualquiera
                 if ($item && Auth::isStaffRole($user['role'] ?? null)) {
                     // ok
                 } else {
@@ -207,12 +217,85 @@ final class PublicRoutes
                 'title' => 'Caso #' . $id,
                 'item' => $item,
                 'steps' => $repo()->certificationCaseSteps($id),
+                'attachments' => $repo()->caseAttachments($id),
+                'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'user' => $user,
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/alumno/caso/upload-cenni', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            if (($item['cenni_process'] ?? '') !== 'doceo_managed') {
+                flash('error', 'Esta certificación no recibe documentos CENNI en Doceo (se gestionan en UKS u otro canal).');
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            }
+            try {
+                $map = [
+                    'cenni_ine' => ['kind' => 'ine', 'label' => 'INE'],
+                    'cenni_curp' => ['kind' => 'curp', 'label' => 'CURP'],
+                    'cenni_solicitud' => ['kind' => 'cenni', 'label' => 'Solicitud CENNI'],
+                ];
+                $uploaded = 0;
+                foreach ($map as $field => $meta) {
+                    $file = $_FILES[$field] ?? null;
+                    if (!$file || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                        continue;
+                    }
+                    $path = \App\Support\Uploader::store($file, 'cases/' . $caseId . '/cenni');
+                    $repo()->addCaseAttachment($caseId, $meta['kind'], $meta['label'], $path, (int) $user['id']);
+                    $uploaded++;
+                }
+                if ($uploaded === 0) {
+                    throw new \RuntimeException('Selecciona al menos un archivo (INE, CURP o solicitud).');
+                }
+                $repo()->updateCertificationCase($caseId, [
+                    'cenni_status' => 'docs_in_review',
+                    'cenni_status_updated_at' => date('Y-m-d H:i:s'),
+                    'cenni_notes' => 'Documentos subidos por el alumno en PDV',
+                ]);
+                flash('info', 'Documentos recibidos. El equipo Doceo gestionará el trámite CENNI ante la SEP.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/webhooks/openpay', static function () use ($repo): void {
+            $raw = file_get_contents('php://input') ?: '';
+            $payload = json_decode($raw, true);
+            if (!is_array($payload)) {
+                http_response_code(400);
+                header('Content-Type: application/json');
+                echo json_encode(['error' => 'invalid_json']);
+                exit;
+            }
+            try {
+                $svc = new \App\Payments\OpenPayPaymentService($repo());
+                $result = $svc->handleWebhook($payload);
+                http_response_code(200);
+                header('Content-Type: application/json');
+                echo json_encode($result);
+            } catch (\Throwable $e) {
+                error_log('[PDV] OpenPay webhook: ' . $e->getMessage());
+                http_response_code(200);
+                header('Content-Type: application/json');
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            }
+            exit;
         });
     }
 }

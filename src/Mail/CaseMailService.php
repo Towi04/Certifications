@@ -194,6 +194,12 @@ final class CaseMailService
         $fecha = (string) ($case['reschedule_date'] ?? $case['exam_date'] ?? '');
         $hora = (string) ($case['reschedule_time'] ?? $case['exam_time'] ?? '');
         $token = (string) ($case['access_doc_url'] ?? $case['prep_doc_url'] ?? Env::get('DOCEO_DEFAULT_PREP_URL', '') ?? '');
+        $cenniStatusCode = (string) ($case['cenni_status'] ?? 'none');
+        $cenniLabels = \App\Payments\OpenPayPaymentService::cenniStatuses();
+        $cenniLabel = $cenniLabels[$cenniStatusCode] ?? $cenniStatusCode;
+        $folio = trim((string) ($case['cenni_folio'] ?? ''));
+        $cenniNotes = trim((string) ($case['cenni_notes'] ?? ''));
+        $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
 
         return [
             'Nombre' => $nombre,
@@ -217,7 +223,51 @@ final class CaseMailService
             'user' => (string) ($case['moodle_user'] ?? ''),
             'password' => (string) ($case['moodle_password'] ?? ''),
             'Contacto Doceo' => (string) (Env::get('DOCEO_CONTACT_EMAIL', 'info@institutodoceo.com') ?? 'info@institutodoceo.com'),
+            'OpenPay CLABE' => (string) ($case['openpay_clabe'] ?? ''),
+            'OpenPay Banco' => (string) ($case['openpay_bank'] ?? ''),
+            'OpenPay Referencia' => (string) ($case['openpay_reference'] ?? $case['openpay_agreement'] ?? ''),
+            'OpenPay Monto' => isset($case['openpay_amount']) ? number_format((float) $case['openpay_amount'], 2, '.', ',') : '',
+            'OpenPay Beneficiario' => (string) (Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto Doceo') ?? 'Instituto Doceo'),
+            'CENNI Estatus' => $cenniLabel,
+            'CENNI Folio Line' => $folio !== '' ? '<strong>Folio:</strong> ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . '<br>' : '',
+            'CENNI Notas Line' => $cenniNotes !== '' ? '<strong>Detalle:</strong> ' . htmlspecialchars($cenniNotes, ENT_QUOTES, 'UTF-8') . '<br>' : '',
+            'CENNI Folio Suffix' => $folio !== '' ? ' (folio ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . ')' : '',
+            'App URL' => $appUrl,
         ];
+    }
+
+    /**
+     * Actualiza estatus CENNI y opcionalmente notifica al alumno.
+     *
+     * @return array{status: string, mailed: bool}
+     */
+    public function updateCenniStatus(
+        int $caseId,
+        string $status,
+        ?string $folio,
+        ?string $notes,
+        bool $notify,
+        ?int $userId
+    ): array {
+        $allowed = array_keys(\App\Payments\OpenPayPaymentService::cenniStatuses());
+        if (!in_array($status, $allowed, true)) {
+            throw new \InvalidArgumentException('Estatus CENNI inválido.');
+        }
+        $this->repo->updateCertificationCase($caseId, [
+            'cenni_status' => $status,
+            'cenni_folio' => $folio,
+            'cenni_notes' => $notes,
+            'cenni_status_updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $mailed = false;
+        if ($notify) {
+            $code = $status === 'issued' ? 'cenni_emitido' : 'cenni_seguimiento';
+            $this->sendTemplate($caseId, $code, $userId);
+            $mailed = true;
+        }
+
+        return ['status' => $status, 'mailed' => $mailed];
     }
 
     /** @param array<string, string> $tokens */

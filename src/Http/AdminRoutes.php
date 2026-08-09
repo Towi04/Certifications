@@ -949,7 +949,12 @@ final class AdminRoutes
                     'exam_date' => $examDate !== '' ? $examDate : null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
                 ]);
-                flash('info', 'Caso abierto. El alumno inicia en el paso 1 del protocolo.');
+                try {
+                    (new \App\Payments\OpenPayPaymentService($repo()))->ensureSpeiCharge($caseId, false, true);
+                    flash('info', 'Caso abierto con CLABE OpenPay. El alumno inicia en el paso 1 del protocolo.');
+                } catch (\Throwable $payErr) {
+                    flash('info', 'Caso abierto. OpenPay aún no generó CLABE: ' . $payErr->getMessage());
+                }
                 header('Location: /admin/cases/view?id=' . $caseId);
                 exit;
             } catch (\Throwable $e) {
@@ -976,6 +981,8 @@ final class AdminRoutes
                 'mail_log' => $repo()->caseMailLog($id),
                 'mail_templates' => $repo()->mailTemplates(true),
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
+                'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
+                'cenni_processes' => \App\Payments\OpenPayPaymentService::cenniProcesses(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'info' => flash('info'),
@@ -1038,6 +1045,46 @@ final class AdminRoutes
                     $msg .= ' Correo enviado a ' . $result['to'] . '.';
                 } else {
                     $msg .= ' Sin plantilla de solicitud al proveedor; descarga el archivo si aplica.';
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/openpay-spei', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $force = isset($_POST['force_new']);
+            try {
+                $fields = (new \App\Payments\OpenPayPaymentService($repo()))->ensureSpeiCharge($caseId, $force, true);
+                flash('info', 'CLABE OpenPay lista: ' . ($fields['openpay_clabe'] ?? '') . ' · $' . number_format((float) ($fields['openpay_amount'] ?? 0), 2));
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/cenni-status', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->updateCenniStatus(
+                    $caseId,
+                    trim((string) ($_POST['cenni_status'] ?? 'none')),
+                    trim((string) ($_POST['cenni_folio'] ?? '')) ?: null,
+                    trim((string) ($_POST['cenni_notes'] ?? '')) ?: null,
+                    isset($_POST['notify_student']),
+                    $user ? (int) $user['id'] : null
+                );
+                $msg = 'Estatus CENNI actualizado: ' . $result['status'] . '.';
+                if ($result['mailed']) {
+                    $msg .= ' Correo enviado al alumno.';
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {
@@ -1522,6 +1569,11 @@ final class AdminRoutes
                     'cenni_doc_type' => $cenniDocType,
                     'cenni_included' => $cenniIncluded,
                     'cenni_fee' => $cenniFee,
+                    'cenni_process' => $cenniEligible
+                        ? (in_array((string) ($_POST['cenni_process'] ?? ''), ['uks_external', 'doceo_managed', 'none'], true)
+                            ? (string) $_POST['cenni_process']
+                            : 'doceo_managed')
+                        : 'none',
                     'conocer_eligible' => $conocerEligible,
                     'conocer_fee' => $conocerFee,
                     'is_published' => $isPublished,

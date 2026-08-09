@@ -71,7 +71,58 @@ final class OpenPayClient
 
     public function getMerchant(): array
     {
-        // GET /v1/{merchantId} autentica con la llave privada
         return $this->request('GET', '');
+    }
+
+    /**
+     * Cargo SPEI / transferencia bancaria → CLABE única por transacción.
+     *
+     * @param array{
+     *   amount: float|int|string,
+     *   description: string,
+     *   order_id: string,
+     *   customer: array{name: string, email: string, phone_number?: string},
+     *   due_date?: string
+     * } $data
+     */
+    public function createBankCharge(array $data): array
+    {
+        $payload = [
+            'method' => 'bank_account',
+            'amount' => round((float) $data['amount'], 2),
+            'description' => mb_substr((string) $data['description'], 0, 250),
+            'order_id' => mb_substr((string) $data['order_id'], 0, 100),
+            'customer' => $data['customer'],
+        ];
+        if (!empty($data['due_date'])) {
+            $payload['due_date'] = $data['due_date'];
+        }
+
+        return $this->request('POST', 'charges', $payload);
+    }
+
+    public function getCharge(string $chargeId): array
+    {
+        return $this->request('GET', 'charges/' . rawurlencode($chargeId));
+    }
+
+    public function merchantId(): string
+    {
+        return Env::require('OPENPAY_MERCHANT_ID');
+    }
+
+    /** Recibo PDF genérico OpenPay (sandbox o producción según API base). */
+    public function speiPdfUrl(string $chargeId): string
+    {
+        $sandbox = str_contains(
+            strtolower((string) (Env::get('OPENPAY_API_BASE', '') ?? '')),
+            'sandbox'
+        ) || Env::getBool('OPENPAY_SANDBOX', true);
+
+        $host = $sandbox
+            ? 'https://sandbox-dashboard.openpay.mx'
+            : 'https://dashboard.openpay.mx';
+
+        return $host . '/spei-pdf/' . $this->merchantId() . '/' . rawurlencode($chargeId);
     }
 }

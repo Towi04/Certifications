@@ -80,6 +80,36 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 </section>
 
 <section class="note">
+    <h3>OpenPay — CLABE SPEI única</h3>
+    <?php
+    $opPaid = !empty($item['payment_confirmed_at']) || in_array(strtolower((string)($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
+    ?>
+    <?php if (!empty($item['openpay_clabe'])): ?>
+        <ul>
+            <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
+            <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? '') ?></li>
+            <li><strong>Referencia:</strong> <?= e($item['openpay_reference'] ?? '') ?></li>
+            <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?></li>
+            <li><strong>Estatus OpenPay:</strong> <?= e($item['openpay_status'] ?? '') ?><?= $opPaid ? ' · confirmado' : '' ?></li>
+            <li><strong>Charge ID:</strong> <?= e($item['openpay_charge_id'] ?? '') ?></li>
+        </ul>
+        <?php if (!empty($item['openpay_pdf_url'])): ?>
+            <p><a href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">Ficha SPEI PDF</a></p>
+        <?php endif; ?>
+    <?php else: ?>
+        <p class="muted">Aún no hay cargo SPEI. Genera la CLABE para este alumno.</p>
+    <?php endif; ?>
+    <form method="post" action="/admin/cases/openpay-spei" class="actions">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <button class="btn" type="submit"><?= !empty($item['openpay_clabe']) ? 'Reenviar instrucciones' : 'Generar CLABE OpenPay' ?></button>
+        <?php if (!empty($item['openpay_clabe']) && !$opPaid): ?>
+            <label class="check"><input type="checkbox" name="force_new" value="1"> Forzar nueva CLABE</label>
+        <?php endif; ?>
+    </form>
+    <p class="muted">Webhook: <code>POST <?= e(rtrim((string)(\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/')) ?>/webhooks/openpay</code></p>
+</section>
+
+<section class="note">
     <h3>Pago → generar plantilla → correo al proveedor</h3>
     <p class="muted">
         Al confirmar el pago el sistema genera el archivo del proveedor
@@ -108,6 +138,41 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             </form>
         <?php endif; ?>
     </div>
+</section>
+
+<section class="note">
+    <h3>Seguimiento CENNI</h3>
+    <?php
+    $cenniProcesses = $cenni_processes ?? [];
+    $cenniStatuses = $cenni_statuses ?? [];
+    $proc = (string) ($item['cenni_process'] ?? 'none');
+    ?>
+    <p class="muted">
+        Proceso del producto:
+        <strong><?= e($cenniProcesses[$proc] ?? $proc) ?></strong>
+        <?php if ($proc === 'uks_external'): ?>
+            — el alumno sube docs en UKS (constancia/QR). Aquí solo registras el avance que ves en la plataforma UKS / SEP.
+        <?php elseif ($proc === 'doceo_managed'): ?>
+            — el alumno sube docs en el portal alumno; Doceo gestiona ante la SEP.
+        <?php endif; ?>
+    </p>
+    <?php if ($proc !== 'none'): ?>
+        <form method="post" action="/admin/cases/cenni-status" class="stack form-grid">
+            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+            <label>Estatus
+                <select name="cenni_status">
+                    <?php foreach ($cenniStatuses as $code => $label): ?>
+                        <?php if ($code === 'none') continue; ?>
+                        <option value="<?= e($code) ?>" <?= ($item['cenni_status'] ?? '') === $code ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>Folio CENNI<input name="cenni_folio" value="<?= e($item['cenni_folio'] ?? '') ?>"></label>
+            <label>Notas internas<textarea name="cenni_notes" rows="2"><?= e($item['cenni_notes'] ?? '') ?></textarea></label>
+            <label class="check"><input type="checkbox" name="notify_student" value="1" checked> Avisar al alumno por correo</label>
+            <div class="actions"><button class="btn" type="submit">Guardar estatus CENNI</button></div>
+        </form>
+    <?php endif; ?>
 </section>
 
 <section class="note">
