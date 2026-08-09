@@ -199,6 +199,21 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 <label class="fee-field">Fee CENNI
                     <input type="number" step="0.01" name="cenni_fee" value="<?= e((string)($item['cenni_fee'] ?? '0')) ?>">
                 </label>
+                <label>Proceso CENNI
+                    <select name="cenni_process">
+                        <?php
+                        $cenniProc = (string) ($item['cenni_process'] ?? 'doceo_managed');
+                        $procOpts = [
+                            'doceo_managed' => 'Doceo gestiona (alumno sube docs aquí)',
+                            'uks_external' => 'UKS externo (ELET: alumno sube en UKS)',
+                            'none' => 'Sin trámite',
+                        ];
+                        foreach ($procOpts as $val => $lab):
+                        ?>
+                            <option value="<?= e($val) ?>" <?= $cenniProc === $val ? 'selected' : '' ?>><?= e($lab) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
             </div>
         </div>
 

@@ -59,26 +59,26 @@ CROSS JOIN (
   UNION ALL SELECT 12, 'during_exam', 'Constancia al finalizar el examen',
     'El alumno recibe su constancia al terminar la aplicación.',
     'provider', NULL
-  UNION ALL SELECT 13, 'post_exam', 'Subir documentos CENNI (si aplica)',
-    'INE, CURP y Solicitud CENNI en la plataforma UKS, máximo 15 días después del examen.',
+  UNION ALL SELECT 13, 'post_exam', 'Subir documentos CENNI en plataforma UKS (si aplica)',
+    'Tras el ELET el alumno recibe constancia + enlace/QR. Sube INE, CURP y Solicitud CENNI en UKS (máx. 15 días). No se suben en Doceo. Doceo monitorea en UKS y puede informar avances.',
     'student', 15
-  UNION ALL SELECT 14, 'post_exam', 'Recordatorio de documentos CENNI',
-    'Si a los 10 días no hay docs, el admin contacta al alumno o al TR.',
+  UNION ALL SELECT 14, 'post_exam', 'Recordatorio / monitoreo docs CENNI (UKS)',
+    'Si a los 10 días no hay docs en UKS, el admin contacta al alumno o TR y actualiza el estatus en el caso Doceo.',
     'admin', 10
   UNION ALL SELECT 15, 'post_exam', 'UKS acepta o rechaza los documentos',
-    'Revisión de INE, CURP y solicitud en la plataforma UKS.',
+    'Revisión en plataforma UKS. El admin refleja el resultado en el estatus CENNI del caso (y puede avisar al alumno).',
     'provider', NULL
   UNION ALL SELECT 16, 'post_exam', 'Aviso de UKS sobre documentos',
-    'Correo de aceptación o de corrección si fueron rechazados.',
+    'UKS también notifica al alumno. Doceo puede reenviar seguimiento desde el caso.',
     'provider', NULL
   UNION ALL SELECT 17, 'post_exam', 'Espera de emisión CENNI por la SEP',
-    'Trámite en curso ante la SEP.',
+    'Trámite en curso. SEP notifica al alumno; Doceo marca sep_pending y puede informar.',
     'sep', NULL
-  UNION ALL SELECT 18, 'post_exam', 'Publicar Folio CENNI (UKS)',
-    'A los 15 días del examen el admin puede publicar el folio asignado por UKS.',
+  UNION ALL SELECT 18, 'post_exam', 'Registrar Folio CENNI (monitoreo UKS)',
+    'Cuando UKS/SEP emiten el folio, el admin lo captura en el caso y notifica al alumno.',
     'admin', 15
-  UNION ALL SELECT 19, 'post_exam', 'Alumno recibe el CENNI de la SEP',
-    'Entrega del documento CENNI (aprox. 20 días después del examen).',
+  UNION ALL SELECT 19, 'post_exam', 'CENNI emitido — agradecimiento',
+    'Correo de cierre: docs emitidos, gracias e invitación a adquirir otra certificación en la plataforma.',
     'student', 20
 ) AS s
 WHERE pr.code = 'UKS_ELET';
