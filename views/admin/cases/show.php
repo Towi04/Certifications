@@ -385,7 +385,8 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>
         (ej. <code>uks_solicitud</code>), no en la certificación.
         El check “Adjuntar exportación…” en la plantilla adjunta el CSV/Excel del registro del alumno
-        (no el PDF del reglamento). El comprobante de pago se adjunta aparte si la audiencia es “Proveedor”.
+        (no el PDF del reglamento). El comprobante se adjunta o, si es muy grande, va como enlace de descarga en el correo.
+        Revisa el historial de correos del caso para ver el destinatario real y si falló el envío.
     </p>
     <p class="muted">
         Plantilla del protocolo:
@@ -521,7 +522,7 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
                     <td><?= e($log['created_at']) ?></td>
                     <td><?= e($log['template_code'] ?? '') ?></td>
                     <td><?= e($log['to_email']) ?><?php if (!empty($log['cc_email'])): ?><br><small>CC <?= e($log['cc_email']) ?></small><?php endif; ?></td>
-                    <td><?= e($log['status']) ?><?php if (!empty($log['error_message'])): ?><br><small><?= e($log['error_message']) ?></small><?php endif; ?></td>
+                    <td><?= e($log['status']) ?><?php if (!empty($log['error_message'])): ?><br><small class="muted"><?= e($log['error_message']) ?></small><?php endif; ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
