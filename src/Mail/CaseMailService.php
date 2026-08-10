@@ -149,13 +149,21 @@ final class CaseMailService
         $templateCode = trim((string) ($case['provider_request_template'] ?? ''));
         $mailed = false;
         $to = null;
+        $mailSkip = null;
         if ($templateCode !== '') {
-            $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
-            $mailed = true;
-            $to = $result['to'];
-            $this->repo->updateCertificationCase($caseId, [
-                'provider_request_sent_at' => date('Y-m-d H:i:s'),
-            ]);
+            $tpl = $this->repo->mailTemplateByCode($templateCode);
+            if (!$tpl || !(int) ($tpl['is_active'] ?? 0)) {
+                $mailSkip = 'La plantilla “' . $templateCode . '” no existe o está inactiva en Admin → Correos.';
+            } else {
+                $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
+                $mailed = true;
+                $to = $result['to'];
+                $this->repo->updateCertificationCase($caseId, [
+                    'provider_request_sent_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } else {
+            $mailSkip = 'El protocolo no tiene “Plantilla solicitud a empresa”. Configúrala en Admin → Protocolos.';
         }
 
         $moodle = null;
@@ -167,7 +175,14 @@ final class CaseMailService
             $moodle = ['error' => $e->getMessage()];
         }
 
-        return ['export' => $export, 'mailed' => $mailed, 'to' => $to, 'moodle' => $moodle];
+        return [
+            'export' => $export,
+            'mailed' => $mailed,
+            'to' => $to,
+            'template' => $templateCode !== '' ? $templateCode : null,
+            'mail_skip' => $mailSkip,
+            'moodle' => $moodle,
+        ];
     }
 
     /**
@@ -745,10 +760,27 @@ final class CaseMailService
                 return (string) $tpl['to_fixed'];
             }
             $email = trim((string) ($case['provider_contact_email'] ?? ''));
-            if ($email !== '') {
+            if ($email === '') {
+                $providerId = (int) ($case['provider_id'] ?? 0);
+                if ($providerId > 0) {
+                    foreach ($this->repo->providerContacts($providerId) as $contact) {
+                        $candidate = trim((string) ($contact['email'] ?? ''));
+                        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+                            $email = $candidate;
+                            if (!empty($contact['is_primary'])) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 return $email;
             }
-            throw new \RuntimeException('El proveedor no tiene correo de contacto configurado.');
+            throw new \RuntimeException(
+                'El proveedor no tiene correo de contacto. Configúralo en Admin → Proveedores '
+                . '(correo principal o contacto primario), o pon un correo fijo en la plantilla (To = fijo / pruebas).'
+            );
         }
         $email = trim((string) ($case['student_email'] ?? ''));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {

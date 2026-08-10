@@ -25,6 +25,24 @@ $dashboardHost = $sandbox ? 'https://sandbox-dashboard.openpay.mx' : 'https://da
 
     <?php if (!empty($listError)): ?><p class="alert alert-error">No se pudo listar webhooks: <?= e($listError) ?></p><?php endif; ?>
 
+    <h3>Requisitos OpenPay para producción</h3>
+    <p class="muted">
+        El PDV cobra por <strong>SPEI / CLABE</strong> (sin capturar tarjetas en tus servidores).
+        Eso cubre PCI DSS para el flujo actual: los datos de tarjeta no pasan por el PDV.
+    </p>
+    <ul>
+        <li><strong>Productos/servicios:</strong> la vitrina pública y fichas de certificación muestran qué se paga.</li>
+        <li><strong>SSL válido:</strong> el sitio debe servir en HTTPS (Neubox / certificado del dominio). OpenPay exige webhook HTTPS.</li>
+        <li><strong>Antifraudes OpenPay:</strong> aplica sobre todo a cargos con <em>tarjeta</em> (device session / fraud tools).
+            Con SPEI el riesgo es distinto; no integramos cobro con tarjeta todavía. Si más adelante activas tarjeta,
+            habrá que integrar la librería JS/móvil de OpenPay y el antifraude.</li>
+        <li><strong>Librería web/móvil PCI:</strong> no aplica mientras solo uses SPEI. No almacenes NI proceses PAN en el PDV.</li>
+    </ul>
+    <p class="muted">
+        Checklist operativo: webhook verificado, <code>OPENPAY_*</code> de producción en <code>.env</code>,
+        y modo sandbox desactivado. Revisa también <a href="/admin/salud">Salud</a>.
+    </p>
+
     <h3>URL del webhook</h3>
     <p><code id="webhookUrl"><?= e($webhookUrl) ?></code>
         <button type="button" class="linkish" id="copyWebhookUrl">Copiar</button>

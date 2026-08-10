@@ -956,6 +956,23 @@ final class AdminRoutes
             exit;
         });
 
+        $router->get('/admin/pendientes', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $filter = trim((string) ($_GET['filter'] ?? 'needs_admin'));
+            $allowed = array_keys(\App\Catalog\CatalogRepository::caseAttentionFilters());
+            if (!in_array($filter, $allowed, true)) {
+                $filter = 'needs_admin';
+            }
+            view('admin/pendientes', [
+                'title' => 'Pendientes operativos',
+                'items' => $repo()->opsBoardCases($filter, 300),
+                'filter' => $filter,
+                'filters' => \App\Catalog\CatalogRepository::caseAttentionFilters(),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
         $router->get('/admin/cases', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/cases/index', [
@@ -1093,9 +1110,11 @@ final class AdminRoutes
                     $msg .= ' Exportación generada: ' . $result['export']['filename'] . '.';
                 }
                 if ($result['mailed']) {
-                    $msg .= ' Correo enviado a ' . $result['to'] . '.';
+                    $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado a ' . $result['to'] . '.';
+                    $flashType = 'info';
                 } else {
-                    $msg .= ' Sin plantilla de solicitud al proveedor; descarga el archivo si aplica.';
+                    $msg .= ' ' . ($result['mail_skip'] ?? 'No se envió correo al proveedor.');
+                    $flashType = 'error';
                 }
                 $moodle = $result['moodle'] ?? null;
                 if (is_array($moodle) && empty($moodle['skipped']) && empty($moodle['error'])) {
@@ -1104,7 +1123,7 @@ final class AdminRoutes
                 } elseif (is_array($moodle) && !empty($moodle['error'])) {
                     $msg .= ' Moodle: ' . $moodle['error'];
                 }
-                flash('info', $msg);
+                flash($flashType, $msg);
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
@@ -1309,7 +1328,7 @@ final class AdminRoutes
             }
             $name = basename($abs);
             $mime = str_ends_with(strtolower($name), '.csv')
-                ? 'text/csv'
+                ? 'text/csv; charset=UTF-8'
                 : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
             header('Content-Type: ' . $mime);
             header('Content-Disposition: attachment; filename="' . $name . '"');
@@ -2326,16 +2345,23 @@ final class AdminRoutes
 
         $users = static fn (): UserRepository => new UserRepository();
 
-        $router->get('/admin/users', static function () use ($users): void {
+        $router->get('/admin/users', static function () use ($users, $repo): void {
             Auth::requireAdmin();
             $filters = [
                 'q' => trim((string) ($_GET['q'] ?? '')),
                 'role' => (string) ($_GET['role'] ?? ''),
                 'is_active' => $_GET['is_active'] ?? '',
             ];
+            $items = $users()->list($filters);
+            $ids = array_map(static fn (array $u): int => (int) $u['id'], $items);
+            $caseSummary = $repo()->studentCaseSummaryByUserIds($ids);
+            foreach ($items as &$item) {
+                $item['case_summary'] = $caseSummary[(int) $item['id']] ?? null;
+            }
+            unset($item);
             view('admin/users/index', [
                 'title' => 'Usuarios',
-                'items' => $users()->list($filters),
+                'items' => $items,
                 'filters' => $filters,
                 'roles' => UserRepository::manageableRoles(),
                 'roleLabels' => UserRepository::allRoleLabels(),
@@ -2485,8 +2511,14 @@ final class AdminRoutes
             $id = (int) ($_POST['id'] ?? 0);
             $actorId = (int) (Auth::user()['id'] ?? 0);
             try {
-                $users()->delete($id, $actorId);
-                flash('info', 'Usuario eliminado.');
+                $repo = $users();
+                $repo->delete($id, $actorId);
+                $n = $repo->lastDeletedCasesCount();
+                flash(
+                    'info',
+                    'Usuario eliminado'
+                    . ($n > 0 ? ' junto con ' . $n . ' caso(s) de certificación.' : '.')
+                );
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
                 $redirectFail = (string) ($_POST['redirect_fail'] ?? '');
