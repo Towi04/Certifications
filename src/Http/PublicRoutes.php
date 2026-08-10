@@ -91,6 +91,10 @@ final class PublicRoutes
 
             $mode = (string) ($_POST['mode'] ?? 'register');
             $oldPayload = static function () use ($mode): array {
+                $extra = $_POST['extra'] ?? [];
+                if (!is_array($extra)) {
+                    $extra = [];
+                }
                 return [
                     'first_name' => (string) ($_POST['first_name'] ?? ''),
                     'last_name_p' => (string) ($_POST['last_name_p'] ?? ''),
@@ -102,6 +106,11 @@ final class PublicRoutes
                     'sex' => (string) ($_POST['sex'] ?? ''),
                     'nationality' => (string) ($_POST['nationality'] ?? 'MEX'),
                     'exam_date' => (string) ($_POST['exam_date'] ?? ''),
+                    'exam_time' => (string) ($_POST['exam_time'] ?? ''),
+                    'exam_time_extraordinary' => (string) ($_POST['exam_time_extraordinary'] ?? ''),
+                    'exam_time_mode' => ((string) ($_POST['exam_time'] ?? '') === '__extraordinary__') ? 'extraordinary' : '',
+                    'accept_extraordinary' => isset($_POST['accept_extraordinary']) ? '1' : '',
+                    'extra' => $extra,
                     'show_login' => $mode === 'login' ? '1' : '',
                 ];
             };
@@ -122,8 +131,11 @@ final class PublicRoutes
                     exit;
                 }
 
-                $regCfg = CatalogRepository::decodeRegistrationFields($item['registration_fields_json'] ?? null);
+                $regConfig = CatalogRepository::decodeRegistrationConfig($item['registration_fields_json'] ?? null);
+                $regCfg = $regConfig['modes'];
                 $catalog = CatalogRepository::registrationFieldCatalog();
+                $schedule = $regConfig['schedule'];
+                $customDefs = $regConfig['custom'];
 
                 $first = trim((string) ($_POST['first_name'] ?? ''));
                 $lastP = trim((string) ($_POST['last_name_p'] ?? ''));
@@ -135,6 +147,11 @@ final class PublicRoutes
                 $sex = strtoupper(trim((string) ($_POST['sex'] ?? '')));
                 $nationality = strtoupper(trim((string) ($_POST['nationality'] ?? '')));
                 $examDate = trim((string) ($_POST['exam_date'] ?? ''));
+                $examTimeRaw = trim((string) ($_POST['exam_time'] ?? ''));
+                $examTimeExtra = substr(trim((string) ($_POST['exam_time_extraordinary'] ?? '')), 0, 5);
+                $extraordinary = false;
+                $extraordinaryFee = 0.0;
+                $examTime = '';
 
                 $posted = [
                     'first_name' => $first,
@@ -147,13 +164,14 @@ final class PublicRoutes
                     'sex' => $sex,
                     'nationality' => $nationality,
                     'exam_date' => $examDate,
+                    'exam_time' => $examTimeRaw === '__extraordinary__' ? $examTimeExtra : $examTimeRaw,
                 ];
-                foreach ($regCfg as $key => $mode) {
-                    if ($mode === 'off') {
+                foreach ($regCfg as $key => $fieldMode) {
+                    if ($fieldMode === 'off') {
                         $posted[$key] = '';
                         continue;
                     }
-                    if ($mode === 'required' && trim((string) ($posted[$key] ?? '')) === '') {
+                    if ($fieldMode === 'required' && trim((string) ($posted[$key] ?? '')) === '') {
                         $label = $catalog[$key]['label'] ?? $key;
                         throw new \RuntimeException($label . ' es obligatorio para esta certificación.');
                     }
@@ -164,6 +182,51 @@ final class PublicRoutes
                 if ($sex !== '' && !in_array($sex, ['F', 'M'], true)) {
                     $sex = '';
                 }
+
+                if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
+                    if ($examTimeRaw === '__extraordinary__') {
+                        if (empty($schedule['extraordinary_enabled'])) {
+                            throw new \RuntimeException('Esta certificación no admite horario fuera de rango.');
+                        }
+                        if (!isset($_POST['accept_extraordinary'])) {
+                            throw new \RuntimeException('Debes aceptar el costo de aplicación extraordinaria.');
+                        }
+                        if ($examTimeExtra === '' || !preg_match('/^\d{2}:\d{2}$/', $examTimeExtra)) {
+                            throw new \RuntimeException('Indica la hora fuera de horario.');
+                        }
+                        if (CatalogRepository::isExamTimeWithinRange($examTimeExtra, $schedule)) {
+                            throw new \RuntimeException('Esa hora está dentro del horario regular; elige una opción de la lista.');
+                        }
+                        $extraordinary = true;
+                        $extraordinaryFee = max(0, (float) ($schedule['extraordinary_fee'] ?? 0));
+                        $examTime = $examTimeExtra;
+                    } else {
+                        $examTime = substr($examTimeRaw, 0, 5);
+                        if ($examTime !== '' && !CatalogRepository::isExamTimeWithinRange($examTime, $schedule)) {
+                            if (!empty($schedule['extraordinary_enabled'])) {
+                                throw new \RuntimeException('Para horarios fuera de rango elige “Fuera de horario”.');
+                            }
+                            throw new \RuntimeException('La hora debe estar entre ' . $schedule['time_start'] . ' y ' . $schedule['time_end'] . '.');
+                        }
+                    }
+                }
+
+                $extraIn = $_POST['extra'] ?? [];
+                if (!is_array($extraIn)) {
+                    $extraIn = [];
+                }
+                $extraOut = [];
+                foreach ($customDefs as $cf) {
+                    $ck = $cf['key'];
+                    $cval = trim((string) ($extraIn[$ck] ?? ''));
+                    if (($cf['mode'] ?? '') === 'required' && $cval === '') {
+                        throw new \RuntimeException(($cf['label'] ?? $ck) . ' es obligatorio.');
+                    }
+                    if ($cval !== '') {
+                        $extraOut[$ck] = $cval;
+                    }
+                }
+
                 // Campos apagados no se guardan
                 if (!CatalogRepository::registrationFieldEnabled($regCfg, 'last_name_m')) {
                     $lastM = '';
@@ -185,6 +248,11 @@ final class PublicRoutes
                 }
                 if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date')) {
                     $examDate = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
+                    $examTime = '';
+                    $extraordinary = false;
+                    $extraordinaryFee = 0.0;
                 }
 
                 $plainPassword = null;
@@ -240,7 +308,14 @@ final class PublicRoutes
                     'student_sex' => $sex !== '' ? $sex : null,
                     'student_nationality' => $nationality !== '' ? $nationality : null,
                     'exam_date' => $examDate !== '' ? $examDate : null,
-                    'notes' => 'Adquisición pública · datos para certificado: ' . $fullName,
+                    'exam_time' => $examTime !== '' ? $examTime : null,
+                    'exam_extraordinary' => $extraordinary ? 1 : 0,
+                    'exam_extraordinary_fee' => $extraordinary ? $extraordinaryFee : null,
+                    'registration_extra_json' => $extraOut !== []
+                        ? (json_encode($extraOut, JSON_UNESCAPED_UNICODE) ?: null)
+                        : null,
+                    'notes' => 'Adquisición pública · datos para certificado: ' . $fullName
+                        . ($extraordinary ? ' · aplicación extraordinaria' : ''),
                 ]);
 
                 // El formulario de adquisición cubre el registro del candidato.

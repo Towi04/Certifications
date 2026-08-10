@@ -64,14 +64,14 @@ final class OpenPayPaymentService
 
         $phone = preg_replace('/\D+/', '', (string) ($case['student_phone'] ?? '')) ?: '0000000000';
         $due = (new \DateTimeImmutable('+7 days'))->format('c');
+        $desc = 'Certificación ' . (string) ($case['certification_code'] ?? '') . ' — caso #' . $caseId;
+        if (!empty($case['exam_extraordinary']) && (float) ($case['exam_extraordinary_fee'] ?? 0) > 0) {
+            $desc .= ' + aplicación extraordinaria';
+        }
 
         $charge = $this->openPay->createBankCharge([
             'amount' => $amount,
-            'description' => mb_substr(
-                'Certificación ' . (string) ($case['certification_code'] ?? '') . ' — caso #' . $caseId,
-                0,
-                250
-            ),
+            'description' => mb_substr($desc, 0, 250),
             'order_id' => $orderId,
             'due_date' => $due,
             'customer' => [
@@ -199,6 +199,12 @@ final class OpenPayPaymentService
         $cenniFee = (float) ($case['cenni_fee'] ?? 0);
         if ($cenniProcess !== 'none' && !$cenniIncluded && $cenniFee > 0) {
             $price += $cenniFee;
+        }
+        if (!empty($case['exam_extraordinary'])) {
+            $extra = (float) ($case['exam_extraordinary_fee'] ?? 0);
+            if ($extra > 0) {
+                $price += $extra;
+            }
         }
 
         return round($price, 2);

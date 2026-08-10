@@ -565,7 +565,7 @@ final class CatalogRepository
     }
 
     /**
-     * Catálogo de campos del formulario de adquisición por certificación.
+     * Catálogo de campos built-in del formulario de adquisición.
      * locked=true → siempre required (cuenta / identidad mínima).
      *
      * @return array<string, array{label:string,locked?:bool,type?:string,default:string}>
@@ -583,7 +583,182 @@ final class CatalogRepository
             'sex' => ['label' => 'Sexo', 'type' => 'sex', 'default' => 'off'],
             'nationality' => ['label' => 'Nacionalidad', 'type' => 'text', 'default' => 'off'],
             'exam_date' => ['label' => 'Fecha preferida de examen', 'type' => 'date', 'default' => 'required'],
+            'exam_time' => ['label' => 'Hora preferida de examen', 'type' => 'time', 'default' => 'required'],
         ];
+    }
+
+    /** @return array{time_start:string,time_end:string,slot_minutes:int,extraordinary_enabled:bool,extraordinary_fee:float,extraordinary_warning:string} */
+    public static function defaultExamSchedule(): array
+    {
+        return [
+            'time_start' => '09:00',
+            'time_end' => '18:00',
+            'slot_minutes' => 30,
+            'extraordinary_enabled' => true,
+            'extraordinary_fee' => 0.0,
+            'extraordinary_warning' => 'Si eliges un horario fuera del rango indicado, se cobrará un costo extra por aplicación extraordinaria.',
+        ];
+    }
+
+    /**
+     * Config completa del formulario de adquisición (compatible con JSON plano antiguo).
+     *
+     * @return array{
+     *   modes: array<string,string>,
+     *   custom: list<array{key:string,label:string,type:string,mode:string}>,
+     *   schedule: array{time_start:string,time_end:string,slot_minutes:int,extraordinary_enabled:bool,extraordinary_fee:float,extraordinary_warning:string}
+     * }
+     */
+    public static function decodeRegistrationConfig(mixed $raw): array
+    {
+        $decoded = [];
+        if (is_string($raw) && $raw !== '') {
+            $tmp = json_decode($raw, true);
+            if (is_array($tmp)) {
+                $decoded = $tmp;
+            }
+        } elseif (is_array($raw)) {
+            $decoded = $raw;
+        }
+
+        // Formato antiguo: mapa plano field => mode
+        $looksFlat = $decoded !== [] && !isset($decoded['modes']) && !isset($decoded['custom']) && !isset($decoded['schedule']);
+        if ($looksFlat) {
+            $modesRaw = $decoded;
+            $customRaw = [];
+            $scheduleRaw = [];
+        } else {
+            $modesRaw = is_array($decoded['modes'] ?? null) ? $decoded['modes'] : [];
+            // Si modes vacío pero hay claves builtin en raíz (híbrido)
+            if ($modesRaw === []) {
+                foreach (self::registrationFieldCatalog() as $key => $_) {
+                    if (isset($decoded[$key]) && is_string($decoded[$key])) {
+                        $modesRaw[$key] = $decoded[$key];
+                    }
+                }
+            }
+            $customRaw = is_array($decoded['custom'] ?? null) ? $decoded['custom'] : [];
+            $scheduleRaw = is_array($decoded['schedule'] ?? null) ? $decoded['schedule'] : [];
+        }
+
+        $modes = self::decodeRegistrationFields($modesRaw);
+        $custom = [];
+        $seenKeys = array_flip(array_keys(self::registrationFieldCatalog()));
+        foreach ($customRaw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $key = trim((string) ($row['key'] ?? ''));
+            if ($key === '' || !str_starts_with($key, 'custom_')) {
+                $key = 'custom_' . preg_replace('/[^a-z0-9]+/', '_', strtolower(\App\Support\Str::slug($label)));
+                $key = trim($key, '_') ?: ('custom_' . substr(md5($label), 0, 8));
+            }
+            if (isset($seenKeys[$key])) {
+                continue;
+            }
+            $seenKeys[$key] = true;
+            $type = (string) ($row['type'] ?? 'text');
+            if (!in_array($type, ['text', 'textarea', 'date', 'number', 'tel', 'email'], true)) {
+                $type = 'text';
+            }
+            $mode = strtolower(trim((string) ($row['mode'] ?? 'optional')));
+            if (!in_array($mode, ['off', 'optional', 'required'], true)) {
+                $mode = 'optional';
+            }
+            if ($mode === 'off') {
+                continue; // eliminado
+            }
+            $custom[] = [
+                'key' => $key,
+                'label' => $label,
+                'type' => $type,
+                'mode' => $mode,
+            ];
+        }
+
+        $schedule = self::defaultExamSchedule();
+        if ($scheduleRaw !== []) {
+            $start = trim((string) ($scheduleRaw['time_start'] ?? $schedule['time_start']));
+            $end = trim((string) ($scheduleRaw['time_end'] ?? $schedule['time_end']));
+            if (preg_match('/^\d{1,2}:\d{2}/', $start)) {
+                $schedule['time_start'] = substr($start, 0, 5);
+            }
+            if (preg_match('/^\d{1,2}:\d{2}/', $end)) {
+                $schedule['time_end'] = substr($end, 0, 5);
+            }
+            $slot = (int) ($scheduleRaw['slot_minutes'] ?? $schedule['slot_minutes']);
+            $schedule['slot_minutes'] = in_array($slot, [15, 30, 60], true) ? $slot : 30;
+            $schedule['extraordinary_enabled'] = !empty($scheduleRaw['extraordinary_enabled']);
+            $schedule['extraordinary_fee'] = max(0, (float) ($scheduleRaw['extraordinary_fee'] ?? 0));
+            $warn = trim((string) ($scheduleRaw['extraordinary_warning'] ?? ''));
+            if ($warn !== '') {
+                $schedule['extraordinary_warning'] = $warn;
+            }
+        }
+
+        return [
+            'modes' => $modes,
+            'custom' => $custom,
+            'schedule' => $schedule,
+        ];
+    }
+
+    /** @param array<string,mixed>|string|null $config */
+    public static function encodeRegistrationConfig(array|string|null $config): ?string
+    {
+        if (is_string($config)) {
+            $config = self::decodeRegistrationConfig($config);
+        }
+        if ($config === null) {
+            return null;
+        }
+        $normalized = self::decodeRegistrationConfig($config);
+
+        return json_encode($normalized, JSON_UNESCAPED_UNICODE) ?: null;
+    }
+
+    /** @return list<string> HH:MM slots inclusive of start, exclusive of end+slot if past end */
+    public static function examTimeSlots(array $schedule): array
+    {
+        $schedule = array_merge(self::defaultExamSchedule(), $schedule);
+        $start = $schedule['time_start'];
+        $end = $schedule['time_end'];
+        $step = max(15, (int) $schedule['slot_minutes']);
+        $slots = [];
+        try {
+            $cur = new \DateTimeImmutable('1970-01-01 ' . $start);
+            $limit = new \DateTimeImmutable('1970-01-01 ' . $end);
+        } catch (\Throwable) {
+            return ['09:00', '09:30', '10:00'];
+        }
+        if ($cur > $limit) {
+            return [$start];
+        }
+        while ($cur <= $limit) {
+            $slots[] = $cur->format('H:i');
+            $cur = $cur->modify('+' . $step . ' minutes');
+            if (count($slots) > 48) {
+                break;
+            }
+        }
+
+        return $slots;
+    }
+
+    public static function isExamTimeWithinRange(string $time, array $schedule): bool
+    {
+        $time = substr(trim($time), 0, 5);
+        if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
+            return false;
+        }
+        $start = substr((string) ($schedule['time_start'] ?? '09:00'), 0, 5);
+        $end = substr((string) ($schedule['time_end'] ?? '18:00'), 0, 5);
+
+        return $time >= $start && $time <= $end;
     }
 
     /** @return array<string, string> field => off|optional|required */
@@ -600,6 +775,19 @@ final class CatalogRepository
     /** @return array<string, string> field => off|optional|required */
     public static function decodeRegistrationFields(mixed $raw): array
     {
+        // Si viene config completa, usar modes
+        if (is_array($raw) && (isset($raw['modes']) || isset($raw['custom']) || isset($raw['schedule']))) {
+            $raw = $raw['modes'] ?? [];
+        }
+        if (is_string($raw) && $raw !== '') {
+            $tmp = json_decode($raw, true);
+            if (is_array($tmp) && (isset($tmp['modes']) || isset($tmp['custom']) || isset($tmp['schedule']))) {
+                $raw = $tmp['modes'] ?? [];
+            } elseif (is_array($tmp)) {
+                $raw = $tmp;
+            }
+        }
+
         $defaults = self::defaultRegistrationFields();
         $decoded = [];
         if (is_string($raw) && $raw !== '') {
@@ -630,14 +818,18 @@ final class CatalogRepository
     /** @param array<string, string>|string|null $fields */
     public static function encodeRegistrationFields(array|string|null $fields): ?string
     {
+        // Preferir encodeRegistrationConfig si ya es estructura nueva
+        if (is_array($fields) && (isset($fields['modes']) || isset($fields['custom']) || isset($fields['schedule']))) {
+            return self::encodeRegistrationConfig($fields);
+        }
         if (is_string($fields)) {
             $fields = self::decodeRegistrationFields($fields);
         }
         if ($fields === null) {
             return null;
         }
-        $normalized = self::decodeRegistrationFields($fields);
-        // Si coincide con defaults, igual persistimos para que el admin vea lo guardado.
+        $normalized = self::decodeRegistrationConfig(['modes' => is_array($fields) ? $fields : []]);
+
         return json_encode($normalized, JSON_UNESCAPED_UNICODE) ?: null;
     }
 
@@ -1026,6 +1218,7 @@ final class CatalogRepository
      */
     public function openCertificationCase(array $data): int
     {
+        $this->ensureExamExtraColumns();
         $certId = (int) $data['certification_id'];
         $cert = $this->certification($certId);
         if (!$cert) {
@@ -1066,8 +1259,9 @@ final class CatalogRepository
                  (certification_id, protocol_id, student_user_id, partner_id, student_email, student_name,
                   student_last_name_p, student_last_name_m, student_phone, student_curp, student_birth_date,
                   student_sex, student_nationality, exam_date, exam_time,
+                  exam_extraordinary, exam_extraordinary_fee, registration_extra_json,
                   cc_email, cenni_status, status, current_step_id, notes)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $stmt->execute([
                 $certId,
@@ -1085,6 +1279,9 @@ final class CatalogRepository
                 $data['student_nationality'] ?? null,
                 $data['exam_date'] ?? null,
                 $data['exam_time'] ?? null,
+                !empty($data['exam_extraordinary']) ? 1 : 0,
+                $data['exam_extraordinary_fee'] ?? null,
+                $data['registration_extra_json'] ?? null,
                 $data['cc_email'] ?? null,
                 $cenniStatus,
                 'in_progress',
@@ -1457,6 +1654,7 @@ final class CatalogRepository
             'student_name', 'student_last_name_p', 'student_last_name_m', 'student_email', 'student_phone',
             'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
             'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
+            'exam_extraordinary', 'exam_extraordinary_fee', 'registration_extra_json',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
             'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
@@ -1911,6 +2109,35 @@ final class CatalogRepository
             $this->pdo->exec(
                 "ALTER TABLE certifications ADD COLUMN registration_fields_json JSON NULL COMMENT 'Campos adquisición off|optional|required' AFTER value_points_json"
             );
+        }
+        $done = true;
+    }
+
+    private function ensureExamExtraColumns(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $cols = [
+            'exam_extraordinary' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'exam_extraordinary_fee' => 'DECIMAL(12,2) NULL',
+            'registration_extra_json' => 'JSON NULL',
+        ];
+        foreach ($cols as $name => $def) {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['certification_cases', $name]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $after = match ($name) {
+                    'exam_extraordinary' => 'exam_time',
+                    'exam_extraordinary_fee' => 'exam_extraordinary',
+                    default => 'notes',
+                };
+                $this->pdo->exec('ALTER TABLE certification_cases ADD COLUMN ' . $name . ' ' . $def . ' AFTER ' . $after);
+            }
         }
         $done = true;
     }
