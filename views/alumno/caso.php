@@ -56,7 +56,9 @@ $timeline = [
         'hint' => $paid
             ? ('Confirmado' . ($paymentMethodLabel !== '' ? ' · ' . $paymentMethodLabel : '')
                 . (!empty($item['payment_confirmed_at']) ? ' · ' . $item['payment_confirmed_at'] : ''))
-            : 'Pendiente de pago (SPEI, efectivo o transferencia)',
+            : (trim((string) ($item['payment_proof_path'] ?? '')) !== ''
+                ? 'Comprobante enviado · pendiente de confirmación Doceo'
+                : 'Pendiente de pago (SPEI, efectivo o transferencia)'),
         'done' => $paid,
     ],
     [
@@ -112,7 +114,11 @@ if ($needsSign) {
         <?php if ($signed && !$paid): ?>
             <p class="alert alert-warn" style="margin-top:0.75rem">
                 Tu caso está <strong>pendiente de pago</strong>.
-                Puedes pagar por SPEI OpenPay o, si pagaste en efectivo/transferencia, el equipo Doceo lo marcará recibido para que continues.
+                <?php if (trim((string) ($item['payment_proof_path'] ?? '')) !== ''): ?>
+                    Ya subiste comprobante; Doceo confirmará la recepción para que continues.
+                <?php else: ?>
+                    Puedes generar CLABE SPEI OpenPay o subir comprobante si ya pagaste en efectivo/transferencia.
+                <?php endif; ?>
             </p>
         <?php elseif ($paid): ?>
             <p class="alert alert-ok" style="margin-top:0.75rem">Pago confirmado<?= $paymentMethodLabel !== '' ? ' (' . e($paymentMethodLabel) . ')' : '' ?>.</p>
