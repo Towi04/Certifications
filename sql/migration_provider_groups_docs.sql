@@ -87,13 +87,9 @@ ALTER TABLE documents MODIFY COLUMN doc_type ENUM(
   'export_template', 'student', 'provider_ops', 'other'
 ) NOT NULL DEFAULT 'other';
 
--- Backfill: grupo DEFAULT por proveedor
-INSERT INTO provider_groups (provider_id, code, name, description, sort_order, is_active)
-SELECT p.id, 'DEFAULT', 'General', 'Grupo por defecto (migración)', 0, 1
-FROM providers p
-WHERE NOT EXISTS (
-  SELECT 1 FROM provider_groups g WHERE g.provider_id = p.id AND g.code = 'DEFAULT'
-);
+-- Backfill histórico (ya no se usa): grupos DEFAULT no se crean automáticamente.
+-- “Toda la empresa” = alcance provider en documentos/links; los grupos son subconjuntos opcionales.
+-- INSERT INTO provider_groups ... DEFAULT omitido a propósito.
 
 UPDATE documents d
 SET d.scope_type = COALESCE(d.scope_type, 'provider'),
