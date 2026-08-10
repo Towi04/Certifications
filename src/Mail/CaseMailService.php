@@ -489,15 +489,13 @@ final class CaseMailService
         if (!empty($tpl['attach_regulation'])) {
             $regAtt = $this->regulationAttachmentForCase($case);
             if ($regAtt !== null) {
-                $regPath = (string) ($regAtt['path'] ?? '');
-                $regName = (string) ($regAtt['name'] ?? 'reglamento.pdf');
-                $regMime = (string) ($regAtt['mime'] ?? 'application/pdf');
-                $regRel = null;
-                $storagePrefix = dirname(__DIR__, 2) . '/storage/';
-                if (str_starts_with($regPath, $storagePrefix)) {
-                    $regRel = substr($regPath, strlen($storagePrefix));
-                }
-                $attachFile($regPath, $regName, $regMime, $regRel, 'Reglamento');
+                $attachFile(
+                    (string) $regAtt['path'],
+                    (string) ($regAtt['name'] ?? 'reglamento.pdf'),
+                    (string) ($regAtt['mime'] ?? 'application/pdf'),
+                    isset($regAtt['relative']) ? (string) $regAtt['relative'] : null,
+                    'Reglamento'
+                );
             }
         }
 
@@ -818,6 +816,7 @@ final class CaseMailService
             if ($abs) {
                 return [
                     'path' => $abs,
+                    'relative' => $signedRel,
                     'name' => 'reglamento_firmado_' . basename($abs),
                     'mime' => 'application/pdf',
                 ];
@@ -832,6 +831,7 @@ final class CaseMailService
                 $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
                 return [
                     'path' => $abs,
+                    'relative' => $originalRel,
                     'name' => 'reglamento_' . basename($abs),
                     'mime' => $ext === 'pdf' ? 'application/pdf' : 'application/octet-stream',
                 ];
