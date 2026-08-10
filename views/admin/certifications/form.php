@@ -183,6 +183,43 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <?php endif; ?>
         </fieldset>
 
+        <fieldset class="field-wide">
+            <legend>Campos del formulario de adquisición</legend>
+            <p class="muted">
+                Define qué datos debe llenar el alumno al adquirir esta certificación.
+                Ejemplo: ELET puede omitir CURP/fecha de nacimiento; TOEFL sí pedirlos.
+                Puedes cambiarlo después si UKS u otra certificadora lo requiere.
+            </p>
+            <?php
+            $regFields = \App\Catalog\CatalogRepository::decodeRegistrationFields($item['registration_fields_json'] ?? null);
+            $regCatalog = \App\Catalog\CatalogRepository::registrationFieldCatalog();
+            $modeLabels = ['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'];
+            ?>
+            <div class="reg-fields-grid">
+                <?php foreach ($regCatalog as $key => $meta): ?>
+                    <?php
+                    $mode = $regFields[$key] ?? ($meta['default'] ?? 'off');
+                    $locked = !empty($meta['locked']);
+                    ?>
+                    <label class="reg-field-row">
+                        <span><?= e($meta['label']) ?><?= $locked ? ' <em class="muted">(fijo)</em>' : '' ?></span>
+                        <?php if ($locked): ?>
+                            <input type="hidden" name="registration_fields[<?= e($key) ?>]" value="required">
+                            <select disabled>
+                                <option selected>Obligatorio</option>
+                            </select>
+                        <?php else: ?>
+                            <select name="registration_fields[<?= e($key) ?>]">
+                                <?php foreach ($modeLabels as $val => $lab): ?>
+                                    <option value="<?= e($val) ?>" <?= $mode === $val ? 'selected' : '' ?>><?= e($lab) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php endif; ?>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        </fieldset>
+
         <div class="eligibility-row">
             <label class="check">
                 <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>

@@ -122,6 +122,9 @@ final class PublicRoutes
                     exit;
                 }
 
+                $regCfg = CatalogRepository::decodeRegistrationFields($item['registration_fields_json'] ?? null);
+                $catalog = CatalogRepository::registrationFieldCatalog();
+
                 $first = trim((string) ($_POST['first_name'] ?? ''));
                 $lastP = trim((string) ($_POST['last_name_p'] ?? ''));
                 $lastM = trim((string) ($_POST['last_name_m'] ?? ''));
@@ -130,20 +133,58 @@ final class PublicRoutes
                 $curp = strtoupper(trim((string) ($_POST['curp'] ?? '')));
                 $birthDate = trim((string) ($_POST['birth_date'] ?? ''));
                 $sex = strtoupper(trim((string) ($_POST['sex'] ?? '')));
-                $nationality = strtoupper(trim((string) ($_POST['nationality'] ?? 'MEX'))) ?: 'MEX';
+                $nationality = strtoupper(trim((string) ($_POST['nationality'] ?? '')));
                 $examDate = trim((string) ($_POST['exam_date'] ?? ''));
 
-                if ($first === '' || $lastP === '') {
-                    throw new \RuntimeException('Nombre(s) y apellido paterno son obligatorios (aparecerán en tu certificado).');
+                $posted = [
+                    'first_name' => $first,
+                    'last_name_p' => $lastP,
+                    'last_name_m' => $lastM,
+                    'email' => $email,
+                    'phone' => $phone,
+                    'curp' => $curp,
+                    'birth_date' => $birthDate,
+                    'sex' => $sex,
+                    'nationality' => $nationality,
+                    'exam_date' => $examDate,
+                ];
+                foreach ($regCfg as $key => $mode) {
+                    if ($mode === 'off') {
+                        $posted[$key] = '';
+                        continue;
+                    }
+                    if ($mode === 'required' && trim((string) ($posted[$key] ?? '')) === '') {
+                        $label = $catalog[$key]['label'] ?? $key;
+                        throw new \RuntimeException($label . ' es obligatorio para esta certificación.');
+                    }
                 }
-                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     throw new \RuntimeException('Correo inválido.');
-                }
-                if ($examDate === '') {
-                    throw new \RuntimeException('Elige la fecha preferida de examen.');
                 }
                 if ($sex !== '' && !in_array($sex, ['F', 'M'], true)) {
                     $sex = '';
+                }
+                // Campos apagados no se guardan
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'last_name_m')) {
+                    $lastM = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'phone')) {
+                    $phone = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'curp')) {
+                    $curp = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'birth_date')) {
+                    $birthDate = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'sex')) {
+                    $sex = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'nationality')) {
+                    $nationality = '';
+                }
+                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date')) {
+                    $examDate = '';
                 }
 
                 $plainPassword = null;
@@ -197,8 +238,8 @@ final class PublicRoutes
                     'student_curp' => $curp !== '' ? $curp : null,
                     'student_birth_date' => $birthDate !== '' ? $birthDate : null,
                     'student_sex' => $sex !== '' ? $sex : null,
-                    'student_nationality' => $nationality,
-                    'exam_date' => $examDate,
+                    'student_nationality' => $nationality !== '' ? $nationality : null,
+                    'exam_date' => $examDate !== '' ? $examDate : null,
                     'notes' => 'Adquisición pública · datos para certificado: ' . $fullName,
                 ]);
 

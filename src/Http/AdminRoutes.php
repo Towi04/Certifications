@@ -1726,6 +1726,12 @@ final class AdminRoutes
             }
             $scoreRanges = CatalogRepository::decodeScoreRanges($rawRanges);
 
+            $rawRegFields = $_POST['registration_fields'] ?? [];
+            if (!is_array($rawRegFields)) {
+                $rawRegFields = [];
+            }
+            $registrationFields = CatalogRepository::decodeRegistrationFields($rawRegFields);
+
             $rawTierPrices = $_POST['tier_prices'] ?? [];
             if (!is_array($rawTierPrices)) {
                 $rawTierPrices = [];
@@ -1743,6 +1749,7 @@ final class AdminRoutes
                     'value_points_json' => CatalogRepository::encodeValuePoints(
                         (string) ($_POST['value_points'] ?? '')
                     ),
+                    'registration_fields_json' => CatalogRepository::encodeRegistrationFields($registrationFields),
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
                     'syllabus_html' => is_array($existing) ? ($existing['syllabus_html'] ?? null) : null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,
