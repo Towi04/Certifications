@@ -11,6 +11,13 @@ $notes = $notes ?? [];
 $editVenue = $editVenue ?? null;
 $editContact = $editContact ?? null;
 $editAccount = $editAccount ?? null;
+$editGroup = $editGroup ?? null;
+$editDocument = $editDocument ?? null;
+$groups = $groups ?? [];
+$provider_documents = $provider_documents ?? [];
+$provider_reg_fields = $provider_reg_fields ?? [];
+$docTypes = $docTypes ?? [];
+$appUrl = $appUrl ?? '';
 $showForm = (bool) ($showForm ?? false);
 $authType = $item['auth_proof_type'] ?? 'none';
 $icon = $item['logo_icon_path'] ?? $item['logo_path'] ?? null;
@@ -30,7 +37,11 @@ $tabs = $item ? [
     'autorizacion' => 'Autorización',
     'convenio' => 'Convenio',
     'cuentas' => 'Cuentas',
+    'links' => 'Links',
     'certificaciones' => 'Certificaciones',
+    'grupos' => 'Grupos',
+    'documentos' => 'Documentos',
+    'campos' => 'Campos',
     'notas' => 'Notas',
 ] : ['proveedor' => 'Proveedor'];
 
@@ -508,8 +519,9 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <div>
                         <h3>Cuentas y sitios</h3>
                         <p class="muted" style="margin:0.25rem 0 0">
-                            Portales con login (usuario + contraseña cifrada) o <strong>sitios sin login</strong>
-                            (solo URL: registros, material, capacitación…). Solo admin.
+                            Accesos <strong>internos de Doceo</strong> al proveedor: portales con login
+                            (usuario + contraseña cifrada) o sitios sin login. No son los links que se envían al alumno
+                            (eso va en la pestaña <a href="/admin/providers/edit?id=<?= $id ?>&tab=links">Links</a>).
                         </p>
                     </div>
                     <?php if (!$accountFormOpen): ?>
@@ -811,6 +823,10 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
             </section>
         <?php endif; ?>
 
+        <?php if ($item && $tab === 'links'): ?>
+            <?php require __DIR__ . '/_tab_links.php'; ?>
+        <?php endif; ?>
+
         <?php if ($item && $tab === 'certificaciones'): ?>
             <?php $certFormOpen = $showForm; ?>
             <section class="provider-panel">
@@ -869,13 +885,14 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php if ($certifications): ?>
                         <div class="table-wrap">
                             <table class="data-table">
-                                <thead><tr><th>Nombre</th><th>Código</th><th></th></tr></thead>
+                                <thead><tr><th>Nombre</th><th>Código</th><th>Grupo</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($certifications as $c): ?>
                                     <?php $pub = (int)$c['is_published'] === 1; ?>
                                     <tr class="<?= $pub ? '' : 'is-row-inactive' ?>">
                                         <td><?= e($c['name']) ?></td>
                                         <td><code><?= e($c['code']) ?></code></td>
+                                        <td><?= e($c['group_name'] ?? '—') ?></td>
                                         <td>
                                             <div class="icon-actions">
                                                 <form method="post" action="/admin/providers/certification/toggle-published" class="inline-form"
@@ -899,6 +916,18 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'grupos'): ?>
+            <?php require __DIR__ . '/_tab_grupos.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'documentos'): ?>
+            <?php require __DIR__ . '/_tab_documentos.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'campos'): ?>
+            <?php require __DIR__ . '/_tab_campos.php'; ?>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'notas'): ?>

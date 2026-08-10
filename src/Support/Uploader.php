@@ -12,9 +12,27 @@ final class Uploader
         'jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'svg',
     ];
 
+    private const DOCUMENT_EXT = [
+        'pdf', 'csv', 'xlsx', 'xls', 'doc', 'docx',
+    ];
+
     private const ALLOWED_MIME = [
         'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
         'application/pdf',
+    ];
+
+    private const DOCUMENT_MIME = [
+        'application/pdf',
+        'application/x-pdf',
+        'text/csv',
+        'text/plain',
+        'application/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/octet-stream',
+        'application/zip',
     ];
 
     private const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
@@ -33,6 +51,27 @@ final class Uploader
 
         $safeName = bin2hex(random_bytes(8)) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($original));
         // Normalizar extensión de imágenes redimensionadas a png/jpg
+        $dest = $base . '/' . $safeName;
+        if (!move_uploaded_file($tmp, $dest)) {
+            throw new RuntimeException('No se pudo guardar el archivo.');
+        }
+
+        return 'uploads/' . trim($subdir, '/') . '/' . $safeName;
+    }
+
+    /**
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int} $file
+     */
+    public static function storeDocument(array $file, string $subdir = 'documents'): string
+    {
+        [$tmp, $ext, $original] = self::validateDocumentUpload($file);
+
+        $base = dirname(__DIR__, 2) . '/storage/uploads/' . trim($subdir, '/');
+        if (!is_dir($base) && !mkdir($base, 0755, true) && !is_dir($base)) {
+            throw new RuntimeException('No se pudo crear la carpeta de uploads.');
+        }
+
+        $safeName = bin2hex(random_bytes(8)) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($original));
         $dest = $base . '/' . $safeName;
         if (!move_uploaded_file($tmp, $dest)) {
             throw new RuntimeException('No se pudo guardar el archivo.');
@@ -138,6 +177,47 @@ final class Uploader
 
         if ((int) ($file['size'] ?? 0) > self::MAX_BYTES) {
             throw new RuntimeException('El archivo supera 20 MB. Comprime el PDF o divide el documento.');
+        }
+
+        return [$tmp, $ext, $original];
+    }
+
+    /**
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int} $file
+     * @return array{0:string,1:string,2:string}
+     */
+    private static function validateDocumentUpload(array $file): array
+    {
+        $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new RuntimeException(self::uploadErrorMessage($error));
+        }
+
+        $tmp = (string) ($file['tmp_name'] ?? '');
+        $original = (string) ($file['name'] ?? 'file');
+        if ($tmp === '' || !is_uploaded_file($tmp)) {
+            throw new RuntimeException('Archivo de subida inválido.');
+        }
+
+        $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+        if (!in_array($ext, self::DOCUMENT_EXT, true)) {
+            throw new RuntimeException(
+                'Extensión no permitida. Usa: ' . implode(', ', self::DOCUMENT_EXT)
+            );
+        }
+
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($tmp) ?: '';
+        $mimeOk = in_array($mime, self::DOCUMENT_MIME, true);
+        if (!$mimeOk && $ext === 'csv' && str_starts_with($mime, 'text/')) {
+            $mimeOk = true;
+        }
+        if (!$mimeOk) {
+            throw new RuntimeException('Tipo MIME no permitido: ' . $mime);
+        }
+
+        if ((int) ($file['size'] ?? 0) > self::MAX_BYTES) {
+            throw new RuntimeException('El archivo supera 20 MB.');
         }
 
         return [$tmp, $ext, $original];

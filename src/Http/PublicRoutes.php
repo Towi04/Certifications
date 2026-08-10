@@ -844,5 +844,32 @@ final class PublicRoutes
             ], JSON_UNESCAPED_UNICODE);
             exit;
         });
+
+        $router->get('/d/{token}', static function () use ($repo): void {
+            $token = Router::param('token');
+            if ($token === '') {
+                http_response_code(404);
+                echo 'Documento no encontrado.';
+                exit;
+            }
+
+            $doc = $repo()->documentByShareToken($token);
+            if (!$doc || !(int) ($doc['is_active'] ?? 0)) {
+                http_response_code(404);
+                echo 'Documento no encontrado.';
+                exit;
+            }
+
+            $filePath = trim((string) ($doc['file_path'] ?? ''));
+            if ($filePath === '') {
+                http_response_code(404);
+                echo 'Documento sin archivo.';
+                exit;
+            }
+
+            header('Location: /media?f=' . rawurlencode($filePath) . '&download=1&name='
+                . rawurlencode((string) $doc['title'] . '_v' . (string) $doc['version']));
+            exit;
+        });
     }
 }

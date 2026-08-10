@@ -3,14 +3,13 @@ require __DIR__ . '/../_nav.php';
 $providers = $providers ?? [];
 $tiers = $tiers ?? [];
 $items = $items ?? [];
-$regulations = $regulations ?? [];
 $filters = $filters ?? [];
 $providerId = (int) ($filters['provider_id'] ?? 0);
 ?>
 <section class="note">
     <div class="page-head" style="margin:0">
         <div>
-            <h2 style="margin:0">Precios y reglamentos</h2>
+            <h2 style="margin:0">Precios</h2>
             <p class="muted" style="margin:0.35rem 0 0">
                 Define el costo de compra y genera precios de venta (público y cada nivel TR) con márgenes distintos.
                 No se permite guardar si público o TR quedan por debajo del costo.
@@ -43,34 +42,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
         <p class="muted">Elige un proveedor para cargar todas sus certificaciones en la matriz.</p>
     </section>
 <?php else: ?>
-
-<section class="note">
-    <h3>Reglamento de la empresa</h3>
-    <p class="muted">Cuando UKS (u otra) actualiza el PDF, súbelo en Documentos y asígnalo aquí a todas las certificaciones de esta empresa.</p>
-    <form method="post" action="/admin/certifications/pricing/assign-regulation" class="stack form-grid">
-        <input type="hidden" name="provider_id" value="<?= $providerId ?>">
-        <input type="hidden" name="q" value="<?= e($filters['q'] ?? '') ?>">
-        <label>Reglamento (documentos tipo reglamento)
-            <select name="document_id" required>
-                <option value="">—</option>
-                <?php foreach ($regulations as $doc): ?>
-                    <option value="<?= (int)$doc['id'] ?>">
-                        <?= e($doc['title']) ?> · v<?= e((string)$doc['version']) ?>
-                        <?= empty($doc['provider_id']) ? ' (general)' : '' ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <div class="actions">
-            <button class="btn" type="submit" onclick="return confirm('¿Asignar este reglamento a TODAS las certificaciones de esta empresa?');">
-                Asignar a todas las de esta empresa
-            </button>
-            <?php if (!$regulations): ?>
-                <span class="muted">No hay reglamentos activos. Crea uno en Documentos (tipo reglamento, proveedor = esta empresa).</span>
-            <?php endif; ?>
-        </div>
-    </form>
-</section>
 
 <section class="note">
     <h3>Ajuste rápido desde el costo</h3>
@@ -112,7 +83,7 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
         <input type="hidden" name="provider_id" value="<?= $providerId ?>">
         <input type="hidden" name="q" value="<?= e($filters['q'] ?? '') ?>">
         <div class="actions pricing-save-bar">
-            <button class="btn" type="submit" id="pricingSaveBtn">Guardar precios y reglamentos</button>
+            <button class="btn" type="submit" id="pricingSaveBtn">Guardar precios</button>
             <span class="muted"><?= count($items) ?> certificación(es)</span>
             <span class="pricing-loss-banner" id="pricingLossBanner" hidden>
                 Hay precios por debajo del costo (en rojo). Corrígelos antes de guardar.
@@ -129,7 +100,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
                         <?php foreach ($tiers as $tier): ?>
                             <th>TR <?= e($tier['name']) ?></th>
                         <?php endforeach; ?>
-                        <th>Reglamento</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -137,7 +107,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
                     <?php
                     $cid = (int) $item['id'];
                     $tierPrices = $item['tier_prices'] ?? [];
-                    $regId = (int) ($item['regulation_document_id'] ?? 0);
                     ?>
                     <tr class="pricing-row" data-cert-id="<?= $cid ?>">
                         <td class="pricing-sticky-col">
@@ -169,20 +138,10 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
                                 <div class="price-hint" data-hint-for="tier-<?= $cid ?>-<?= $tid ?>"></div>
                             </td>
                         <?php endforeach; ?>
-                        <td>
-                            <select name="rows[<?= $cid ?>][regulation_document_id]">
-                                <option value="">—</option>
-                                <?php foreach ($regulations as $doc): ?>
-                                    <option value="<?= (int)$doc['id'] ?>" <?= $regId === (int)$doc['id'] ? 'selected' : '' ?>>
-                                        <?= e($doc['title']) ?> v<?= e((string)$doc['version']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (!$items): ?>
-                    <tr><td colspan="<?= 4 + count($tiers) ?>" class="muted">No hay certificaciones para este proveedor.</td></tr>
+                    <tr><td colspan="<?= 3 + count($tiers) ?>" class="muted">No hay certificaciones para este proveedor.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -194,7 +153,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
                     <?php
                     $cid = (int) $item['id'];
                     $tierPrices = $item['tier_prices'] ?? [];
-                    $regId = (int) ($item['regulation_document_id'] ?? 0);
                     ?>
                     <article class="pricing-card pricing-row" data-cert-id="<?= $cid ?>">
                         <header>
@@ -225,21 +183,11 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
                                 <div class="price-hint" data-hint-for="tier-<?= $cid ?>-<?= $tid ?>"></div>
                             </label>
                         <?php endforeach; ?>
-                        <label>Reglamento
-                            <select data-sync-name="rows[<?= $cid ?>][regulation_document_id]">
-                                <option value="">—</option>
-                                <?php foreach ($regulations as $doc): ?>
-                                    <option value="<?= (int)$doc['id'] ?>" <?= $regId === (int)$doc['id'] ? 'selected' : '' ?>>
-                                        <?= e($doc['title']) ?> v<?= e((string)$doc['version']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
                     </article>
                 <?php endforeach; ?>
             </div>
             <div class="actions pricing-save-bar" style="margin-top:1rem">
-                <button class="btn" type="submit">Guardar precios y reglamentos</button>
+                <button class="btn" type="submit">Guardar precios</button>
             </div>
         <?php endif; ?>
     </form>
@@ -266,7 +214,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
     return cost + margin;
   }
 
-  // Mobile cards mirror desktop named fields so only desktop names submit.
   function syncMobileToDesktop() {
     form.querySelectorAll('.pricing-matrix-mobile [data-sync-name]').forEach(function (src) {
       var name = src.getAttribute('data-sync-name');
@@ -324,7 +271,6 @@ $providerId = (int) ($filters['provider_id'] ?? 0);
       });
     });
 
-    // Mirror class state to the paired mobile/desktop input
     sellInputs.forEach(function (el) {
       var name = el.getAttribute('name') || el.getAttribute('data-sync-name');
       if (!name) return;

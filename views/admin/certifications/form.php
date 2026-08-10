@@ -37,6 +37,14 @@ if (!isset($modalities[$modality])) {
     $modality = 'online';
 }
 $published = !empty($item['is_published']);
+$providerGroups = $provider_groups ?? [];
+$providerAvailableFields = $provider_available_fields ?? [];
+$providerGroupsMap = $provider_groups_map ?? [];
+$providerFieldsMap = $provider_fields_map ?? [];
+$availableFieldKeys = [];
+foreach ($providerAvailableFields as $af) {
+    $availableFieldKeys[$af['key']] = $af;
+}
 $iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>';
 $iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -59,7 +67,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
 
         <?php if (!$item): ?>
             <label>Proveedor
-                <select name="provider_id" required>
+                <select name="provider_id" id="certProviderId" required>
                     <option value="">—</option>
                     <?php foreach ($providers as $p): ?>
                         <option value="<?= (int)$p['id'] ?>"><?= e($p['name']) ?></option>
@@ -67,6 +75,18 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 </select>
             </label>
         <?php endif; ?>
+
+        <label>Grupo del proveedor
+            <select name="provider_group_id" id="certProviderGroupId">
+                <option value="">— Sin grupo —</option>
+                <?php foreach ($providerGroups as $g): ?>
+                    <option value="<?= (int)$g['id'] ?>" <?= (int)($item['provider_group_id'] ?? 0) === (int)$g['id'] ? 'selected' : '' ?>>
+                        <?= e($g['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small class="muted">Opcional. Los grupos se definen en Proveedores → Grupos.</small>
+        </label>
 
         <label>Protocolo
             <select name="protocol_id">
@@ -196,16 +216,50 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             $regCustom = $regConfig['custom'];
             $schedule = $regConfig['schedule'];
             $modeLabels = ['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'];
+            if ($providerAvailableFields === []) {
+                foreach ($regCatalog as $key => $meta) {
+                    if (!empty($meta['locked'])) {
+                        $providerAvailableFields[] = [
+                            'key' => $key,
+                            'label' => (string) $meta['label'],
+                            'type' => (string) ($meta['type'] ?? 'text'),
+                            'source' => 'builtin',
+                        ];
+                    }
+                }
+            }
             ?>
-            <h3 class="reg-subtitle">Campos base</h3>
-            <div class="reg-fields-grid">
-                <?php foreach ($regCatalog as $key => $meta): ?>
-                    <?php
-                    $mode = $regFields[$key] ?? ($meta['default'] ?? 'off');
+            <h3 class="reg-subtitle">Campos del proveedor</h3>
+            <p class="muted">
+                Solo puedes elegir entre los campos definidos en <strong>Proveedores → Campos</strong>.
+                Si dejas “No pedir”, el admin los completará más adelante (no se piden al alumno en la adquisición).
+            </p>
+            <div class="reg-fields-grid" id="certBaseFieldsGrid">
+                <?php
+                $customModeMap = [];
+                foreach ($regCustom as $cf) {
+                    $customModeMap[(string) ($cf['key'] ?? '')] = (string) ($cf['mode'] ?? 'off');
+                }
+                foreach ($providerAvailableFields as $af):
+                    $key = (string) ($af['key'] ?? '');
+                    if ($key === '') {
+                        continue;
+                    }
+                    $meta = $regCatalog[$key] ?? ['label' => $af['label'], 'locked' => false, 'default' => 'optional'];
                     $locked = !empty($meta['locked']);
-                    ?>
-                    <label class="reg-field-row">
-                        <span><?= e($meta['label']) ?><?= $locked ? ' <em class="muted">(fijo)</em>' : '' ?></span>
+                    $isProviderCustom = ($af['source'] ?? '') === 'custom';
+                    $mode = $isProviderCustom
+                        ? ($customModeMap[$key] ?? 'off')
+                        : ($regFields[$key] ?? ($meta['default'] ?? 'off'));
+                    $label = (string) ($meta['label'] ?? $af['label'] ?? $key);
+                ?>
+                    <label class="reg-field-row" data-field-key="<?= e($key) ?>">
+                        <span>
+                            <?= e($label) ?>
+                            <?php if ($locked): ?> <em class="muted">(fijo)</em>
+                            <?php elseif ($isProviderCustom): ?> <em class="muted">(proveedor)</em>
+                            <?php endif; ?>
+                        </span>
                         <?php if ($locked): ?>
                             <input type="hidden" name="registration_fields[<?= e($key) ?>]" value="required">
                             <select disabled>
@@ -319,81 +373,6 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 En horas fijas escribe HH:MM separadas por coma. Presets: UKS lun–vie 10:00–17:30 y sáb 08:00–12:00 sin extraordinarias;
                 iTEP mismo rango todos los días; TOEFL solo sábado 11:00 y 13:00 con extraordinarias.
             </p>
-
-            <h3 class="reg-subtitle">Campos personalizados</h3>
-            <p class="muted">Agrega campos nuevos o elimínalos si ya no aplican. No afecta los campos base (esos se ocultan con “No pedir”).</p>
-            <div id="customFieldsList" class="custom-fields-list">
-                <?php foreach ($regCustom as $i => $cf): ?>
-                    <div class="custom-field-row" data-custom-row>
-                        <input type="hidden" name="custom_fields[<?= (int)$i ?>][key]" value="<?= e($cf['key']) ?>">
-                        <label>Etiqueta
-                            <input name="custom_fields[<?= (int)$i ?>][label]" required value="<?= e($cf['label']) ?>">
-                        </label>
-                        <label>Tipo
-                            <select name="custom_fields[<?= (int)$i ?>][type]">
-                                <?php foreach (['text' => 'Texto', 'textarea' => 'Texto largo', 'date' => 'Fecha', 'number' => 'Número', 'tel' => 'Teléfono', 'email' => 'Correo'] as $tv => $tl): ?>
-                                    <option value="<?= e($tv) ?>" <?= ($cf['type'] ?? '') === $tv ? 'selected' : '' ?>><?= e($tl) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                        <label>Uso
-                            <select name="custom_fields[<?= (int)$i ?>][mode]">
-                                <?php foreach (['optional' => 'Opcional', 'required' => 'Obligatorio'] as $mv => $ml): ?>
-                                    <option value="<?= e($mv) ?>" <?= ($cf['mode'] ?? '') === $mv ? 'selected' : '' ?>><?= e($ml) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                        <label class="check">
-                            <input type="checkbox" name="custom_fields[<?= (int)$i ?>][delete]" value="1"> Eliminar
-                        </label>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <div class="actions" style="margin-top:0.75rem">
-                <button class="btn btn-ghost" type="button" id="addCustomFieldBtn">Agregar campo</button>
-            </div>
-            <template id="customFieldTemplate">
-                <div class="custom-field-row" data-custom-row>
-                    <input type="hidden" name="custom_fields[__i__][key]" value="">
-                    <label>Etiqueta
-                        <input name="custom_fields[__i__][label]" required placeholder="Ej. Dirección">
-                    </label>
-                    <label>Tipo
-                        <select name="custom_fields[__i__][type]">
-                            <option value="text">Texto</option>
-                            <option value="textarea">Texto largo</option>
-                            <option value="date">Fecha</option>
-                            <option value="number">Número</option>
-                            <option value="tel">Teléfono</option>
-                            <option value="email">Correo</option>
-                        </select>
-                    </label>
-                    <label>Uso
-                        <select name="custom_fields[__i__][mode]">
-                            <option value="optional">Opcional</option>
-                            <option value="required">Obligatorio</option>
-                        </select>
-                    </label>
-                    <label class="check">
-                        <input type="checkbox" name="custom_fields[__i__][delete]" value="1"> Eliminar
-                    </label>
-                </div>
-            </template>
-            <script>
-            (function () {
-              var list = document.getElementById('customFieldsList');
-              var btn = document.getElementById('addCustomFieldBtn');
-              var tpl = document.getElementById('customFieldTemplate');
-              if (!list || !btn || !tpl) return;
-              var idx = list.querySelectorAll('[data-custom-row]').length;
-              btn.addEventListener('click', function () {
-                var html = tpl.innerHTML.replaceAll('__i__', String(idx++));
-                var wrap = document.createElement('div');
-                wrap.innerHTML = html.trim();
-                list.appendChild(wrap.firstElementChild);
-              });
-            })();
-            </script>
         </fieldset>
 
         <div class="eligibility-row">
@@ -707,6 +686,81 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
   });
 })();
 </script>
+<?php if (!$item): ?>
+<script>
+(function () {
+  const providerSel = document.getElementById('certProviderId');
+  const groupSel = document.getElementById('certProviderGroupId');
+  const fieldsGrid = document.getElementById('certBaseFieldsGrid');
+  const fieldsMap = <?= json_encode($providerFieldsMap, JSON_UNESCAPED_UNICODE) ?>;
+  const groupsMap = <?= json_encode($providerGroupsMap, JSON_UNESCAPED_UNICODE) ?>;
+  const regCatalog = <?= json_encode(\App\Catalog\CatalogRepository::registrationFieldCatalog(), JSON_UNESCAPED_UNICODE) ?>;
+  const modeLabels = <?= json_encode(['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'], JSON_UNESCAPED_UNICODE) ?>;
+
+  function rebuildGroups(pid) {
+    if (!groupSel) return;
+    groupSel.innerHTML = '<option value="">— Sin grupo —</option>';
+    (groupsMap[pid] || groupsMap[String(pid)] || []).forEach((g) => {
+      const opt = document.createElement('option');
+      opt.value = String(g.id);
+      opt.textContent = g.name;
+      groupSel.appendChild(opt);
+    });
+  }
+
+  function rebuildFields(pid) {
+    if (!fieldsGrid) return;
+    const fields = fieldsMap[pid] || fieldsMap[String(pid)] || [];
+    const lockedOnly = [];
+    Object.entries(regCatalog).forEach(([key, meta]) => {
+      if (meta.locked) lockedOnly.push({ key, label: meta.label, locked: true, default: meta.default || 'required' });
+    });
+    const list = fields.length ? fields : lockedOnly;
+    fieldsGrid.innerHTML = '';
+    list.forEach((af) => {
+      const key = af.key;
+      const meta = regCatalog[key] || { label: af.label, locked: !!af.locked, default: 'optional' };
+      const locked = !!meta.locked;
+      const label = document.createElement('label');
+      label.className = 'reg-field-row';
+      label.dataset.fieldKey = key;
+      const span = document.createElement('span');
+      span.innerHTML = (meta.label || af.label) + (locked ? ' <em class="muted">(fijo)</em>' : '');
+      label.appendChild(span);
+      if (locked) {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'registration_fields[' + key + ']';
+        hidden.value = 'required';
+        label.appendChild(hidden);
+        const sel = document.createElement('select');
+        sel.disabled = true;
+        sel.innerHTML = '<option selected>Obligatorio</option>';
+        label.appendChild(sel);
+      } else {
+        const sel = document.createElement('select');
+        sel.name = 'registration_fields[' + key + ']';
+        Object.entries(modeLabels).forEach(([val, lab]) => {
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = lab;
+          if (val === (meta.default || 'off')) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        label.appendChild(sel);
+      }
+      fieldsGrid.appendChild(label);
+    });
+  }
+
+  providerSel?.addEventListener('change', () => {
+    const pid = providerSel.value;
+    rebuildGroups(pid);
+    rebuildFields(pid);
+  });
+})();
+</script>
+<?php endif; ?>
 
 <?php if ($item): ?>
 <?php

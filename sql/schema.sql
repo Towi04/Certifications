@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS providers (
   name VARCHAR(190) NOT NULL,
   website_url VARCHAR(255) NULL,
   brand_website_url VARCHAR(255) NULL,
+  registration_fields_json JSON NULL COMMENT 'Campos disponibles para adquisición (elegibles en cada certificación)',
   logo_path VARCHAR(255) NULL,
   logo_icon_path VARCHAR(255) NULL,
   logo_full_path VARCHAR(255) NULL,
@@ -65,6 +66,21 @@ CREATE TABLE IF NOT EXISTS providers (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_providers_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS provider_groups (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NOT NULL,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_provider_group_code (provider_id, code),
+  KEY idx_provider_groups_provider (provider_id),
+  CONSTRAINT fk_provider_groups_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS provider_agreements (
@@ -284,6 +300,7 @@ CREATE TABLE IF NOT EXISTS courses (
 CREATE TABLE IF NOT EXISTS certifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NOT NULL,
+  provider_group_id BIGINT UNSIGNED NULL,
   protocol_id BIGINT UNSIGNED NULL,
   code VARCHAR(64) NOT NULL,
   slug VARCHAR(190) NOT NULL,
@@ -326,8 +343,10 @@ CREATE TABLE IF NOT EXISTS certifications (
   UNIQUE KEY uq_certifications_code (code),
   UNIQUE KEY uq_certifications_slug (slug),
   KEY idx_certifications_provider (provider_id),
+  KEY idx_certifications_group (provider_group_id),
   KEY idx_certifications_featured (is_featured),
   CONSTRAINT fk_certifications_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_certifications_group FOREIGN KEY (provider_group_id) REFERENCES provider_groups(id) ON DELETE SET NULL,
   CONSTRAINT fk_certifications_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -379,20 +398,53 @@ CREATE TABLE IF NOT EXISTS product_assets (
   KEY idx_assets_owner (owner_type, owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS provider_links (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NOT NULL,
+  code VARCHAR(64) NOT NULL COMMENT 'Clave estable para tokens de correo ({{Link CODE}})',
+  label VARCHAR(190) NOT NULL,
+  url VARCHAR(1024) NOT NULL,
+  link_type ENUM('study_material','software','exam_portal','other') NOT NULL DEFAULT 'other',
+  scope_type ENUM('provider','group','certification') NOT NULL DEFAULT 'provider',
+  provider_group_id BIGINT UNSIGNED NULL,
+  certification_id BIGINT UNSIGNED NULL,
+  notes TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_provider_link_code (provider_id, code),
+  KEY idx_provider_links_provider (provider_id),
+  KEY idx_provider_links_group (provider_group_id),
+  KEY idx_provider_links_cert (certification_id),
+  CONSTRAINT fk_provider_links_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS documents (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NULL,
+  scope_type ENUM('provider','group','certification') NOT NULL DEFAULT 'provider'
+    COMMENT 'Aplica a toda la empresa, un grupo o una certificación',
+  provider_group_id BIGINT UNSIGNED NULL,
+  certification_id BIGINT UNSIGNED NULL,
   code VARCHAR(64) NOT NULL,
   title VARCHAR(190) NOT NULL,
   version VARCHAR(64) NOT NULL DEFAULT '1.0',
-  doc_type ENUM('regulation', 'form', 'checklist', 'instructions', 'other') NOT NULL DEFAULT 'other',
+  doc_type ENUM(
+    'regulation', 'form', 'checklist', 'instructions',
+    'export_template', 'student', 'provider_ops', 'other'
+  ) NOT NULL DEFAULT 'other',
   file_path VARCHAR(255) NULL,
+  share_token VARCHAR(64) NULL,
   body_html MEDIUMTEXT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_documents_code (code),
+  UNIQUE KEY uq_documents_share_token (share_token),
   KEY idx_documents_provider (provider_id),
+  KEY idx_documents_group (provider_group_id),
+  KEY idx_documents_cert (certification_id),
   CONSTRAINT fk_documents_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
