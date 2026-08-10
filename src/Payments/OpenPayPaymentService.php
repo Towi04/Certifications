@@ -115,10 +115,13 @@ final class OpenPayPaymentService
      */
     public function handleWebhook(array $payload): array
     {
+        $this->repo->ensureOpenPayWebhookEventsTable();
+
         $type = (string) ($payload['type'] ?? '');
         $tx = is_array($payload['transaction'] ?? null) ? $payload['transaction'] : [];
         $chargeId = (string) ($tx['id'] ?? '');
         $orderId = (string) ($tx['order_id'] ?? '');
+        $verificationCode = trim((string) ($payload['verification_code'] ?? ''));
 
         $eventId = $this->repo->logOpenPayWebhook([
             'event_type' => $type,
@@ -128,9 +131,26 @@ final class OpenPayPaymentService
         ]);
 
         if ($type === 'verification') {
-            $this->repo->markOpenPayWebhookProcessed($eventId, true, null);
+            $note = $verificationCode !== '' ? 'verification_code:' . $verificationCode : null;
+            $this->repo->markOpenPayWebhookProcessed($eventId, true, $note);
+            try {
+                $dir = dirname(__DIR__, 2) . '/storage/logs';
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0755, true);
+                }
+                @file_put_contents(
+                    $dir . '/openpay-webhook-verification.txt',
+                    ($verificationCode !== '' ? $verificationCode : '(sin código)') . "\n" . date('c') . "\n",
+                    LOCK_EX
+                );
+            } catch (\Throwable) {
+            }
 
-            return ['ok' => true, 'type' => $type];
+            return [
+                'ok' => true,
+                'type' => $type,
+                'verification_code' => $verificationCode !== '' ? $verificationCode : null,
+            ];
         }
 
         if ($type !== 'charge.succeeded' && $type !== 'spei.received') {

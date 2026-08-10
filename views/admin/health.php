@@ -9,6 +9,7 @@
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/admin/salud">Reprobar DB / Moodle / OpenPay</a>
+        <a class="btn btn-ghost" href="/admin/openpay">OpenPay webhook</a>
         <a class="btn" href="/admin/salud?smtp=1">Probar SMTP</a>
     </div>
 </section>

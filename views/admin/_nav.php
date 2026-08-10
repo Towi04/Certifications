@@ -25,6 +25,7 @@
     <a href="/admin/agreements">Convenios anuales</a>
     <a href="/admin/partners">Partners</a>
     <a href="/admin/users">Usuarios</a>
+    <a href="/admin/openpay">OpenPay</a>
 </nav>
 
 <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>

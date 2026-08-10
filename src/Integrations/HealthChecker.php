@@ -17,6 +17,7 @@ final class HealthChecker
             $this->checkDatabase(),
             $this->checkMoodle(),
             $this->checkOpenPay(),
+            $this->checkOpenPayWebhook(),
             $this->checkSmtp($smtpTestTo),
             $this->checkStorage(),
         ];
@@ -118,6 +119,60 @@ final class HealthChecker
                     'id' => $merchant['id'] ?? Env::get('OPENPAY_MERCHANT_ID'),
                     'name' => $merchant['name'] ?? null,
                     'sandbox' => $sandbox,
+                    'webhook_url' => OpenPayClient::publicWebhookUrl(),
+                    'webhook_admin' => '/admin/openpay',
+                ],
+            ];
+        } catch (\Throwable $e) {
+            return ['name' => $name, 'ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /** @return array{name: string, ok: bool|null, message: string, meta?: array<string, mixed>} */
+    public function checkOpenPayWebhook(): array
+    {
+        $name = 'OpenPay webhook';
+        if (!Env::isFilled('OPENPAY_MERCHANT_ID') || !Env::isFilled('OPENPAY_PRIVATE_KEY')) {
+            return [
+                'name' => $name,
+                'ok' => false,
+                'message' => 'Configura OpenPay antes de registrar el webhook.',
+            ];
+        }
+
+        $target = rtrim(OpenPayClient::publicWebhookUrl(), '/');
+        try {
+            $client = new OpenPayClient();
+            $webhooks = $client->listWebhooks();
+            $match = null;
+            foreach ($webhooks as $wh) {
+                if (rtrim((string) ($wh['url'] ?? ''), '/') === $target) {
+                    $match = $wh;
+                    break;
+                }
+            }
+            if ($match === null) {
+                return [
+                    'name' => $name,
+                    'ok' => false,
+                    'message' => 'Aún no hay webhook apuntando a ' . $target . '. Regístralo en Admin → OpenPay.',
+                    'meta' => ['url' => $target, 'count' => count($webhooks), 'admin' => '/admin/openpay'],
+                ];
+            }
+            $status = (string) ($match['status'] ?? '');
+            $verified = $status === 'verified';
+
+            return [
+                'name' => $name,
+                'ok' => $verified ? true : null,
+                'message' => $verified
+                    ? 'Webhook verificado y activo.'
+                    : 'Webhook registrado pero no verificado (estado: ' . ($status !== '' ? $status : 'desconocido') . ').',
+                'meta' => [
+                    'id' => $match['id'] ?? null,
+                    'status' => $status,
+                    'url' => $match['url'] ?? $target,
+                    'admin' => '/admin/openpay',
                 ],
             ];
         } catch (\Throwable $e) {
