@@ -879,13 +879,14 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php if ($certifications): ?>
                         <div class="table-wrap">
                             <table class="data-table">
-                                <thead><tr><th>Nombre</th><th>Código</th><th></th></tr></thead>
+                                <thead><tr><th>Nombre</th><th>Código</th><th>Grupo</th><th></th></tr></thead>
                                 <tbody>
                                 <?php foreach ($certifications as $c): ?>
                                     <?php $pub = (int)$c['is_published'] === 1; ?>
                                     <tr class="<?= $pub ? '' : 'is-row-inactive' ?>">
                                         <td><?= e($c['name']) ?></td>
                                         <td><code><?= e($c['code']) ?></code></td>
+                                        <td><?= e($c['group_name'] ?? '—') ?></td>
                                         <td>
                                             <div class="icon-actions">
                                                 <form method="post" action="/admin/providers/certification/toggle-published" class="inline-form"

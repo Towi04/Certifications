@@ -2328,23 +2328,46 @@ final class AdminRoutes
             if (!is_array($rawRegFields)) {
                 $rawRegFields = [];
             }
+            // Campos personalizados solo desde el catálogo del proveedor (no se inventan en la cert)
             $customFields = [];
-            $rawCustom = $_POST['custom_fields'] ?? [];
-            if (is_array($rawCustom)) {
-                foreach ($rawCustom as $row) {
-                    if (!is_array($row)) {
-                        continue;
+            $modes = [];
+            $available = $repo()->availableFieldsForCertification($providerId);
+            $allowedKeys = [];
+            foreach ($available as $af) {
+                $key = (string) ($af['key'] ?? '');
+                if ($key === '') {
+                    continue;
+                }
+                $allowedKeys[$key] = true;
+                $mode = (string) ($rawRegFields[$key] ?? 'off');
+                if (!in_array($mode, ['off', 'optional', 'required'], true)) {
+                    $mode = 'off';
+                }
+                if (!empty($af['locked']) || (($af['source'] ?? '') === 'builtin' && in_array($key, ['first_name', 'last_name_p', 'email'], true))) {
+                    $mode = 'required';
+                }
+                if (($af['source'] ?? '') === 'custom') {
+                    if ($mode === 'optional' || $mode === 'required') {
+                        $customFields[] = [
+                            'key' => $key,
+                            'label' => (string) ($af['label'] ?? $key),
+                            'type' => (string) ($af['type'] ?? 'text'),
+                            'mode' => $mode,
+                        ];
                     }
-                    $label = trim((string) ($row['label'] ?? ''));
-                    if ($label === '' || !empty($row['delete'])) {
-                        continue;
-                    }
-                    $customFields[] = [
-                        'key' => trim((string) ($row['key'] ?? '')),
-                        'label' => $label,
-                        'type' => (string) ($row['type'] ?? 'text'),
-                        'mode' => (string) ($row['mode'] ?? 'optional'),
-                    ];
+                    continue;
+                }
+                $modes[$key] = $mode;
+            }
+            // Conservar modos posted solo si están permitidos
+            foreach ($rawRegFields as $k => $v) {
+                $k = (string) $k;
+                if (!isset($allowedKeys[$k]) || isset($modes[$k])) {
+                    continue;
+                }
+                $mode = (string) $v;
+                if (in_array($mode, ['off', 'optional', 'required'], true)) {
+                    $modes[$k] = $mode;
                 }
             }
             $weekdaysPost = $_POST['exam_weekday'] ?? [];
@@ -2375,7 +2398,7 @@ final class AdminRoutes
                 'weekdays' => $weekdays,
             ];
             $registrationFields = CatalogRepository::encodeRegistrationConfig([
-                'modes' => $rawRegFields,
+                'modes' => $modes,
                 'custom' => $customFields,
                 'schedule' => $schedule,
             ]);
