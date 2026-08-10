@@ -186,15 +186,18 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         <fieldset class="field-wide">
             <legend>Campos del formulario de adquisición</legend>
             <p class="muted">
-                Define qué datos debe llenar el alumno al adquirir esta certificación.
-                Ejemplo: ELET puede omitir CURP/fecha de nacimiento; TOEFL sí pedirlos.
-                Puedes cambiarlo después si UKS u otra certificadora lo requiere.
+                Activa u oculta campos built-in, define horario de examen y agrega campos nuevos
+                (dirección, etc.) cuando una certificadora lo pida.
             </p>
             <?php
-            $regFields = \App\Catalog\CatalogRepository::decodeRegistrationFields($item['registration_fields_json'] ?? null);
+            $regConfig = \App\Catalog\CatalogRepository::decodeRegistrationConfig($item['registration_fields_json'] ?? null);
+            $regFields = $regConfig['modes'];
             $regCatalog = \App\Catalog\CatalogRepository::registrationFieldCatalog();
+            $regCustom = $regConfig['custom'];
+            $schedule = $regConfig['schedule'];
             $modeLabels = ['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'];
             ?>
+            <h3 class="reg-subtitle">Campos base</h3>
             <div class="reg-fields-grid">
                 <?php foreach ($regCatalog as $key => $meta): ?>
                     <?php
@@ -218,6 +221,110 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                     </label>
                 <?php endforeach; ?>
             </div>
+
+            <h3 class="reg-subtitle">Horario de examen</h3>
+            <p class="muted">Aplica cuando el campo “Hora preferida de examen” no está en “No pedir”.</p>
+            <div class="reg-fields-grid">
+                <label class="reg-field-row">Desde
+                    <input type="time" name="exam_time_start" value="<?= e($schedule['time_start']) ?>">
+                </label>
+                <label class="reg-field-row">Hasta
+                    <input type="time" name="exam_time_end" value="<?= e($schedule['time_end']) ?>">
+                </label>
+                <label class="reg-field-row">Intervalo de opciones
+                    <select name="exam_slot_minutes">
+                        <?php foreach ([15 => '15 min', 30 => '30 min', 60 => '60 min'] as $m => $lab): ?>
+                            <option value="<?= $m ?>" <?= (int)$schedule['slot_minutes'] === $m ? 'selected' : '' ?>><?= e($lab) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label class="check reg-field-row">
+                    <input type="checkbox" name="exam_extraordinary_enabled" value="1" <?= !empty($schedule['extraordinary_enabled']) ? 'checked' : '' ?>>
+                    Permitir fuera de horario (costo extra)
+                </label>
+                <label class="reg-field-row">Costo aplicación extraordinaria (MXN)
+                    <input type="number" step="0.01" min="0" name="exam_extraordinary_fee"
+                           value="<?= e((string)$schedule['extraordinary_fee']) ?>">
+                </label>
+                <label class="reg-field-row field-wide">Advertencia al alumno
+                    <textarea name="exam_extraordinary_warning" rows="2"><?= e($schedule['extraordinary_warning']) ?></textarea>
+                </label>
+            </div>
+
+            <h3 class="reg-subtitle">Campos personalizados</h3>
+            <p class="muted">Agrega campos nuevos o elimínalos si ya no aplican. No afecta los campos base (esos se ocultan con “No pedir”).</p>
+            <div id="customFieldsList" class="custom-fields-list">
+                <?php foreach ($regCustom as $i => $cf): ?>
+                    <div class="custom-field-row" data-custom-row>
+                        <input type="hidden" name="custom_fields[<?= (int)$i ?>][key]" value="<?= e($cf['key']) ?>">
+                        <label>Etiqueta
+                            <input name="custom_fields[<?= (int)$i ?>][label]" required value="<?= e($cf['label']) ?>">
+                        </label>
+                        <label>Tipo
+                            <select name="custom_fields[<?= (int)$i ?>][type]">
+                                <?php foreach (['text' => 'Texto', 'textarea' => 'Texto largo', 'date' => 'Fecha', 'number' => 'Número', 'tel' => 'Teléfono', 'email' => 'Correo'] as $tv => $tl): ?>
+                                    <option value="<?= e($tv) ?>" <?= ($cf['type'] ?? '') === $tv ? 'selected' : '' ?>><?= e($tl) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label>Uso
+                            <select name="custom_fields[<?= (int)$i ?>][mode]">
+                                <?php foreach (['optional' => 'Opcional', 'required' => 'Obligatorio'] as $mv => $ml): ?>
+                                    <option value="<?= e($mv) ?>" <?= ($cf['mode'] ?? '') === $mv ? 'selected' : '' ?>><?= e($ml) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label class="check">
+                            <input type="checkbox" name="custom_fields[<?= (int)$i ?>][delete]" value="1"> Eliminar
+                        </label>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="actions" style="margin-top:0.75rem">
+                <button class="btn btn-ghost" type="button" id="addCustomFieldBtn">Agregar campo</button>
+            </div>
+            <template id="customFieldTemplate">
+                <div class="custom-field-row" data-custom-row>
+                    <input type="hidden" name="custom_fields[__i__][key]" value="">
+                    <label>Etiqueta
+                        <input name="custom_fields[__i__][label]" required placeholder="Ej. Dirección">
+                    </label>
+                    <label>Tipo
+                        <select name="custom_fields[__i__][type]">
+                            <option value="text">Texto</option>
+                            <option value="textarea">Texto largo</option>
+                            <option value="date">Fecha</option>
+                            <option value="number">Número</option>
+                            <option value="tel">Teléfono</option>
+                            <option value="email">Correo</option>
+                        </select>
+                    </label>
+                    <label>Uso
+                        <select name="custom_fields[__i__][mode]">
+                            <option value="optional">Opcional</option>
+                            <option value="required">Obligatorio</option>
+                        </select>
+                    </label>
+                    <label class="check">
+                        <input type="checkbox" name="custom_fields[__i__][delete]" value="1"> Eliminar
+                    </label>
+                </div>
+            </template>
+            <script>
+            (function () {
+              var list = document.getElementById('customFieldsList');
+              var btn = document.getElementById('addCustomFieldBtn');
+              var tpl = document.getElementById('customFieldTemplate');
+              if (!list || !btn || !tpl) return;
+              var idx = list.querySelectorAll('[data-custom-row]').length;
+              btn.addEventListener('click', function () {
+                var html = tpl.innerHTML.replaceAll('__i__', String(idx++));
+                var wrap = document.createElement('div');
+                wrap.innerHTML = html.trim();
+                list.appendChild(wrap.firstElementChild);
+              });
+            })();
+            </script>
         </fieldset>
 
         <div class="eligibility-row">

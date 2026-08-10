@@ -1730,7 +1730,38 @@ final class AdminRoutes
             if (!is_array($rawRegFields)) {
                 $rawRegFields = [];
             }
-            $registrationFields = CatalogRepository::decodeRegistrationFields($rawRegFields);
+            $customFields = [];
+            $rawCustom = $_POST['custom_fields'] ?? [];
+            if (is_array($rawCustom)) {
+                foreach ($rawCustom as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $label = trim((string) ($row['label'] ?? ''));
+                    if ($label === '' || !empty($row['delete'])) {
+                        continue;
+                    }
+                    $customFields[] = [
+                        'key' => trim((string) ($row['key'] ?? '')),
+                        'label' => $label,
+                        'type' => (string) ($row['type'] ?? 'text'),
+                        'mode' => (string) ($row['mode'] ?? 'optional'),
+                    ];
+                }
+            }
+            $schedule = [
+                'time_start' => trim((string) ($_POST['exam_time_start'] ?? '09:00')),
+                'time_end' => trim((string) ($_POST['exam_time_end'] ?? '18:00')),
+                'slot_minutes' => (int) ($_POST['exam_slot_minutes'] ?? 30),
+                'extraordinary_enabled' => isset($_POST['exam_extraordinary_enabled']) ? 1 : 0,
+                'extraordinary_fee' => (float) ($_POST['exam_extraordinary_fee'] ?? 0),
+                'extraordinary_warning' => trim((string) ($_POST['exam_extraordinary_warning'] ?? '')),
+            ];
+            $registrationFields = CatalogRepository::encodeRegistrationConfig([
+                'modes' => $rawRegFields,
+                'custom' => $customFields,
+                'schedule' => $schedule,
+            ]);
 
             $rawTierPrices = $_POST['tier_prices'] ?? [];
             if (!is_array($rawTierPrices)) {
@@ -1749,7 +1780,7 @@ final class AdminRoutes
                     'value_points_json' => CatalogRepository::encodeValuePoints(
                         (string) ($_POST['value_points'] ?? '')
                     ),
-                    'registration_fields_json' => CatalogRepository::encodeRegistrationFields($registrationFields),
+                    'registration_fields_json' => $registrationFields,
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
                     'syllabus_html' => is_array($existing) ? ($existing['syllabus_html'] ?? null) : null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,

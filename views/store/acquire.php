@@ -5,8 +5,12 @@ $user = $user ?? null;
 $loggedIn = !empty($logged_in);
 $showLogin = !empty($old['show_login']) && !$loggedIn;
 
-$regFields = \App\Catalog\CatalogRepository::decodeRegistrationFields($item['registration_fields_json'] ?? null);
+$regConfig = \App\Catalog\CatalogRepository::decodeRegistrationConfig($item['registration_fields_json'] ?? null);
+$regFields = $regConfig['modes'];
 $regCatalog = \App\Catalog\CatalogRepository::registrationFieldCatalog();
+$regCustom = $regConfig['custom'];
+$schedule = $regConfig['schedule'];
+$timeSlots = \App\Catalog\CatalogRepository::examTimeSlots($schedule);
 $isOn = static fn (string $key): bool => \App\Catalog\CatalogRepository::registrationFieldEnabled($regFields, $key);
 $isReq = static fn (string $key): bool => \App\Catalog\CatalogRepository::registrationFieldRequired($regFields, $key);
 
@@ -18,15 +22,18 @@ $uPhone = (string) ($user['phone'] ?? '');
 $val = static function (string $key, string $fallback = '') use ($old): string {
     return (string) ($old[$key] ?? $fallback);
 };
+$extraOld = is_array($old['extra'] ?? null) ? $old['extra'] : [];
+$publicPrice = $item['public_price'] !== null ? (float) $item['public_price'] : 0.0;
+$extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
 ?>
 <section class="page-head">
     <div>
         <p class="eyebrow"><?= e($item['provider_name'] ?? '') ?></p>
         <h1>Adquirir · <?= e($item['name']) ?></h1>
         <p class="muted">
-            Precio:
+            Precio base:
             <?php if ($item['public_price'] !== null): ?>
-                <strong><?= e(\App\Support\Str::money((float)$item['public_price'], $item['currency'] ?? 'MXN')) ?></strong>
+                <strong><?= e(\App\Support\Str::money($publicPrice, $item['currency'] ?? 'MXN')) ?></strong>
             <?php else: ?>
                 a consultar
             <?php endif; ?>
@@ -73,7 +80,7 @@ $val = static function (string $key, string $fallback = '') use ($old): string {
         <p class="muted">Sesión: <?= e($uEmail) ?></p>
     <?php endif; ?>
 
-    <form method="post" action="/adquirir" class="stack form-grid">
+    <form method="post" action="/adquirir" class="stack form-grid" id="acquireForm">
         <input type="hidden" name="slug" value="<?= e($item['slug']) ?>">
         <input type="hidden" name="mode" value="<?= $loggedIn ? 'confirm' : 'register' ?>">
 
@@ -152,8 +159,76 @@ $val = static function (string $key, string $fallback = '') use ($old): string {
             </label>
         <?php endif; ?>
 
+        <?php if ($isOn('exam_time')): ?>
+            <label class="field-wide"><?= e($regCatalog['exam_time']['label']) ?>
+                <span class="muted" style="font-weight:500;display:block;margin:0.15rem 0 0.35rem">
+                    Horario regular: <?= e($schedule['time_start']) ?> – <?= e($schedule['time_end']) ?>
+                </span>
+                <select name="exam_time" id="examTimeSelect" <?= $isReq('exam_time') ? 'required' : '' ?>>
+                    <option value="">— Elige hora —</option>
+                    <?php foreach ($timeSlots as $slot): ?>
+                        <option value="<?= e($slot) ?>" <?= $val('exam_time') === $slot ? 'selected' : '' ?>><?= e($slot) ?></option>
+                    <?php endforeach; ?>
+                    <?php if (!empty($schedule['extraordinary_enabled'])): ?>
+                        <option value="__extraordinary__" <?= $val('exam_time_mode') === 'extraordinary' ? 'selected' : '' ?>>
+                            Fuera de horario<?= $extraFee > 0 ? ' (+' . e(\App\Support\Str::money($extraFee, 'MXN')) . ')' : '' ?>
+                        </option>
+                    <?php endif; ?>
+                </select>
+            </label>
+            <?php if (!empty($schedule['extraordinary_enabled'])): ?>
+                <div id="extraordinaryBox" class="field-wide extraordinary-box" hidden>
+                    <p class="alert alert-error" style="margin-top:0"><?= e($schedule['extraordinary_warning']) ?></p>
+                    <?php if ($extraFee > 0): ?>
+                        <p class="muted">Se sumará <strong><?= e(\App\Support\Str::money($extraFee, 'MXN')) ?></strong> al cobro SPEI (certificación + aplicación extraordinaria).</p>
+                    <?php endif; ?>
+                    <label>Hora fuera de rango
+                        <input type="time" name="exam_time_extraordinary" id="examTimeExtra"
+                               value="<?= e($val('exam_time_extraordinary')) ?>">
+                    </label>
+                    <label class="check">
+                        <input type="checkbox" name="accept_extraordinary" value="1" <?= !empty($old['accept_extraordinary']) ? 'checked' : '' ?>>
+                        Entiendo el costo extra y quiero presentar fuera de horario
+                    </label>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <?php foreach ($regCustom as $cf): ?>
+            <?php
+            $ck = $cf['key'];
+            $req = ($cf['mode'] ?? '') === 'required';
+            $cval = (string) ($extraOld[$ck] ?? '');
+            ?>
+            <label class="<?= ($cf['type'] ?? '') === 'textarea' ? 'field-wide' : '' ?>">
+                <?= e($cf['label']) ?>
+                <?php if (($cf['type'] ?? 'text') === 'textarea'): ?>
+                    <textarea name="extra[<?= e($ck) ?>]" rows="3" <?= $req ? 'required' : '' ?>><?= e($cval) ?></textarea>
+                <?php else: ?>
+                    <input type="<?= e($cf['type'] ?? 'text') ?>" name="extra[<?= e($ck) ?>]"
+                           value="<?= e($cval) ?>" <?= $req ? 'required' : '' ?>>
+                <?php endif; ?>
+            </label>
+        <?php endforeach; ?>
+
         <div class="actions" style="grid-column:1/-1">
             <button class="btn" type="submit"><?= $loggedIn ? 'Continuar con mi solicitud' : 'Enviar solicitud' ?></button>
         </div>
     </form>
 </section>
+
+<script>
+(function () {
+  var sel = document.getElementById('examTimeSelect');
+  var box = document.getElementById('extraordinaryBox');
+  var extra = document.getElementById('examTimeExtra');
+  if (!sel || !box) return;
+  function sync() {
+    var isExtra = sel.value === '__extraordinary__';
+    box.hidden = !isExtra;
+    if (extra) extra.required = isExtra;
+  }
+  sel.addEventListener('change', sync);
+  sync();
+})();
+</script>

@@ -32,6 +32,8 @@ $checklist = [
         <h1><?= e($item['certification_name'] ?? ('Caso #' . ($item['id'] ?? ''))) ?></h1>
         <p class="muted">Candidato: <strong><?= e($fullName) ?></strong>
             <?php if (!empty($item['exam_date'])): ?> · Fecha solicitada: <?= e($item['exam_date']) ?><?php endif; ?>
+            <?php if (!empty($item['exam_time'])): ?> · Hora: <?= e($item['exam_time']) ?><?php endif; ?>
+            <?php if (!empty($item['exam_extraordinary'])): ?> · <span class="pill">Aplicación extraordinaria</span><?php endif; ?>
         </p>
     </div>
     <a class="btn btn-ghost" href="/alumno">Mis certificaciones</a>
