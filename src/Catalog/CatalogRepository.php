@@ -3916,10 +3916,13 @@ final class CatalogRepository
         $paid = !empty($case['payment_confirmed_at'])
             || in_array(strtolower((string) ($case['openpay_status'] ?? '')), ['completed', 'paid'], true);
         if (!$paid) {
+            $hasProof = trim((string) ($case['payment_proof_path'] ?? '')) !== '';
             return [
                 'key' => 'awaiting_payment',
-                'label' => 'Pendiente de pago',
-                'hint' => 'Esperando OpenPay o marcar pago manual (efectivo/transferencia)',
+                'label' => $hasProof ? 'Comprobante por confirmar' : 'Pendiente de pago',
+                'hint' => $hasProof
+                    ? 'El alumno subió comprobante — confirmar recepción en el caso'
+                    : 'Esperando OpenPay o marcar pago manual (efectivo/transferencia)',
                 'needs_admin' => true,
             ];
         }

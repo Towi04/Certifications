@@ -251,6 +251,10 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         'other' => 'Otro',
         default => $payMethod !== '' ? $payMethod : '',
     };
+    $hasStudentProof = !$opPaid && trim((string) ($item['payment_proof_path'] ?? '')) !== '';
+    $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'], true)
+        ? $payMethod
+        : 'transfer';
     ?>
     <?php if ($opPaid): ?>
         <p class="alert alert-ok">
@@ -260,6 +264,15 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             <?php if (!empty($item['payment_proof_path'])): ?>
                 · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
             <?php endif; ?>
+        </p>
+    <?php elseif ($hasStudentProof): ?>
+        <p class="alert alert-warn">
+            El alumno subió un comprobante y espera confirmación.
+            Revisa el archivo y marca el pago recibido para que pueda continuar (Moodle / códigos).
+            <?php if (!empty($item['payment_proof_path'])): ?>
+                · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
+            <?php endif; ?>
+            <?= $payMethodLabel !== '' ? ' · método indicado: ' . e($payMethodLabel) : '' ?>
         </p>
     <?php else: ?>
         <p class="alert alert-warn">
@@ -271,19 +284,29 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <label>Método
             <select name="payment_method" required>
-                <option value="cash">Efectivo</option>
-                <option value="transfer" selected>Transferencia bancaria</option>
-                <option value="openpay">OpenPay (manual)</option>
-                <option value="other">Otro</option>
+                <option value="cash" <?= $defaultPayMethod === 'cash' ? 'selected' : '' ?>>Efectivo</option>
+                <option value="transfer" <?= $defaultPayMethod === 'transfer' ? 'selected' : '' ?>>Transferencia bancaria</option>
+                <option value="openpay" <?= $defaultPayMethod === 'openpay' ? 'selected' : '' ?>>OpenPay (manual)</option>
+                <option value="other" <?= $defaultPayMethod === 'other' ? 'selected' : '' ?>>Otro</option>
             </select>
         </label>
         <label>Nota interna<input name="payment_note" placeholder="Ej. transferencia BBVA ref. 1234"></label>
-        <label class="field-wide">Comprobante (opcional)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+        <label class="field-wide">Comprobante <?= $hasStudentProof ? '(opcional; reemplaza el del alumno)' : '(opcional)' ?>
+            <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp">
+        </label>
         <div class="actions">
-            <button class="btn" type="submit"><?= $opPaid ? 'Actualizar / reconfirmar pago' : 'Marcar pago recibido' ?></button>
+            <button class="btn" type="submit">
+                <?php if ($opPaid): ?>
+                    Actualizar / reconfirmar pago
+                <?php elseif ($hasStudentProof): ?>
+                    Confirmar recepción del comprobante
+                <?php else: ?>
+                    Marcar pago recibido
+                <?php endif; ?>
+            </button>
         </div>
     </form>
-    <p class="muted">Esto solo confirma el pago para el alumno. No envía correo al proveedor ni genera la exportación.</p>
+    <p class="muted">Esto solo confirma el pago para el alumno (y dispara Moodle/inventario si aplica). No envía correo al proveedor ni genera la exportación.</p>
 </section>
 
 <section class="note">
