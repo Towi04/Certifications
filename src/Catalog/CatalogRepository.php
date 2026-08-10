@@ -2507,21 +2507,185 @@ final class CatalogRepository
 
     public function addCaseAttachment(int $caseId, string $kind, ?string $label, string $filePath, ?int $uploadedBy): int
     {
+        $this->ensureCaseAttachmentShareSchema();
+        $token = bin2hex(random_bytes(16));
         $stmt = $this->pdo->prepare(
-            'INSERT INTO case_attachments (case_id, kind, label, file_path, uploaded_by) VALUES (?,?,?,?,?)'
+            'INSERT INTO case_attachments (case_id, kind, label, file_path, share_token, uploaded_by)
+             VALUES (?,?,?,?,?,?)'
         );
-        $stmt->execute([$caseId, $kind, $label, $filePath, $uploadedBy]);
+        $stmt->execute([$caseId, $kind, $label, $filePath, $token, $uploadedBy]);
+
         return (int) $this->pdo->lastInsertId();
     }
 
     /** @return list<array<string, mixed>> */
     public function caseAttachments(int $caseId): array
     {
+        $this->ensureCaseAttachmentShareSchema();
         $stmt = $this->pdo->prepare(
             'SELECT * FROM case_attachments WHERE case_id = ? ORDER BY id DESC'
         );
         $stmt->execute([$caseId]);
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            if (trim((string) ($row['share_token'] ?? '')) === '') {
+                $row['share_token'] = $this->ensureCaseAttachmentShareToken((int) $row['id']);
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function caseAttachment(int $id): ?array
+    {
+        $this->ensureCaseAttachmentShareSchema();
+        $stmt = $this->pdo->prepare('SELECT * FROM case_attachments WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public function caseAttachmentByShareToken(string $token): ?array
+    {
+        $this->ensureCaseAttachmentShareSchema();
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+        $stmt = $this->pdo->prepare('SELECT * FROM case_attachments WHERE share_token = ? LIMIT 1');
+        $stmt->execute([$token]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public function latestCaseAttachment(int $caseId, string $kind): ?array
+    {
+        $this->ensureCaseAttachmentShareSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM case_attachments WHERE case_id = ? AND kind = ? ORDER BY id DESC LIMIT 1'
+        );
+        $stmt->execute([$caseId, $kind]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return null;
+        }
+        if (trim((string) ($row['share_token'] ?? '')) === '') {
+            $row['share_token'] = $this->ensureCaseAttachmentShareToken((int) $row['id']);
+        }
+
+        return $row;
+    }
+
+    /**
+     * Asegura un adjunto con enlace público para un archivo del caso (comprobante / exportación).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function ensureCaseFileShare(int $caseId, string $kind, string $filePath, ?string $label = null, ?int $uploadedBy = null): ?array
+    {
+        $filePath = trim($filePath);
+        if ($caseId < 1 || $filePath === '') {
+            return null;
+        }
+        $this->ensureCaseAttachmentShareSchema();
+
+        $existing = $this->latestCaseAttachment($caseId, $kind);
+        if ($existing && trim((string) ($existing['file_path'] ?? '')) === $filePath) {
+            return $existing;
+        }
+
+        $id = $this->addCaseAttachment(
+            $caseId,
+            $kind,
+            $label ?? ($kind === 'export' ? 'Exportación proveedor' : 'Comprobante de pago'),
+            $filePath,
+            $uploadedBy
+        );
+
+        return $this->caseAttachment($id);
+    }
+
+    public function ensureCaseAttachmentShareToken(int $id): ?string
+    {
+        $this->ensureCaseAttachmentShareSchema();
+        $row = $this->caseAttachment($id);
+        if (!$row) {
+            return null;
+        }
+        $token = trim((string) ($row['share_token'] ?? ''));
+        if ($token !== '') {
+            return $token;
+        }
+        $token = bin2hex(random_bytes(16));
+        $this->pdo->prepare('UPDATE case_attachments SET share_token = ? WHERE id = ?')->execute([$token, $id]);
+
+        return $token;
+    }
+
+    public function caseAttachmentShareUrl(array $attachment, ?string $appUrl = null): string
+    {
+        $token = trim((string) ($attachment['share_token'] ?? ''));
+        if ($token === '' && !empty($attachment['id'])) {
+            $token = (string) ($this->ensureCaseAttachmentShareToken((int) $attachment['id']) ?? '');
+        }
+        if ($token === '') {
+            return '';
+        }
+        $base = rtrim((string) ($appUrl ?? (\App\Config\Env::get('APP_URL', '') ?? '')), '/');
+        if ($base === '') {
+            $base = 'https://pdv.institutodoceo.com';
+        }
+
+        return $base . '/c/' . rawurlencode($token);
+    }
+
+    private function ensureCaseAttachmentShareSchema(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        try {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['case_attachments', 'share_token']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    'ALTER TABLE case_attachments ADD COLUMN share_token VARCHAR(64) NULL AFTER file_path'
+                );
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?'
+            );
+            $stmt->execute(['case_attachments', 'uq_case_attachments_share_token']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    'CREATE UNIQUE INDEX uq_case_attachments_share_token ON case_attachments (share_token)'
+                );
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT id FROM case_attachments WHERE share_token IS NULL OR share_token = ''"
+            );
+            foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+                $token = bin2hex(random_bytes(16));
+                $this->pdo->prepare('UPDATE case_attachments SET share_token = ? WHERE id = ?')
+                    ->execute([$token, (int) $id]);
+            }
+        } catch (\Throwable) {
+        }
+        $done = true;
     }
 
     /** @param array<string, mixed> $data */

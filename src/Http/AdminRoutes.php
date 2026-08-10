@@ -1505,6 +1505,24 @@ final class AdminRoutes
                 'regulation_doc' => $regulationDoc,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
+                'payment_share_url' => (static function () use ($repo, $item, $id): string {
+                    $rel = trim((string) ($item['payment_proof_path'] ?? ''));
+                    if ($rel === '') {
+                        return '';
+                    }
+                    $att = $repo()->ensureCaseFileShare($id, 'payment', $rel, 'Comprobante de pago');
+
+                    return $att ? $repo()->caseAttachmentShareUrl($att) : '';
+                })(),
+                'export_share_url' => (static function () use ($repo, $item, $id): string {
+                    $rel = trim((string) ($item['provider_export_path'] ?? ''));
+                    if ($rel === '') {
+                        return '';
+                    }
+                    $att = $repo()->ensureCaseFileShare($id, 'export', $rel, 'Exportación proveedor');
+
+                    return $att ? $repo()->caseAttachmentShareUrl($att) : '';
+                })(),
                 'mail_log' => $repo()->caseMailLog($id),
                 'mail_templates' => $repo()->mailTemplates(true),
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
@@ -1574,7 +1592,7 @@ final class AdminRoutes
                 if ($result['mailed']) {
                     $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado a ' . $result['to'] . '.';
                     if (!empty($result['links_only']) && is_array($result['links_only'])) {
-                        $msg .= ' Archivos grandes van como enlace en el correo (no adjunto).';
+                        $msg .= ' Links en el correo: ' . implode(', ', $result['links_only']) . '.';
                     }
                     $flashType = 'info';
                 } else {
@@ -1740,7 +1758,7 @@ final class AdminRoutes
                     $msg .= ' Exportación: ' . $result['export']['filename'] . '.';
                 }
                 if (!empty($result['links_only']) && is_array($result['links_only'])) {
-                    $msg .= ' Nota: archivos grandes van como enlace en el cuerpo del correo.';
+                    $msg .= ' Links: ' . implode(', ', $result['links_only']) . '.';
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {

@@ -381,12 +381,13 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 <section class="note">
     <h3>Pago → exportación → correo al proveedor</h3>
     <p class="muted">
-        La plantilla que se manda al proveedor se configura en
-        <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>
-        (ej. <code>uks_solicitud</code>), no en la certificación.
-        El check “Adjuntar exportación…” en la plantilla adjunta el CSV/Excel del registro del alumno
-        (no el PDF del reglamento). El comprobante se adjunta o, si es muy grande, va como enlace de descarga en el correo.
-        Revisa el historial de correos del caso para ver el destinatario real y si falló el envío.
+        La plantilla se configura en
+        <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>.
+        Al subir el comprobante o generar la exportación se crea un <strong>enlace público</strong>
+        para pegar en la plantilla con
+        <code>{{Comprobante URL}}</code> / <code>{{Comprobante Boton}}</code> y
+        <code>{{Exportacion URL}}</code> / <code>{{Exportacion Boton}}</code>.
+        El correo <strong>no adjunta archivos</strong> (así llega); incluye esos links.
     </p>
     <p class="muted">
         Plantilla del protocolo:
@@ -407,6 +408,46 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             · Solicitud enviada: <?= e($item['provider_request_sent_at']) ?>
         <?php endif; ?>
     </p>
+    <?php
+    $payment_share_url = $payment_share_url ?? '';
+    $export_share_url = $export_share_url ?? '';
+    ?>
+    <?php if ($payment_share_url !== '' || $export_share_url !== ''): ?>
+        <div class="inline-form-panel" style="margin-bottom:1rem">
+            <h4 style="margin:0 0 0.5rem">Enlaces para la plantilla</h4>
+            <?php if ($payment_share_url !== ''): ?>
+                <label class="field-wide">Comprobante · <code>{{Comprobante URL}}</code>
+                    <div class="icon-actions" style="margin-top:0.35rem">
+                        <input type="text" class="share-url-input" readonly value="<?= e($payment_share_url) ?>" style="width:100%;max-width:36rem;font-size:0.85rem">
+                        <button type="button" class="icon-btn js-copy-share" data-url="<?= e($payment_share_url) ?>" title="Copiar">Copiar</button>
+                    </div>
+                </label>
+            <?php endif; ?>
+            <?php if ($export_share_url !== ''): ?>
+                <label class="field-wide" style="margin-top:0.75rem">Exportación · <code>{{Exportacion URL}}</code>
+                    <div class="icon-actions" style="margin-top:0.35rem">
+                        <input type="text" class="share-url-input" readonly value="<?= e($export_share_url) ?>" style="width:100%;max-width:36rem;font-size:0.85rem">
+                        <button type="button" class="icon-btn js-copy-share" data-url="<?= e($export_share_url) ?>" title="Copiar">Copiar</button>
+                    </div>
+                </label>
+            <?php endif; ?>
+        </div>
+        <script>
+        document.querySelectorAll('.js-copy-share').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const url = btn.getAttribute('data-url') || '';
+            if (!url) return;
+            try {
+              await navigator.clipboard.writeText(url);
+              btn.textContent = 'Copiado';
+              setTimeout(() => { btn.textContent = 'Copiar'; }, 1200);
+            } catch (e) {
+              window.prompt('Copia este enlace:', url);
+            }
+          });
+        });
+        </script>
+    <?php endif; ?>
     <form method="post" action="/admin/cases/confirm-payment" enctype="multipart/form-data" class="stack">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <label>Comprobante de pago (PDF/imagen)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
@@ -415,7 +456,7 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
     <?php if (!empty($item['provider_request_template'])): ?>
         <form method="post" action="/admin/cases/send-provider-request" enctype="multipart/form-data" class="stack" style="margin-top:1rem">
             <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
-            <p class="muted">Reenvía solo la plantilla del protocolo (con exportación + comprobante). Útil si ya confirmaste pago y quieres volver a pedir el registro.</p>
+            <p class="muted">Reenvía la plantilla del protocolo (con links de exportación + comprobante). No adjunta archivos al correo.</p>
             <label>Comprobante (opcional; reemplaza el actual)
                 <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp">
             </label>

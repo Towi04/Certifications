@@ -871,5 +871,37 @@ final class PublicRoutes
                 . rawurlencode((string) $doc['title'] . '_v' . (string) $doc['version']));
             exit;
         });
+
+        $router->get('/c/{token}', static function () use ($repo): void {
+            $token = Router::param('token');
+            if ($token === '') {
+                http_response_code(404);
+                echo 'Archivo no encontrado.';
+                exit;
+            }
+
+            $att = $repo()->caseAttachmentByShareToken($token);
+            if (!$att) {
+                http_response_code(404);
+                echo 'Archivo no encontrado.';
+                exit;
+            }
+
+            $filePath = trim((string) ($att['file_path'] ?? ''));
+            if ($filePath === '') {
+                http_response_code(404);
+                echo 'Archivo no encontrado.';
+                exit;
+            }
+
+            $label = trim((string) ($att['label'] ?? ''));
+            if ($label === '') {
+                $label = (string) ($att['kind'] ?? 'archivo');
+            }
+
+            header('Location: /media?f=' . rawurlencode($filePath) . '&download=1&name='
+                . rawurlencode($label));
+            exit;
+        });
     }
 }
