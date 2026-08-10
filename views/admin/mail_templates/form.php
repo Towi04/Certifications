@@ -52,13 +52,15 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
         <div class="actions">
             <button class="btn" type="submit">Guardar</button>
             <a class="btn btn-ghost" href="/admin/mail-templates">Volver</a>
-            <?php if ($item): ?>
-                <button class="btn btn-ghost" type="submit" formaction="/admin/mail-templates/delete"
-                        formmethod="post"
-                        onclick="return confirm('¿Eliminar esta plantilla?');">Eliminar</button>
-            <?php endif; ?>
         </div>
     </form>
+    <?php if ($item): ?>
+        <form method="post" action="/admin/mail-templates/delete" style="margin-top:1rem"
+              onsubmit="return confirm('¿Eliminar esta plantilla?');">
+            <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+            <button class="btn btn-ghost" type="submit">Eliminar plantilla</button>
+        </form>
+    <?php endif; ?>
 </section>
 <section class="note">
     <h3>Tokens disponibles</h3>
