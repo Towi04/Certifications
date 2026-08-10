@@ -74,44 +74,123 @@ foreach ($steps as $s) {
 </section>
 
 <?php if ($item): ?>
-<section class="note">
+<section class="note" id="pasos">
     <h2>Pasos del flujo</h2>
-    <p class="muted">Ordenados como los vive el alumno. Al abrir un <em>caso</em>, el sistema marca en qué paso va.</p>
+    <p class="muted">
+        Ordenados como los vive el alumno. Usa <strong>↑ / ↓</strong> o arrastra el asa ⋮⋮ para cambiar el orden;
+        al guardar se renumeran 1…n y se actualiza el timeline de los casos abiertos.
+    </p>
 
     <?php if ($steps): ?>
-        <ol class="protocol-timeline">
-            <?php
-            $lastPhase = null;
-            foreach ($steps as $step):
-                $phase = (string) $step['phase'];
-                if ($phase !== $lastPhase):
-                    $lastPhase = $phase;
-            ?>
-                <li class="protocol-phase-label"><?= e($phases[$phase] ?? $phase) ?></li>
-            <?php endif; ?>
-                <li class="protocol-step <?= (int)$step['is_active'] ? '' : 'is-inactive' ?>">
-                    <div class="protocol-step-head">
-                        <span class="protocol-step-num"><?= (int)$step['sort_order'] ?></span>
-                        <strong><?= e($step['title']) ?></strong>
-                        <span class="pill"><?= e($responsibles[$step['responsible']] ?? $step['responsible']) ?></span>
-                    </div>
-                    <?php if (!empty($step['description'])): ?>
-                        <p class="muted"><?= e($step['description']) ?></p>
-                    <?php endif; ?>
-                    <?php if ($step['trigger_days_after_exam'] !== null && $step['trigger_days_after_exam'] !== ''): ?>
-                        <p class="muted">Plazo: <?= (int)$step['trigger_days_after_exam'] ?> días después del examen</p>
-                    <?php endif; ?>
-                    <div class="actions">
-                        <a class="btn btn-ghost" href="/admin/protocols/edit?id=<?= (int)$item['id'] ?>&amp;step=<?= (int)$step['id'] ?>#step-form">Editar</a>
-                        <form method="post" action="/admin/protocols/steps/delete" onsubmit="return confirm('¿Eliminar este paso?');">
-                            <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
-                            <input type="hidden" name="step_id" value="<?= (int)$step['id'] ?>">
-                            <button class="btn btn-ghost" type="submit">Eliminar</button>
-                        </form>
-                    </div>
-                </li>
-            <?php endforeach; ?>
-        </ol>
+        <?php $stepCount = count($steps); ?>
+        <form method="post" action="/admin/protocols/steps/reorder" id="protocolReorderForm">
+            <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
+            <ol class="protocol-timeline protocol-timeline--sortable" id="protocolStepsList">
+                <?php foreach ($steps as $index => $step):
+                    $phase = (string) $step['phase'];
+                ?>
+                    <li class="protocol-step <?= (int)$step['is_active'] ? '' : 'is-inactive' ?>"
+                        draggable="true"
+                        data-step-id="<?= (int)$step['id'] ?>">
+                        <input type="hidden" name="step_order[]" value="<?= (int)$step['id'] ?>">
+                        <div class="protocol-step-head">
+                            <span class="protocol-drag-handle" title="Arrastrar para reordenar" aria-hidden="true">⋮⋮</span>
+                            <span class="protocol-step-num"><?= $index + 1 ?></span>
+                            <strong><?= e($step['title']) ?></strong>
+                            <span class="pill"><?= e($phases[$phase] ?? $phase) ?></span>
+                            <span class="pill"><?= e($responsibles[$step['responsible']] ?? $step['responsible']) ?></span>
+                        </div>
+                        <?php if (!empty($step['description'])): ?>
+                            <p class="muted"><?= e($step['description']) ?></p>
+                        <?php endif; ?>
+                        <?php if ($step['trigger_days_after_exam'] !== null && $step['trigger_days_after_exam'] !== ''): ?>
+                            <p class="muted">Plazo: <?= (int)$step['trigger_days_after_exam'] ?> días después del examen</p>
+                        <?php endif; ?>
+                        <div class="actions">
+                            <button class="btn btn-ghost" type="submit" form="moveStep<?= (int)$step['id'] ?>Up" <?= $index === 0 ? 'disabled' : '' ?> title="Subir">↑</button>
+                            <button class="btn btn-ghost" type="submit" form="moveStep<?= (int)$step['id'] ?>Down" <?= $index >= $stepCount - 1 ? 'disabled' : '' ?> title="Bajar">↓</button>
+                            <a class="btn btn-ghost" href="/admin/protocols/edit?id=<?= (int)$item['id'] ?>&amp;step=<?= (int)$step['id'] ?>#step-form">Editar</a>
+                            <button class="btn btn-ghost" type="submit" form="deleteStep<?= (int)$step['id'] ?>" onclick="return confirm('¿Eliminar este paso?');">Eliminar</button>
+                        </div>
+                    </li>
+                <?php endforeach; ?>
+            </ol>
+            <div class="actions" style="margin-top:1rem">
+                <button class="btn" type="submit" id="protocolReorderSave" disabled>Guardar nuevo orden</button>
+                <span class="muted" id="protocolReorderHint">Arrastra pasos o usa ↑ ↓</span>
+            </div>
+        </form>
+        <?php foreach ($steps as $index => $step): ?>
+            <form id="moveStep<?= (int)$step['id'] ?>Up" method="post" action="/admin/protocols/steps/move" class="hidden-form">
+                <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
+                <input type="hidden" name="step_id" value="<?= (int)$step['id'] ?>">
+                <input type="hidden" name="direction" value="up">
+            </form>
+            <form id="moveStep<?= (int)$step['id'] ?>Down" method="post" action="/admin/protocols/steps/move" class="hidden-form">
+                <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
+                <input type="hidden" name="step_id" value="<?= (int)$step['id'] ?>">
+                <input type="hidden" name="direction" value="down">
+            </form>
+            <form id="deleteStep<?= (int)$step['id'] ?>" method="post" action="/admin/protocols/steps/delete" class="hidden-form">
+                <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
+                <input type="hidden" name="step_id" value="<?= (int)$step['id'] ?>">
+            </form>
+        <?php endforeach; ?>
+        <script>
+        (function () {
+          const list = document.getElementById('protocolStepsList');
+          const saveBtn = document.getElementById('protocolReorderSave');
+          const hint = document.getElementById('protocolReorderHint');
+          if (!list || !saveBtn) return;
+          let dragEl = null;
+          const markDirty = () => {
+            saveBtn.disabled = false;
+            if (hint) hint.textContent = 'Hay cambios de orden sin guardar.';
+            renumber();
+          };
+          const renumber = () => {
+            let n = 0;
+            list.querySelectorAll('.protocol-step').forEach((li) => {
+              n += 1;
+              const num = li.querySelector('.protocol-step-num');
+              if (num) num.textContent = String(n);
+              const input = li.querySelector('input[name="step_order[]"]');
+              if (input) input.value = li.getAttribute('data-step-id') || '';
+            });
+          };
+          list.querySelectorAll('.protocol-step').forEach((li) => {
+            li.addEventListener('dragstart', (e) => {
+              dragEl = li;
+              li.classList.add('is-dragging');
+              if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', li.getAttribute('data-step-id') || '');
+              }
+            });
+            li.addEventListener('dragend', () => {
+              li.classList.remove('is-dragging');
+              list.querySelectorAll('.protocol-step').forEach((x) => x.classList.remove('drag-over'));
+              dragEl = null;
+            });
+            li.addEventListener('dragover', (e) => {
+              e.preventDefault();
+              if (!dragEl || dragEl === li) return;
+              li.classList.add('drag-over');
+              const rect = li.getBoundingClientRect();
+              const before = (e.clientY - rect.top) < rect.height / 2;
+              if (before) list.insertBefore(dragEl, li);
+              else list.insertBefore(dragEl, li.nextSibling);
+              markDirty();
+            });
+            li.addEventListener('dragleave', () => li.classList.remove('drag-over'));
+            li.addEventListener('drop', (e) => {
+              e.preventDefault();
+              li.classList.remove('drag-over');
+              markDirty();
+            });
+          });
+        })();
+        </script>
     <?php else: ?>
         <p class="muted">Aún no hay pasos. Agrega el primero abajo (ej. ELET tiene 19).</p>
     <?php endif; ?>
@@ -120,7 +199,9 @@ foreach ($steps as $s) {
     <form method="post" action="/admin/protocols/steps/save" class="stack form-grid">
         <input type="hidden" name="protocol_id" value="<?= (int)$item['id'] ?>">
         <?php if ($editStep): ?><input type="hidden" name="step_id" value="<?= (int)$editStep['id'] ?>"><?php endif; ?>
-        <label>Orden<input type="number" name="sort_order" min="1" value="<?= e((string)($editStep['sort_order'] ?? count($steps) + 1)) ?>"></label>
+        <label>Orden (opcional; preferible usar ↑↓ o arrastrar)
+            <input type="number" name="sort_order" min="1" value="<?= e((string)($editStep['sort_order'] ?? count($steps) + 1)) ?>">
+        </label>
         <label>Fase
             <select name="phase">
                 <?php foreach ($phases as $key => $label): ?>

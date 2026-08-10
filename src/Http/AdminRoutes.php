@@ -911,6 +911,51 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/protocols/steps/move', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            $stepId = (int) ($_POST['step_id'] ?? 0);
+            $direction = (string) ($_POST['direction'] ?? '');
+            try {
+                if ($protocolId <= 0 || $stepId <= 0) {
+                    throw new \RuntimeException('Protocolo y paso son obligatorios.');
+                }
+                if (!$repo()->protocol($protocolId)) {
+                    throw new \RuntimeException('Protocolo no encontrado.');
+                }
+                $repo()->moveProtocolStep($protocolId, $stepId, $direction);
+                flash('info', 'Orden de pasos actualizado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/protocols/edit?id=' . $protocolId . '#pasos');
+            exit;
+        });
+
+        $router->post('/admin/protocols/steps/reorder', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            $orderRaw = $_POST['step_order'] ?? [];
+            if (!is_array($orderRaw)) {
+                $orderRaw = [];
+            }
+            $orderedIds = array_values(array_filter(array_map('intval', $orderRaw)));
+            try {
+                if ($protocolId <= 0) {
+                    throw new \RuntimeException('Protocolo inválido.');
+                }
+                if (!$repo()->protocol($protocolId)) {
+                    throw new \RuntimeException('Protocolo no encontrado.');
+                }
+                $repo()->reorderProtocolSteps($protocolId, $orderedIds);
+                flash('info', 'Pasos reordenados.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/protocols/edit?id=' . $protocolId . '#pasos');
+            exit;
+        });
+
         $router->get('/admin/cases', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/cases/index', [

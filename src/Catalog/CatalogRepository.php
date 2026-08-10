@@ -849,6 +849,84 @@ final class CatalogRepository
     }
 
     /**
+     * Reordena pasos del protocolo (1..n) y sincroniza sort_order en casos abiertos.
+     *
+     * @param list<int> $orderedStepIds IDs en el orden deseado
+     */
+    public function reorderProtocolSteps(int $protocolId, array $orderedStepIds): void
+    {
+        $existing = $this->protocolSteps($protocolId, false);
+        if (!$existing) {
+            return;
+        }
+        $existingIds = array_map(static fn (array $s): int => (int) $s['id'], $existing);
+        $ordered = [];
+        foreach ($orderedStepIds as $id) {
+            $id = (int) $id;
+            if ($id > 0 && in_array($id, $existingIds, true) && !in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+        foreach ($existingIds as $id) {
+            if (!in_array($id, $ordered, true)) {
+                $ordered[] = $id;
+            }
+        }
+        if (count($ordered) !== count($existingIds)) {
+            throw new \RuntimeException('La lista de pasos no coincide con el protocolo.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $upd = $this->pdo->prepare(
+                'UPDATE protocol_steps SET sort_order = ? WHERE id = ? AND protocol_id = ?'
+            );
+            foreach ($ordered as $i => $stepId) {
+                $upd->execute([$i + 1, $stepId, $protocolId]);
+            }
+            // Mantener el timeline de casos existentes alineado al nuevo orden del protocolo.
+            $this->pdo->prepare(
+                'UPDATE certification_case_steps cs
+                 INNER JOIN protocol_steps ps ON ps.id = cs.protocol_step_id
+                 SET cs.sort_order = ps.sort_order
+                 WHERE ps.protocol_id = ?'
+            )->execute([$protocolId]);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /** Mueve un paso una posición arriba o abajo dentro de su protocolo. */
+    public function moveProtocolStep(int $protocolId, int $stepId, string $direction): void
+    {
+        $steps = $this->protocolSteps($protocolId, false);
+        $ids = array_map(static fn (array $s): int => (int) $s['id'], $steps);
+        $index = array_search($stepId, $ids, true);
+        if ($index === false) {
+            throw new \RuntimeException('Paso no encontrado en este protocolo.');
+        }
+        $dir = strtolower($direction);
+        if ($dir === 'up') {
+            if ($index === 0) {
+                return;
+            }
+            [$ids[$index - 1], $ids[$index]] = [$ids[$index], $ids[$index - 1]];
+        } elseif ($dir === 'down') {
+            if ($index >= count($ids) - 1) {
+                return;
+            }
+            [$ids[$index + 1], $ids[$index]] = [$ids[$index], $ids[$index + 1]];
+        } else {
+            throw new \InvalidArgumentException('Dirección inválida (usa up o down).');
+        }
+        $this->reorderProtocolSteps($protocolId, $ids);
+    }
+
+    /**
      * Abre un caso de certificación y clona los pasos del protocolo como pendientes.
      * El primer paso queda en status=current.
      */
