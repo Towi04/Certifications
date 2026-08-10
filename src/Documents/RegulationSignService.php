@@ -234,18 +234,46 @@ final class RegulationSignService
         if ($dataUrl === null || $dataUrl === '') {
             return null;
         }
-        if (!preg_match('#^data:image/png;base64,([A-Za-z0-9+/=\s]+)$#', trim($dataUrl), $m)) {
+        if (!preg_match('#^data:image/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=\s]+)$#i', trim($dataUrl), $m)) {
             return null;
         }
-        $bin = base64_decode(preg_replace('/\s+/', '', $m[1]) ?? '', true);
-        if ($bin === false || strlen($bin) < 100 || !str_starts_with($bin, "\x89PNG")) {
+        $bin = base64_decode(preg_replace('/\s+/', '', $m[2]) ?? '', true);
+        if ($bin === false || strlen($bin) < 80) {
             return null;
         }
         if (strlen($bin) > 2_000_000) {
             throw new \RuntimeException('La imagen de firma es demasiado grande. Vuelve a dibujarla.');
         }
 
-        return $bin;
+        $fmt = strtolower($m[1]);
+        if ($fmt === 'png' && str_starts_with($bin, "\x89PNG")) {
+            return $bin;
+        }
+
+        // Convertir JPEG/WebP a PNG (el PDF de evidencia embebe PNG)
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) {
+            // Sin GD: si ya es PNG válido ok; si no, rechazar
+            return str_starts_with($bin, "\x89PNG") ? $bin : null;
+        }
+        $img = @imagecreatefromstring($bin);
+        if ($img === false) {
+            return null;
+        }
+        if (function_exists('imagepalettetotruecolor')) {
+            @imagepalettetotruecolor($img);
+        }
+        if (function_exists('imagealphablending')) {
+            imagealphablending($img, true);
+        }
+        if (function_exists('imagesavealpha')) {
+            imagesavealpha($img, true);
+        }
+        ob_start();
+        imagepng($img, null, 6);
+        imagedestroy($img);
+        $png = ob_get_clean();
+
+        return is_string($png) && str_starts_with($png, "\x89PNG") ? $png : null;
     }
 
     private function storeBinary(string $subdir, string $contents, string $ext, string $prefix = 'sig'): string

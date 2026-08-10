@@ -413,10 +413,25 @@ final class PublicRoutes
             ]);
         });
 
+        $router->get('/alumno/caso/sign-regulation', static function (): void {
+            Auth::requireStudent();
+            $caseId = (int) ($_GET['id'] ?? $_GET['case_id'] ?? 0);
+            flash('error', 'La firma no se completó. Vuelve a firmar (si dibujas, espera a que termine de enviar).');
+            header('Location: ' . ($caseId > 0 ? '/alumno/caso?id=' . $caseId : '/alumno'));
+            exit;
+        });
+
         $router->post('/alumno/caso/sign-regulation', static function () use ($repo): void {
             Auth::requireStudent();
             $user = Auth::user();
+            // Si el POST viene vacío (post_max_size / límite del servidor), no hay case_id
+            $contentLen = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
             $caseId = (int) ($_POST['case_id'] ?? 0);
+            if ($caseId <= 0 && $contentLen > 0 && $_POST === []) {
+                flash('error', 'La firma dibujada era demasiado grande para el servidor. Inténtalo de nuevo (ya se comprime automáticamente) o firma con tu nombre escrito.');
+                header('Location: /alumno');
+                exit;
+            }
             $item = $repo()->certificationCaseDetailed($caseId);
             if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
                 flash('error', 'Caso no encontrado.');
@@ -431,13 +446,27 @@ final class PublicRoutes
                 if (!$doc && !empty($item['requires_regulation_signature'])) {
                     throw new \RuntimeException('Aún no hay reglamento asignado a esta certificación. Contacta a Instituto Doceo.');
                 }
-                $accept = isset($_POST['accept_regulation']);
-                if (!$accept) {
-                    throw new \RuntimeException('Debes aceptar el reglamento para continuar.');
-                }
+                // Firmar implica haber leído y aceptado el reglamento
                 $signer = trim((string) ($_POST['signer_name'] ?? ''));
                 $mode = (string) ($_POST['signature_mode'] ?? 'type');
                 $sigData = (string) ($_POST['signature_data'] ?? '');
+                $sigFile = isset($_FILES['signature_image']) ? $_FILES['signature_image'] : null;
+                if (
+                    $mode === 'draw'
+                    && $sigData === ''
+                    && $sigFile
+                    && (int) ($sigFile['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK
+                ) {
+                    $tmp = (string) ($sigFile['tmp_name'] ?? '');
+                    $bin = is_file($tmp) ? (string) file_get_contents($tmp) : '';
+                    if ($bin !== '') {
+                        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp) ?: '';
+                        if (!str_starts_with($mime, 'image/')) {
+                            throw new \RuntimeException('El archivo de firma no es una imagen válida.');
+                        }
+                        $sigData = 'data:' . $mime . ';base64,' . base64_encode($bin);
+                    }
+                }
                 $repo()->signCaseRegulation(
                     $caseId,
                     $signer,
@@ -446,7 +475,7 @@ final class PublicRoutes
                     $mode,
                     $sigData !== '' ? $sigData : null
                 );
-                flash('info', 'Reglamento firmado digitalmente. Descarga el PDF de evidencia (no el reglamento en blanco) y continúa con tu pago.');
+                flash('info', 'Reglamento firmado. Ya puedes continuar con tu pago.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
