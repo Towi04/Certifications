@@ -1,18 +1,19 @@
 <?php
 $groupFormOpen = $showForm || $editGroup;
-$assignedByGroup = [];
-foreach ($certifications as $c) {
-    $gid = (int) ($c['provider_group_id'] ?? 0);
-    if ($gid > 0) {
-        $assignedByGroup[$gid][] = (int) $c['id'];
-    }
+$groupById = [];
+foreach ($groups as $g) {
+    $groupById[(int) $g['id']] = $g;
 }
 ?>
 <section class="provider-panel">
     <div class="panel-toolbar">
         <div>
             <h3>Grupos</h3>
-            <p class="muted" style="margin:0.25rem 0 0">Agrupa certificaciones (p. ej. por línea de producto o región).</p>
+            <p class="muted" style="margin:0.25rem 0 0">
+                Subconjuntos opcionales de certificaciones (p. ej. ITEP, UKS).
+                Cada certificación pertenece a <strong>un solo grupo</strong> o a ninguno.
+                Para documentos/links de <em>toda la empresa</em>, usa alcance «Empresa» — no hace falta un grupo «General».
+            </p>
         </div>
         <?php if (!$groupFormOpen): ?>
             <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=grupos&form=1">Nuevo grupo</a>
@@ -28,7 +29,7 @@ foreach ($certifications as $c) {
             <form method="post" action="/admin/providers/group/save" class="form-grid" style="margin-top:0.75rem">
                 <input type="hidden" name="provider_id" value="<?= $id ?>">
                 <?php if ($editGroup): ?><input type="hidden" name="id" value="<?= (int)$editGroup['id'] ?>"><?php endif; ?>
-                <label>Nombre<input name="name" required value="<?= e($editGroup['name'] ?? '') ?>" placeholder="Ej. General, ITEP, UKS"></label>
+                <label>Nombre<input name="name" required value="<?= e($editGroup['name'] ?? '') ?>" placeholder="Ej. ITEP, UKS, TOEFL"></label>
                 <label>Código
                     <input name="code" value="<?= e($editGroup['code'] ?? '') ?>" placeholder="Opcional — se genera del nombre">
                 </label>
@@ -73,39 +74,48 @@ foreach ($certifications as $c) {
                 </tbody>
             </table>
         </div>
-
-        <?php foreach ($groups as $g): ?>
-            <?php
-            $gid = (int) $g['id'];
-            $assigned = $assignedByGroup[$gid] ?? [];
-            ?>
-            <div class="inline-form-panel" style="margin-top:1rem">
-                <h4 style="margin:0 0 0.5rem">Certificaciones en «<?= e($g['name']) ?>»</h4>
-                <form method="post" action="/admin/providers/group/assign" class="form-grid">
-                    <input type="hidden" name="provider_id" value="<?= $id ?>">
-                    <input type="hidden" name="group_id" value="<?= $gid ?>">
-                    <div class="field-wide">
-                        <?php if ($certifications): ?>
-                            <div class="reg-fields-grid">
-                                <?php foreach ($certifications as $c): ?>
-                                    <label class="check">
-                                        <input type="checkbox" name="certification_ids[]" value="<?= (int)$c['id'] ?>"
-                                            <?= in_array((int)$c['id'], $assigned, true) ? 'checked' : '' ?>>
-                                        <?= e($c['name']) ?> <code class="muted"><?= e($c['code']) ?></code>
-                                    </label>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <p class="muted">Sin certificaciones para asignar.</p>
-                        <?php endif; ?>
-                    </div>
-                    <div class="actions">
-                        <button class="btn btn-ghost" type="submit">Guardar asignación</button>
-                    </div>
-                </form>
-            </div>
-        <?php endforeach; ?>
     <?php else: ?>
-        <p class="muted">Sin grupos. Se crea uno «General» automáticamente al guardar el proveedor.</p>
+        <p class="muted" style="margin-top:1rem">Sin grupos. Créalos solo si necesitas alcance parcial (documentos/links de un subconjunto de certificaciones).</p>
+    <?php endif; ?>
+
+    <?php if ($certifications): ?>
+        <div class="inline-form-panel" style="margin-top:1.25rem">
+            <h4 style="margin:0 0 0.35rem">Asignar certificaciones</h4>
+            <p class="muted" style="margin:0 0 0.75rem">
+                Elige el grupo de cada certificación. «Sin grupo» = solo aplica lo de alcance empresa o la certificación misma.
+            </p>
+            <form method="post" action="/admin/providers/group/assign-all" class="form-grid">
+                <input type="hidden" name="provider_id" value="<?= $id ?>">
+                <div class="table-wrap field-wide">
+                    <table class="data-table">
+                        <thead><tr><th>Certificación</th><th>Grupo</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($certifications as $c): ?>
+                            <?php $currentGid = (int) ($c['provider_group_id'] ?? 0); ?>
+                            <tr>
+                                <td>
+                                    <strong><?= e($c['name']) ?></strong>
+                                    <code class="muted"><?= e($c['code']) ?></code>
+                                </td>
+                                <td>
+                                    <select name="cert_group[<?= (int)$c['id'] ?>]">
+                                        <option value="0" <?= $currentGid === 0 ? 'selected' : '' ?>>Sin grupo</option>
+                                        <?php foreach ($groups as $g): ?>
+                                            <option value="<?= (int)$g['id'] ?>" <?= $currentGid === (int)$g['id'] ? 'selected' : '' ?>>
+                                                <?= e($g['name']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="actions">
+                    <button class="btn" type="submit">Guardar asignaciones</button>
+                </div>
+            </form>
+        </div>
     <?php endif; ?>
 </section>

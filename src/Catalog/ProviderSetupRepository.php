@@ -63,7 +63,7 @@ final class ProviderSetupRepository
         $this->ensureDocumentTypeColumn();
         $this->ensureShareTokenIndex();
         $this->ensureProviderLinksTable();
-        $this->backfillDefaultGroups();
+        $this->pruneEmptyDefaultGroups();
         $this->backfillDocumentShareTokens();
 
         $done = true;
@@ -538,17 +538,32 @@ final class ProviderSetupRepository
         }
     }
 
-    private function backfillDefaultGroups(): void
+    /**
+     * Elimina grupos auto-creados DEFAULT vacíos.
+     * Ya no se crean automáticamente: “toda la empresa” es alcance provider, no un grupo.
+     */
+    private function pruneEmptyDefaultGroups(): void
     {
         try {
-            $this->pdo->exec(
-                "INSERT INTO provider_groups (provider_id, code, name, description, sort_order, is_active)
-                 SELECT p.id, 'DEFAULT', 'General', 'Grupo por defecto', 0, 1
-                 FROM providers p
-                 WHERE NOT EXISTS (
-                   SELECT 1 FROM provider_groups g WHERE g.provider_id = p.id AND g.code = 'DEFAULT'
-                 )"
-            );
+            $hasLinks = false;
+            try {
+                $stmt = $this->pdo->query(
+                    "SELECT COUNT(*) FROM information_schema.TABLES
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'provider_links'"
+                );
+                $hasLinks = (int) $stmt->fetchColumn() > 0;
+            } catch (\Throwable) {
+                $hasLinks = false;
+            }
+
+            $sql = "DELETE g FROM provider_groups g
+                    WHERE g.code = 'DEFAULT'
+                      AND NOT EXISTS (SELECT 1 FROM certifications c WHERE c.provider_group_id = g.id)
+                      AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.provider_group_id = g.id)";
+            if ($hasLinks) {
+                $sql .= ' AND NOT EXISTS (SELECT 1 FROM provider_links l WHERE l.provider_group_id = g.id)';
+            }
+            $this->pdo->exec($sql);
         } catch (\Throwable) {
         }
     }

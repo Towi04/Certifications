@@ -829,6 +829,44 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/providers/group/assign-all', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            if ($providerId < 1) {
+                flash('error', 'Proveedor no válido.');
+                header('Location: /admin/providers');
+                exit;
+            }
+            $map = $_POST['cert_group'] ?? [];
+            if (!is_array($map)) {
+                $map = [];
+            }
+            try {
+                $validGroupIds = [];
+                foreach ($repo()->providerGroups($providerId) as $g) {
+                    $validGroupIds[(int) $g['id']] = true;
+                }
+                $certs = $repo()->certificationsByProvider($providerId);
+                foreach ($certs as $c) {
+                    $certId = (int) $c['id'];
+                    if (!array_key_exists((string) $certId, $map) && !array_key_exists($certId, $map)) {
+                        continue;
+                    }
+                    $raw = $map[(string) $certId] ?? $map[$certId] ?? 0;
+                    $groupId = (int) $raw;
+                    if ($groupId > 0 && !isset($validGroupIds[$groupId])) {
+                        $groupId = 0;
+                    }
+                    $repo()->setCertificationGroup($certId, $groupId > 0 ? $groupId : null);
+                }
+                flash('info', 'Asignaciones de grupo guardadas.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'grupos'));
+            exit;
+        });
+
         $router->post('/admin/providers/document/save', static function () use ($repo, $providerTabUrl, $saveDocumentFromPost): void {
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
