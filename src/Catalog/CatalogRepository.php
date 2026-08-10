@@ -1274,6 +1274,45 @@ final class CatalogRepository
         $this->providerSetup()->assignCertificationsToGroup($providerId, $groupId, $certIds);
     }
 
+    /** @return array<string, string> */
+    public static function providerLinkTypes(): array
+    {
+        return ProviderSetupRepository::providerLinkTypes();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerLinks(int $providerId, bool $onlyActive = false): array
+    {
+        return $this->providerSetup()->providerLinks($providerId, $onlyActive);
+    }
+
+    public function providerLink(int $id): ?array
+    {
+        return $this->providerSetup()->providerLink($id);
+    }
+
+    public function saveProviderLink(array $data, ?int $id = null): int
+    {
+        return $this->providerSetup()->saveProviderLink($data, $id);
+    }
+
+    public function deleteProviderLink(int $id): void
+    {
+        $this->providerSetup()->deleteProviderLink($id);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerLinksForCertification(int $certificationId, bool $onlyActive = true): array
+    {
+        return $this->providerSetup()->providerLinksForCertification($certificationId, $onlyActive);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function allProviderLinks(bool $onlyActive = true): array
+    {
+        return $this->providerSetup()->allProviderLinks($onlyActive);
+    }
+
     /** @return list<array{key:string,label:string,type:string,source:string}> */
     public function getProviderRegistrationFields(int $providerId): array
     {
@@ -2279,7 +2318,7 @@ final class CatalogRepository
         $stmt = $this->pdo->prepare(
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
                     cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
-                    cert.cenni_fee, cert.cenni_process,
+                    cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
                     pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.uses_inventory,

@@ -37,6 +37,7 @@ $tabs = $item ? [
     'autorizacion' => 'Autorización',
     'convenio' => 'Convenio',
     'cuentas' => 'Cuentas',
+    'links' => 'Links',
     'certificaciones' => 'Certificaciones',
     'grupos' => 'Grupos',
     'documentos' => 'Documentos',
@@ -518,8 +519,9 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <div>
                         <h3>Cuentas y sitios</h3>
                         <p class="muted" style="margin:0.25rem 0 0">
-                            Portales con login (usuario + contraseña cifrada) o <strong>sitios sin login</strong>
-                            (solo URL: registros, material, capacitación…). Solo admin.
+                            Accesos <strong>internos de Doceo</strong> al proveedor: portales con login
+                            (usuario + contraseña cifrada) o sitios sin login. No son los links que se envían al alumno
+                            (eso va en la pestaña <a href="/admin/providers/edit?id=<?= $id ?>&tab=links">Links</a>).
                         </p>
                     </div>
                     <?php if (!$accountFormOpen): ?>
@@ -819,6 +821,10 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'links'): ?>
+            <?php require __DIR__ . '/_tab_links.php'; ?>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'certificaciones'): ?>

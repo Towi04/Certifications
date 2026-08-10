@@ -62,10 +62,241 @@ final class ProviderSetupRepository
 
         $this->ensureDocumentTypeColumn();
         $this->ensureShareTokenIndex();
+        $this->ensureProviderLinksTable();
         $this->backfillDefaultGroups();
         $this->backfillDocumentShareTokens();
 
         $done = true;
+    }
+
+    /** @return array<string, string> */
+    public static function providerLinkTypes(): array
+    {
+        return [
+            'study_material' => 'Material de estudio',
+            'software' => 'Software / descarga',
+            'exam_portal' => 'Portal de examen',
+            'other' => 'Otro',
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerLinks(int $providerId, bool $onlyActive = false): array
+    {
+        $this->ensureProviderSetupSchema();
+        $sql = 'SELECT l.*,
+                       pg.name AS group_name,
+                       c.name AS certification_name
+                FROM provider_links l
+                LEFT JOIN provider_groups pg ON pg.id = l.provider_group_id
+                LEFT JOIN certifications c ON c.id = l.certification_id
+                WHERE l.provider_id = ?';
+        if ($onlyActive) {
+            $sql .= ' AND l.is_active = 1';
+        }
+        $sql .= ' ORDER BY l.sort_order, l.label';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$providerId]);
+
+        return $stmt->fetchAll();
+    }
+
+    public function providerLink(int $id): ?array
+    {
+        $this->ensureProviderSetupSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT l.*,
+                    pg.name AS group_name,
+                    c.name AS certification_name
+             FROM provider_links l
+             LEFT JOIN provider_groups pg ON pg.id = l.provider_group_id
+             LEFT JOIN certifications c ON c.id = l.certification_id
+             WHERE l.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public function saveProviderLink(array $data, ?int $id = null): int
+    {
+        $this->ensureProviderSetupSchema();
+        $scopeType = (string) ($data['scope_type'] ?? 'provider');
+        if (!in_array($scopeType, ['provider', 'group', 'certification'], true)) {
+            $scopeType = 'provider';
+        }
+        $linkType = (string) ($data['link_type'] ?? 'other');
+        if (!isset(self::providerLinkTypes()[$linkType])) {
+            $linkType = 'other';
+        }
+        $providerGroupId = isset($data['provider_group_id']) && $data['provider_group_id'] !== ''
+            ? (int) $data['provider_group_id']
+            : null;
+        $certificationId = isset($data['certification_id']) && $data['certification_id'] !== ''
+            ? (int) $data['certification_id']
+            : null;
+        if ($scopeType === 'provider') {
+            $providerGroupId = null;
+            $certificationId = null;
+        } elseif ($scopeType === 'group') {
+            $certificationId = null;
+            if ($providerGroupId === null || $providerGroupId < 1) {
+                throw new \RuntimeException('Selecciona un grupo para el alcance.');
+            }
+        } else {
+            $providerGroupId = null;
+            if ($certificationId === null || $certificationId < 1) {
+                throw new \RuntimeException('Selecciona una certificación para el alcance.');
+            }
+        }
+
+        $code = strtoupper(trim((string) ($data['code'] ?? '')));
+        $code = preg_replace('/[^A-Z0-9_]+/', '_', $code) ?? '';
+        $code = trim($code, '_');
+        if ($code === '') {
+            $label = trim((string) ($data['label'] ?? ''));
+            $code = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '_', $label) ?? '');
+            $code = trim($code, '_') ?: ('LINK_' . substr(md5($label . microtime()), 0, 8));
+        }
+        $url = trim((string) ($data['url'] ?? ''));
+        if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new \RuntimeException('URL inválida.');
+        }
+        $label = trim((string) ($data['label'] ?? ''));
+        if ($label === '') {
+            throw new \RuntimeException('La etiqueta es obligatoria.');
+        }
+
+        $fields = [
+            (int) $data['provider_id'],
+            $code,
+            $label,
+            $url,
+            $linkType,
+            $scopeType,
+            $providerGroupId,
+            $certificationId,
+            $data['notes'] ?? null,
+            (int) ($data['sort_order'] ?? 0),
+            (int) ($data['is_active'] ?? 1),
+        ];
+
+        if ($id) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE provider_links
+                 SET provider_id=?, code=?, label=?, url=?, link_type=?, scope_type=?,
+                     provider_group_id=?, certification_id=?, notes=?, sort_order=?, is_active=?
+                 WHERE id=?'
+            );
+            $stmt->execute([...$fields, $id]);
+
+            return $id;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO provider_links
+             (provider_id, code, label, url, link_type, scope_type, provider_group_id, certification_id, notes, sort_order, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute($fields);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteProviderLink(int $id): void
+    {
+        $this->ensureProviderSetupSchema();
+        $this->pdo->prepare('DELETE FROM provider_links WHERE id = ?')->execute([$id]);
+    }
+
+    /**
+     * Links aplicables a una certificación (empresa + grupo + certificación).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function providerLinksForCertification(int $certificationId, bool $onlyActive = true): array
+    {
+        $this->ensureProviderSetupSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT c.id, c.provider_id, c.provider_group_id
+             FROM certifications c WHERE c.id = ?'
+        );
+        $stmt->execute([$certificationId]);
+        $cert = $stmt->fetch();
+        if (!$cert) {
+            return [];
+        }
+
+        $providerId = (int) $cert['provider_id'];
+        $groupId = isset($cert['provider_group_id']) ? (int) $cert['provider_group_id'] : 0;
+
+        $sql = 'SELECT l.*,
+                       pg.name AS group_name,
+                       c.name AS certification_name
+                FROM provider_links l
+                LEFT JOIN provider_groups pg ON pg.id = l.provider_group_id
+                LEFT JOIN certifications c ON c.id = l.certification_id
+                WHERE l.provider_id = ?
+                  AND (
+                    (l.scope_type = \'provider\')
+                    OR (l.scope_type = \'certification\' AND l.certification_id = ?)
+                    OR (l.scope_type = \'group\' AND l.provider_group_id = ? AND ? > 0)
+                  )';
+        if ($onlyActive) {
+            $sql .= ' AND l.is_active = 1';
+        }
+        $sql .= ' ORDER BY l.sort_order, l.label';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$providerId, $certificationId, $groupId, $groupId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function allProviderLinks(bool $onlyActive = true): array
+    {
+        $this->ensureProviderSetupSchema();
+        $sql = 'SELECT l.*, p.name AS provider_name, p.code AS provider_code
+                FROM provider_links l
+                JOIN providers p ON p.id = l.provider_id';
+        if ($onlyActive) {
+            $sql .= ' WHERE l.is_active = 1';
+        }
+        $sql .= ' ORDER BY p.name, l.sort_order, l.label';
+        $stmt = $this->pdo->query($sql);
+
+        return $stmt->fetchAll();
+    }
+
+    private function ensureProviderLinksTable(): void
+    {
+        try {
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS provider_links (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  provider_id BIGINT UNSIGNED NOT NULL,
+                  code VARCHAR(64) NOT NULL COMMENT 'Clave estable para tokens de correo ({{Link CODE}})',
+                  label VARCHAR(190) NOT NULL,
+                  url VARCHAR(1024) NOT NULL,
+                  link_type ENUM('study_material','software','exam_portal','other') NOT NULL DEFAULT 'other',
+                  scope_type ENUM('provider','group','certification') NOT NULL DEFAULT 'provider',
+                  provider_group_id BIGINT UNSIGNED NULL,
+                  certification_id BIGINT UNSIGNED NULL,
+                  notes TEXT NULL,
+                  sort_order INT NOT NULL DEFAULT 0,
+                  is_active TINYINT(1) NOT NULL DEFAULT 1,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uq_provider_link_code (provider_id, code),
+                  KEY idx_provider_links_provider (provider_id),
+                  KEY idx_provider_links_group (provider_group_id),
+                  KEY idx_provider_links_cert (certification_id),
+                  CONSTRAINT fk_provider_links_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        } catch (\Throwable) {
+        }
     }
 
     /** @return list<array<string, mixed>> */

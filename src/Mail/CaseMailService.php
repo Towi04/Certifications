@@ -495,8 +495,9 @@ final class CaseMailService
         $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
 
         $regUrls = $this->regulationUrlsForCase($case, $appUrl);
+        $linkTokens = $this->providerLinkTokensForCase($case);
 
-        return [
+        return array_merge([
             'Nombre' => $nombre,
             'Apellido P' => $ap,
             'Apellido M' => $am,
@@ -542,7 +543,83 @@ final class CaseMailService
             'Reglamento Firmado URL' => $regUrls['signed_url'],
             'Reglamento Boton' => $regUrls['button_html'],
             'Reglamento Firmado Boton' => $regUrls['signed_button_html'],
+        ], $linkTokens);
+    }
+
+    /**
+     * Tokens dinámicos de links del proveedor aplicables al caso.
+     *
+     * @param array<string, mixed> $case
+     * @return array<string, string>
+     */
+    private function providerLinkTokensForCase(array $case): array
+    {
+        $certId = (int) ($case['certification_id'] ?? 0);
+        $tokens = [
+            'Links Alumno' => '',
+            'Links Estudio' => '',
+            'Links Software' => '',
+            'Links Examen' => '',
         ];
+        if ($certId < 1) {
+            return $tokens;
+        }
+
+        try {
+            $links = $this->repo->providerLinksForCertification($certId, true);
+        } catch (\Throwable) {
+            return $tokens;
+        }
+
+        $byType = [
+            'study_material' => [],
+            'software' => [],
+            'exam_portal' => [],
+        ];
+        $allLines = [];
+
+        foreach ($links as $link) {
+            $code = strtoupper(trim((string) ($link['code'] ?? '')));
+            $label = trim((string) ($link['label'] ?? ''));
+            $url = trim((string) ($link['url'] ?? ''));
+            $type = (string) ($link['link_type'] ?? 'other');
+            if ($code === '' || $url === '') {
+                continue;
+            }
+
+            $tokens['Link ' . $code] = self::linkLine($label !== '' ? $label : $code, $url);
+            $tokens['Link ' . $code . ' URL'] = $url;
+            $tokens['Link ' . $code . ' Boton'] = self::linkButton($label !== '' ? $label : 'Abrir enlace', $url);
+
+            $line = self::linkLine($label !== '' ? $label : $code, $url);
+            $allLines[] = $line;
+            if (isset($byType[$type])) {
+                $byType[$type][] = $line;
+            }
+        }
+
+        $tokens['Links Alumno'] = implode('', $allLines);
+        $tokens['Links Estudio'] = implode('', $byType['study_material']);
+        $tokens['Links Software'] = implode('', $byType['software']);
+        $tokens['Links Examen'] = implode('', $byType['exam_portal']);
+
+        return $tokens;
+    }
+
+    private static function linkButton(string $label, string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+        $safeLabel = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+
+        return '<p style="margin:16px 0;">'
+            . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" '
+            . 'style="display:inline-block;background:#315285;color:#ffffff;text-decoration:none;'
+            . 'padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">'
+            . $safeLabel . '</a></p>';
     }
 
     /**
@@ -784,7 +861,7 @@ final class CaseMailService
     /** @return array<string, string> Clave token => descripción para el editor admin */
     public static function tokenHelp(): array
     {
-        return [
+        $base = [
             'Nombre' => 'Nombre(s) del alumno',
             'Apellido P' => 'Apellido paterno',
             'Apellido M' => 'Apellido materno',
@@ -828,7 +905,43 @@ final class CaseMailService
             'Reglamento Firmado URL' => 'Link al PDF de evidencia firmado por el alumno',
             'Reglamento Boton' => 'Botón HTML (firmado si existe; si no, original)',
             'Reglamento Firmado Boton' => 'Botón HTML solo del PDF firmado',
+            'Links Alumno' => 'Lista HTML de todos los links del proveedor aplicables al caso',
+            'Links Estudio' => 'Lista HTML de links tipo material de estudio',
+            'Links Software' => 'Lista HTML de links tipo software / descarga',
+            'Links Examen' => 'Lista HTML de links tipo portal de examen',
         ];
+
+        try {
+            $repo = new CatalogRepository();
+            $types = CatalogRepository::providerLinkTypes();
+            foreach ($repo->allProviderLinks(true) as $link) {
+                $code = strtoupper(trim((string) ($link['code'] ?? '')));
+                if ($code === '') {
+                    continue;
+                }
+                $label = trim((string) ($link['label'] ?? $code));
+                $provider = trim((string) ($link['provider_name'] ?? $link['provider_code'] ?? ''));
+                $typeLabel = $types[$link['link_type'] ?? ''] ?? ($link['link_type'] ?? '');
+                $scope = (string) ($link['scope_type'] ?? 'provider');
+                $hint = $label;
+                if ($provider !== '') {
+                    $hint .= ' · ' . $provider;
+                }
+                if ($typeLabel !== '') {
+                    $hint .= ' · ' . $typeLabel;
+                }
+                $hint .= ' · alcance ' . $scope;
+                $base['Link ' . $code] = 'Línea HTML: ' . $hint;
+                $base['Link ' . $code . ' URL'] = 'URL cruda: ' . $hint;
+                $base['Link ' . $code . ' Boton'] = 'Botón HTML: ' . $hint;
+            }
+        } catch (\Throwable) {
+            $base['Link CODIGO'] = 'Línea HTML del link con ese código (alta en Proveedor → Links)';
+            $base['Link CODIGO URL'] = 'URL cruda del link';
+            $base['Link CODIGO Boton'] = 'Botón HTML del link';
+        }
+
+        return $base;
     }
 
     /** @param array<string, string> $tokens */

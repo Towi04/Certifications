@@ -146,7 +146,7 @@ final class AdminRoutes
             $repo()->ensureLegacyContactMigrated($id);
             $repo()->ensureProviderSetupSchema();
             $allowedTabs = [
-                'proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas',
+                'proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas', 'links',
                 'certificaciones', 'grupos', 'documentos', 'campos', 'notas',
             ];
             $tab = (string) ($_GET['tab'] ?? 'proveedor');
@@ -168,6 +168,14 @@ final class AdminRoutes
             if ($tab === 'cuentas' && $editAccountId > 0) {
                 $editAccount = $repo()->providerAccount($id, $editAccountId);
             }
+            $editLink = null;
+            $editLinkId = (int) ($_GET['edit_link'] ?? 0);
+            if ($tab === 'links' && $editLinkId > 0) {
+                $linkRow = $repo()->providerLink($editLinkId);
+                if ($linkRow && (int) $linkRow['provider_id'] === $id) {
+                    $editLink = $linkRow;
+                }
+            }
             $editGroup = null;
             $editGroupId = (int) ($_GET['edit_group'] ?? 0);
             if ($tab === 'grupos' && $editGroupId > 0) {
@@ -188,6 +196,7 @@ final class AdminRoutes
                 || $editVenue !== null
                 || $editContact !== null
                 || $editAccount !== null
+                || $editLink !== null
                 || $editGroup !== null
                 || $editDocument !== null;
             view('admin/providers/form', [
@@ -202,12 +211,15 @@ final class AdminRoutes
                 'editVenue' => $editVenue,
                 'editContact' => $editContact,
                 'editAccount' => $editAccount,
+                'editLink' => $editLink,
                 'editGroup' => $editGroup,
                 'editDocument' => $editDocument,
                 'groups' => $repo()->providerGroups($id),
                 'provider_documents' => $repo()->documents($id),
+                'provider_links' => $repo()->providerLinks($id),
                 'provider_reg_fields' => $repo()->getProviderRegistrationFields($id),
                 'docTypes' => CatalogRepository::documentTypes(),
+                'linkTypes' => CatalogRepository::providerLinkTypes(),
                 'appUrl' => rtrim((string) (Env::get('APP_URL', '') ?? ''), '/'),
                 'showForm' => $showForm,
                 'notes' => $repo()->providerNotes($id),
@@ -851,6 +863,62 @@ final class AdminRoutes
                 flash('error', 'No se pudo eliminar: ' . $e->getMessage());
             }
             header('Location: ' . $providerTabUrl($providerId, 'documentos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/link/save', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            if ($providerId < 1) {
+                flash('error', 'Proveedor no válido.');
+                header('Location: /admin/providers');
+                exit;
+            }
+            if ($id) {
+                $existing = $repo()->providerLink($id);
+                if (!$existing || (int) $existing['provider_id'] !== $providerId) {
+                    flash('error', 'Link no encontrado.');
+                    header('Location: ' . $providerTabUrl($providerId, 'links'));
+                    exit;
+                }
+            }
+            try {
+                $repo()->saveProviderLink([
+                    'provider_id' => $providerId,
+                    'code' => (string) ($_POST['code'] ?? ''),
+                    'label' => (string) ($_POST['label'] ?? ''),
+                    'url' => (string) ($_POST['url'] ?? ''),
+                    'link_type' => (string) ($_POST['link_type'] ?? 'other'),
+                    'scope_type' => (string) ($_POST['scope_type'] ?? 'provider'),
+                    'provider_group_id' => $_POST['provider_group_id'] ?? null,
+                    'certification_id' => $_POST['certification_id'] ?? null,
+                    'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                    'sort_order' => (int) ($_POST['sort_order'] ?? 0),
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $id);
+                flash('info', 'Link guardado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'links'));
+            exit;
+        });
+
+        $router->post('/admin/providers/link/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $linkId = (int) ($_POST['link_id'] ?? ($_POST['id'] ?? 0));
+            try {
+                $link = $repo()->providerLink($linkId);
+                if ($link && (int) $link['provider_id'] === $providerId) {
+                    $repo()->deleteProviderLink($linkId);
+                    flash('info', 'Link eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo eliminar: ' . $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'links'));
             exit;
         });
 
