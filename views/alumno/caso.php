@@ -137,25 +137,21 @@ if ($needsSign) {
 <?php if ($needsSign): ?>
 <section class="note student-stage student-stage-active" id="reglamento">
     <h2>Firma el reglamento</h2>
-    <p>Lee el PDF del reglamento y fírmalo aquí. El sistema genera un <strong>PDF de evidencia firmado</strong> (distinto del reglamento en blanco) para el proveedor.</p>
+    <p>Lee el PDF del reglamento y fírmalo aquí (dibujo o nombre escrito).</p>
     <?php if ($regulation && !empty($regulation['file_path'])): ?>
         <p class="actions">
             <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$regulation['file_path'])) ?>" target="_blank" rel="noopener">
-                Abrir reglamento original (PDF)<?= !empty($regulation['version']) ? ' · v' . e((string)$regulation['version']) : '' ?>
+                Abrir reglamento (PDF)<?= !empty($regulation['version']) ? ' · v' . e((string)$regulation['version']) : '' ?>
             </a>
         </p>
     <?php else: ?>
         <p class="muted">El reglamento aún no está cargado. Si el botón de firma no aparece disponible, contacta a Instituto Doceo.</p>
     <?php endif; ?>
 
-    <form method="post" action="/alumno/caso/sign-regulation" class="stack" id="signRegulationForm">
+    <form method="post" action="/alumno/caso/sign-regulation" class="stack" id="signRegulationForm" enctype="multipart/form-data">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <input type="hidden" name="signature_data" id="signatureData" value="">
-
-        <label class="check">
-            <input type="checkbox" name="accept_regulation" value="1" required>
-            He leído el reglamento y acepto sus términos.
-        </label>
+        <input type="hidden" name="accept_regulation" value="1">
 
         <label>Nombre completo para la firma
             <input name="signer_name" id="signerName" required value="<?= e($fullName) ?>"
@@ -185,13 +181,13 @@ if ($needsSign) {
         </div>
 
         <div id="typePadWrap" hidden>
-            <p class="muted">Se usará tu nombre tipográfico como firma en el PDF de evidencia.</p>
+            <p class="muted">Tu nombre se usará como firma tipográfica.</p>
             <p class="signature-type-preview" id="typePreview"><?= e($fullName !== '' ? $fullName : 'Tu nombre') ?></p>
         </div>
 
         <div class="actions">
             <button class="btn" type="submit" id="signSubmit" <?= ($regulation || !$requires_regulation) ? '' : 'disabled' ?>>
-                Firmar y generar PDF de evidencia
+                Firmar reglamento
             </button>
         </div>
     </form>
@@ -206,6 +202,7 @@ if ($needsSign) {
   var typePreview = document.getElementById('typePreview');
   var nameInput = document.getElementById('signerName');
   var hint = document.getElementById('signaturePadHint');
+  var submitBtn = document.getElementById('signSubmit');
   if (!canvas || !form) return;
 
   var ctx = canvas.getContext('2d');
@@ -289,17 +286,86 @@ if ($needsSign) {
   syncMode();
   resize();
 
+  /** Compacta el canvas a JPEG pequeño para no romper el POST del servidor. */
+  function exportSignatureBlob() {
+    return new Promise(function (resolve, reject) {
+      var maxW = 480;
+      var maxH = 150;
+      var srcW = canvas.width;
+      var srcH = canvas.height;
+      if (!srcW || !srcH) {
+        reject(new Error('Canvas vacío'));
+        return;
+      }
+      var scale = Math.min(maxW / srcW, maxH / srcH, 1);
+      var out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(srcW * scale));
+      out.height = Math.max(1, Math.round(srcH * scale));
+      var octx = out.getContext('2d');
+      octx.fillStyle = '#ffffff';
+      octx.fillRect(0, 0, out.width, out.height);
+      octx.drawImage(canvas, 0, 0, out.width, out.height);
+      if (out.toBlob) {
+        out.toBlob(function (blob) {
+          if (!blob) {
+            reject(new Error('No se pudo comprimir la firma'));
+            return;
+          }
+          resolve(blob);
+        }, 'image/jpeg', 0.72);
+      } else {
+        var dataUrl = out.toDataURL('image/jpeg', 0.72);
+        resolve(dataUrl);
+      }
+    });
+  }
+
   form.addEventListener('submit', function (e) {
     var m = mode();
     dataInput.value = '';
-    if (m === 'draw') {
-      if (!hasInk) {
-        e.preventDefault();
-        alert('Dibuja tu firma en el recuadro o elige “Nombre escrito”.');
+    if (m !== 'draw') {
+      return;
+    }
+    e.preventDefault();
+    if (!hasInk) {
+      alert('Dibuja tu firma en el recuadro o elige “Nombre escrito”.');
+      return;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Firmando…';
+    }
+    exportSignatureBlob().then(function (payload) {
+      var fd = new FormData(form);
+      fd.set('signature_mode', 'draw');
+      fd.set('accept_regulation', '1');
+      fd.delete('signature_data');
+      if (typeof payload === 'string') {
+        fd.set('signature_data', payload);
+      } else {
+        fd.set('signature_image', payload, 'firma.jpg');
+      }
+      return fetch(form.action, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        redirect: 'follow',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+    }).then(function (res) {
+      if (res.redirected && res.url) {
+        window.location.href = res.url;
         return;
       }
-      dataInput.value = canvas.toDataURL('image/png');
-    }
+      var caseId = form.querySelector('input[name="case_id"]');
+      window.location.href = '/alumno/caso?id=' + (caseId ? caseId.value : '');
+    }).catch(function () {
+      alert('No se pudo enviar la firma. Prueba de nuevo o usa “Nombre escrito”.');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Firmar reglamento';
+      }
+    });
   });
 })();
 </script>
