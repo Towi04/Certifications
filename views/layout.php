@@ -19,7 +19,11 @@
             <a class="brand" href="/">
                 <img class="brand-logo" src="/assets/brand/logo-doceo.svg" width="200" height="67" alt="<?= e(app_name()) ?>">
             </a>
-            <nav class="nav">
+            <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav" id="navToggle">
+                <span class="nav-toggle-bars" aria-hidden="true"></span>
+                <span class="sr-only">Menú</span>
+            </button>
+            <nav class="nav" id="siteNav">
                 <a href="/#catalogo">Catálogo</a>
                 <?php if (\App\Auth\Auth::check()): ?>
                     <?php $u = \App\Auth\Auth::user(); $role = $u['role'] ?? ''; ?>
@@ -58,5 +62,22 @@
             </div>
         </div>
     </footer>
+    <script>
+    (function () {
+      var btn = document.getElementById('navToggle');
+      var nav = document.getElementById('siteNav');
+      if (!btn || !nav) return;
+      btn.addEventListener('click', function () {
+        var open = document.body.classList.toggle('nav-open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      nav.querySelectorAll('a').forEach(function (a) {
+        a.addEventListener('click', function () {
+          document.body.classList.remove('nav-open');
+          btn.setAttribute('aria-expanded', 'false');
+        });
+      });
+    })();
+    </script>
 </body>
 </html>

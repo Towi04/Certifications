@@ -1500,17 +1500,20 @@ final class AdminRoutes
                 foreach ($repo()->partnerTiers(true) as $tier) {
                     $tierIds[(int) $tier['id']] = true;
                 }
-                $saved = 0;
+                $parsed = [];
+                $losses = [];
                 foreach ($rows as $certId => $row) {
                     $certId = (int) $certId;
                     if ($certId < 1 || !isset($allowedIds[$certId]) || !is_array($row)) {
                         continue;
                     }
-                    $repo()->updateCertificationPrices(
-                        $certId,
-                        $row['cost_price'] ?? null,
-                        $row['public_price'] ?? null
-                    );
+                    $costRaw = trim((string) ($row['cost_price'] ?? ''));
+                    $publicRaw = trim((string) ($row['public_price'] ?? ''));
+                    $cost = $costRaw !== '' ? (float) $costRaw : null;
+                    $public = $publicRaw !== '' ? (float) $publicRaw : null;
+                    if ($cost !== null && $public !== null && $public + 0.00001 < $cost) {
+                        $losses[] = "#{$certId} público";
+                    }
                     $tierPrices = [];
                     $rawTiers = $row['tier_prices'] ?? [];
                     if (is_array($rawTiers)) {
@@ -1519,12 +1522,41 @@ final class AdminRoutes
                             if (!isset($tierIds[$tid])) {
                                 continue;
                             }
-                            $tierPrices[$tid] = $price;
+                            $priceRaw = trim((string) $price);
+                            if ($priceRaw === '') {
+                                $tierPrices[$tid] = null;
+                                continue;
+                            }
+                            $tierPrice = (float) $priceRaw;
+                            if ($cost !== null && $tierPrice + 0.00001 < $cost) {
+                                $losses[] = "#{$certId} TR{$tid}";
+                            }
+                            $tierPrices[$tid] = $priceRaw;
                         }
                     }
-                    $repo()->saveCertificationTierPrices($certId, $tierPrices);
-                    $docId = (int) ($row['regulation_document_id'] ?? 0);
-                    $repo()->setCertificationRegulationDocument($certId, $docId > 0 ? $docId : null);
+                    $parsed[] = [
+                        'id' => $certId,
+                        'cost' => $costRaw !== '' ? $costRaw : null,
+                        'public' => $publicRaw !== '' ? $publicRaw : null,
+                        'tiers' => $tierPrices,
+                        'doc_id' => (int) ($row['regulation_document_id'] ?? 0),
+                    ];
+                }
+                if ($losses !== []) {
+                    throw new \RuntimeException(
+                        'No se guardó: hay precios de venta menores al costo (pérdida). Revisa: '
+                        . implode(', ', array_slice($losses, 0, 8))
+                        . (count($losses) > 8 ? '…' : '')
+                    );
+                }
+                $saved = 0;
+                foreach ($parsed as $row) {
+                    $repo()->updateCertificationPrices($row['id'], $row['cost'], $row['public']);
+                    $repo()->saveCertificationTierPrices($row['id'], $row['tiers']);
+                    $repo()->setCertificationRegulationDocument(
+                        $row['id'],
+                        $row['doc_id'] > 0 ? $row['doc_id'] : null
+                    );
                     $saved++;
                 }
                 flash('info', "Guardado: {$saved} certificación(es).");
