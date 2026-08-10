@@ -71,7 +71,16 @@ final class CaseMailService
             ]);
         }
 
-        return ['export' => $export, 'mailed' => $mailed, 'to' => $to];
+        $moodle = null;
+        try {
+            $enrol = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this);
+            $moodle = $enrol->ensureAccessForCase($caseId, $userId);
+        } catch (\Throwable $e) {
+            error_log('[PDV] Moodle enrol (confirm payment) case #' . $caseId . ': ' . $e->getMessage());
+            $moodle = ['error' => $e->getMessage()];
+        }
+
+        return ['export' => $export, 'mailed' => $mailed, 'to' => $to, 'moodle' => $moodle];
     }
 
     /**
@@ -272,6 +281,47 @@ final class CaseMailService
         }
 
         return ['status' => $status, 'mailed' => $mailed];
+    }
+
+    /** @return array<string, string> Clave token => descripción para el editor admin */
+    public static function tokenHelp(): array
+    {
+        return [
+            'Nombre' => 'Nombre(s) del alumno',
+            'Apellido P' => 'Apellido paterno',
+            'Apellido M' => 'Apellido materno',
+            'Nombre Completo' => 'Nombre completo',
+            'e-mail' => 'Correo del alumno',
+            'Teléfono' => 'Teléfono',
+            'Certificación' => 'Nombre de la certificación',
+            'Fecha' => 'Fecha de examen (o reagenda)',
+            'Hora' => 'Hora de examen',
+            'Fecha2' => 'Fecha de reagenda',
+            'Hora2' => 'Hora de reagenda',
+            'Folio / ID' => 'Folio / ID del proveedor',
+            'Clave' => 'Clave / password del examen',
+            'Zoom' => 'URL de Zoom',
+            'TOKEN' => 'URL de guía / prep',
+            'CC' => 'Correo en copia (TR)',
+            'iTEP Results' => 'URL de resultados',
+            'Canceled' => 'Motivo de cancelación',
+            'user' => 'Usuario Moodle',
+            'password' => 'Contraseña Moodle',
+            'Contacto Doceo' => 'Correo de contacto Doceo',
+            'OpenPay CLABE' => 'CLABE SPEI',
+            'OpenPay Banco' => 'Banco SPEI',
+            'OpenPay Referencia' => 'Referencia / convenio',
+            'OpenPay Monto' => 'Monto a pagar',
+            'OpenPay Beneficiario' => 'Beneficiario SPEI',
+            'OpenPay SPEI URL' => 'URL ficha SPEI Doceo',
+            'CENNI Estatus' => 'Estatus CENNI legible',
+            'CENNI Folio Line' => 'Línea HTML con folio CENNI',
+            'CENNI Notas Line' => 'Línea HTML con notas CENNI',
+            'CENNI Folio Suffix' => 'Sufijo con folio',
+            'App URL' => 'URL del PDV',
+            'Logo URL' => 'URL del logo Doceo',
+            'Escudo URL' => 'URL del escudo',
+        ];
     }
 
     /** @param array<string, string> $tokens */

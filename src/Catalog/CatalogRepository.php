@@ -1505,9 +1505,10 @@ final class CatalogRepository
         if ($signerName === '') {
             throw new \RuntimeException('Escribe tu nombre completo para firmar el reglamento.');
         }
+        $signedAt = date('Y-m-d H:i:s');
         $this->updateCertificationCase($caseId, [
             'regulation_document_id' => $documentId,
-            'regulation_signed_at' => date('Y-m-d H:i:s'),
+            'regulation_signed_at' => $signedAt,
             'regulation_signer_name' => $signerName,
         ]);
         $this->completeCurrentStepMatching(
@@ -1516,6 +1517,45 @@ final class CatalogRepository
             $userId,
             'Reglamento firmado por el alumno: ' . $signerName
         );
+
+        // Constancia HTML de firma (auditoría) para mostrar si el alumno niega haber sido informado.
+        try {
+            $case = $this->certificationCaseDetailed($caseId);
+            $doc = $documentId ? $this->document($documentId) : null;
+            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+            $ua = mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250);
+            $html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Firma de reglamento</title></head><body>'
+                . '<h1>Constancia de firma de reglamento</h1>'
+                . '<p><strong>Caso:</strong> #' . (int) $caseId . '</p>'
+                . '<p><strong>Alumno:</strong> ' . htmlspecialchars((string) ($case['student_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+                . ' ' . htmlspecialchars((string) ($case['student_last_name_p'] ?? ''), ENT_QUOTES, 'UTF-8')
+                . ' (' . htmlspecialchars((string) ($case['student_email'] ?? ''), ENT_QUOTES, 'UTF-8') . ')</p>'
+                . '<p><strong>Certificación:</strong> ' . htmlspecialchars((string) ($case['certification_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><strong>Documento:</strong> ' . htmlspecialchars((string) ($doc['title'] ?? 'Reglamento'), ENT_QUOTES, 'UTF-8')
+                . ' v' . htmlspecialchars((string) ($doc['version'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><strong>Firmado como:</strong> ' . htmlspecialchars($signerName, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><strong>Fecha/hora:</strong> ' . htmlspecialchars($signedAt, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><strong>IP:</strong> ' . htmlspecialchars($ip, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p><strong>Navegador:</strong> ' . htmlspecialchars($ua, ENT_QUOTES, 'UTF-8') . '</p>'
+                . '<p>El alumno declaró haber leído y aceptado el reglamento antes de continuar.</p>'
+                . '</body></html>';
+            $dir = dirname(__DIR__, 2) . '/storage/uploads/cases/' . $caseId;
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0755, true);
+            }
+            $relative = 'cases/' . $caseId . '/regulation-signature-' . date('YmdHis') . '.html';
+            $absolute = dirname(__DIR__, 2) . '/storage/uploads/' . $relative;
+            if (@file_put_contents($absolute, $html) !== false) {
+                $this->addCaseAttachment(
+                    $caseId,
+                    'regulation_signature',
+                    'Constancia de firma — ' . $signerName,
+                    $relative,
+                    $userId
+                );
+            }
+        } catch (\Throwable) {
+        }
     }
 
     private function ensureRegulationSignatureColumns(): void
@@ -1834,6 +1874,201 @@ final class CatalogRepository
         $stmt->execute([$code]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    public function mailTemplate(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM mail_templates WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /** @param array<string, mixed> $data */
+    public function saveMailTemplate(array $data, ?int $id = null): int
+    {
+        $code = strtolower(trim((string) ($data['code'] ?? '')));
+        $code = preg_replace('/[^a-z0-9_]+/', '_', $code) ?: '';
+        $code = trim($code, '_');
+        if ($code === '') {
+            throw new \InvalidArgumentException('El código de la plantilla es obligatorio.');
+        }
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            throw new \InvalidArgumentException('El nombre de la plantilla es obligatorio.');
+        }
+        $subject = trim((string) ($data['subject'] ?? ''));
+        if ($subject === '') {
+            throw new \InvalidArgumentException('El asunto es obligatorio.');
+        }
+        $body = (string) ($data['body_html'] ?? '');
+        if (trim(strip_tags($body)) === '') {
+            throw new \InvalidArgumentException('El cuerpo del correo es obligatorio.');
+        }
+
+        $audiences = ['student', 'provider', 'internal', 'other'];
+        $audience = (string) ($data['audience'] ?? 'student');
+        if (!in_array($audience, $audiences, true)) {
+            $audience = 'student';
+        }
+        $toModes = ['student', 'provider', 'fixed', 'manual'];
+        $toMode = (string) ($data['to_mode'] ?? 'student');
+        if (!in_array($toMode, $toModes, true)) {
+            $toMode = 'student';
+        }
+        $ccModes = ['none', 'tr', 'fixed', 'case_cc'];
+        $ccMode = (string) ($data['cc_mode'] ?? 'none');
+        if (!in_array($ccMode, $ccModes, true)) {
+            $ccMode = 'none';
+        }
+
+        $toFixed = trim((string) ($data['to_fixed'] ?? '')) ?: null;
+        $ccFixed = trim((string) ($data['cc_fixed'] ?? '')) ?: null;
+        $attachExport = !empty($data['attach_export']) ? 1 : 0;
+        $isActive = !empty($data['is_active']) ? 1 : 0;
+
+        if ($id) {
+            $existing = $this->mailTemplate($id);
+            if (!$existing) {
+                throw new \RuntimeException('Plantilla no encontrada.');
+            }
+            $dup = $this->mailTemplateByCode($code);
+            if ($dup && (int) $dup['id'] !== $id) {
+                throw new \RuntimeException('Ya existe otra plantilla con el código ' . $code);
+            }
+            $stmt = $this->pdo->prepare(
+                'UPDATE mail_templates SET code=?, name=?, audience=?, to_mode=?, to_fixed=?,
+                 cc_mode=?, cc_fixed=?, subject=?, body_html=?, attach_export=?, is_active=?
+                 WHERE id=?'
+            );
+            $stmt->execute([
+                $code, $name, $audience, $toMode, $toFixed, $ccMode, $ccFixed,
+                $subject, $body, $attachExport, $isActive, $id,
+            ]);
+
+            return $id;
+        }
+
+        if ($this->mailTemplateByCode($code)) {
+            throw new \RuntimeException('Ya existe una plantilla con el código ' . $code);
+        }
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO mail_templates
+             (code, name, audience, to_mode, to_fixed, cc_mode, cc_fixed, subject, body_html, attach_export, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute([
+            $code, $name, $audience, $toMode, $toFixed, $ccMode, $ccFixed,
+            $subject, $body, $attachExport, $isActive,
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteMailTemplate(int $id): void
+    {
+        $this->pdo->prepare('DELETE FROM mail_templates WHERE id = ?')->execute([$id]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function signedRegulations(int $limit = 200): array
+    {
+        $this->ensureRegulationSignatureColumns();
+        $limit = max(1, min(500, $limit));
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT c.id AS case_id, c.student_name, c.student_last_name_p, c.student_last_name_m,
+                        c.student_email, c.regulation_signed_at, c.regulation_signer_name,
+                        c.regulation_document_id, c.status AS case_status,
+                        cert.name AS certification_name, cert.code AS certification_code,
+                        d.title AS document_title, d.version AS document_version, d.file_path AS document_path,
+                        d.code AS document_code
+                 FROM certification_cases c
+                 JOIN certifications cert ON cert.id = c.certification_id
+                 LEFT JOIN documents d ON d.id = c.regulation_document_id
+                 WHERE c.regulation_signed_at IS NOT NULL
+                 ORDER BY c.regulation_signed_at DESC
+                 LIMIT {$limit}"
+            );
+
+            return $stmt ? $stmt->fetchAll() : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    public function caseRegulationDocument(int $caseId): ?array
+    {
+        $case = $this->certificationCaseDetailed($caseId);
+        if (!$case || empty($case['regulation_signed_at'])) {
+            return null;
+        }
+        $docId = (int) ($case['regulation_document_id'] ?? 0);
+        $doc = $docId > 0 ? $this->document($docId) : null;
+
+        return [
+            'case' => $case,
+            'document' => $doc,
+        ];
+    }
+
+    /**
+     * Cursos Moodle vinculados a una certificación (con moodle_course_id).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function moodleCoursesForCertification(int $certificationId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT co.id, co.code, co.name, co.moodle_course_id, co.platform_type,
+                    cc.relation_type, cc.bundle_price
+             FROM certification_courses cc
+             JOIN courses co ON co.id = cc.course_id
+             WHERE cc.certification_id = ?
+               AND co.is_active = 1
+               AND co.moodle_course_id IS NOT NULL
+               AND co.moodle_course_id > 0
+               AND co.platform_type = 'moodle'
+             ORDER BY co.name"
+        );
+        $stmt->execute([$certificationId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /** Inserta plantilla moodle_acceso si no existe. */
+    public function ensureMoodleAccessMailTemplate(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            if ($this->mailTemplateByCode('moodle_acceso')) {
+                return;
+            }
+            $this->saveMailTemplate([
+                'code' => 'moodle_acceso',
+                'name' => 'Moodle — Acceso al curso',
+                'audience' => 'student',
+                'to_mode' => 'student',
+                'to_fixed' => '',
+                'cc_mode' => 'case_cc',
+                'cc_fixed' => '',
+                'subject' => 'Acceso a tu curso en Campus Doceo — {{Certificación}}',
+                'body_html' => '<p>¡Hola {{Nombre}}!</p>
+<p>Ya tienes acceso a tu curso en la plataforma Moodle de Instituto DOCEO, ligado a <strong>{{Certificación}}</strong>.</p>
+<p><strong>Usuario:</strong> {{user}}<br>
+<strong>Contraseña:</strong> {{password}}</p>
+<p>Si ya tenías cuenta y la contraseña aparece vacía, entra con tu usuario habitual.</p>
+<p>Campus: <a href="https://campus.institutodoceo.com">https://campus.institutodoceo.com</a></p>
+<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+                'attach_export' => 0,
+                'is_active' => 1,
+            ]);
+        } catch (\Throwable) {
+        }
     }
 
     /** @return list<array<string, mixed>> */

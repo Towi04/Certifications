@@ -192,18 +192,38 @@ final class OpenPayPaymentService
             } catch (\Throwable) {
             }
 
+            $moodleNote = null;
+            try {
+                $moodle = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this->mailer());
+                $moodleResult = $moodle->ensureAccessForCase($caseId, null);
+                if (empty($moodleResult['skipped'])) {
+                    $moodleNote = !empty($moodleResult['created_user'])
+                        ? 'moodle_created:' . ($moodleResult['username'] ?? '')
+                        : 'moodle_enrolled:' . ($moodleResult['username'] ?? '');
+                } elseif (($moodleResult['reason'] ?? '') !== 'no_moodle_courses') {
+                    $moodleNote = 'moodle_skip:' . ($moodleResult['reason'] ?? '');
+                }
+            } catch (\Throwable $moodleErr) {
+                $moodleNote = 'moodle_error:' . $moodleErr->getMessage();
+                error_log('[PDV] Moodle enrol case #' . $caseId . ': ' . $moodleErr->getMessage());
+            }
+
             try {
                 $this->mailer()->sendTemplate($caseId, 'pago_confirmado', null);
             } catch (\Throwable $mailErr) {
                 // Pago ya confirmado; el reenvío puede hacerse manual.
-                $this->repo->markOpenPayWebhookProcessed($eventId, true, 'paid_mail_failed:' . $mailErr->getMessage());
+                $err = 'paid_mail_failed:' . $mailErr->getMessage();
+                if ($moodleNote) {
+                    $err .= '|' . $moodleNote;
+                }
+                $this->repo->markOpenPayWebhookProcessed($eventId, true, $err);
 
-                return ['ok' => true, 'case_id' => $caseId, 'paid' => true, 'mail_error' => $mailErr->getMessage()];
+                return ['ok' => true, 'case_id' => $caseId, 'paid' => true, 'mail_error' => $mailErr->getMessage(), 'moodle' => $moodleNote];
             }
 
-            $this->repo->markOpenPayWebhookProcessed($eventId, true, null);
+            $this->repo->markOpenPayWebhookProcessed($eventId, true, $moodleNote);
 
-            return ['ok' => true, 'case_id' => $caseId, 'paid' => true];
+            return ['ok' => true, 'case_id' => $caseId, 'paid' => true, 'moodle' => $moodleNote];
         } catch (\Throwable $e) {
             $this->repo->markOpenPayWebhookProcessed($eventId, false, $e->getMessage());
             throw $e;

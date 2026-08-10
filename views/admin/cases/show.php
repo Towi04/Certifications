@@ -63,6 +63,50 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 </section>
 
 <section class="note">
+    <h3>Reglamento firmado</h3>
+    <?php
+    $regulation_doc = $regulation_doc ?? null;
+    $sigAtt = null;
+    foreach ($attachments as $att) {
+        if (($att['kind'] ?? '') === 'regulation_signature') {
+            $sigAtt = $att;
+            break;
+        }
+    }
+    ?>
+    <?php if (!empty($item['regulation_signed_at'])): ?>
+        <p>
+            <span class="pill pill-ok">Firmado</span>
+            el <?= e((string)$item['regulation_signed_at']) ?>
+            por <strong><?= e((string)($item['regulation_signer_name'] ?? '')) ?></strong>
+        </p>
+        <?php if ($regulation_doc): ?>
+            <p>
+                Documento:
+                <strong><?= e((string)($regulation_doc['title'] ?? 'Reglamento')) ?></strong>
+                <?php if (!empty($regulation_doc['version'])): ?>
+                    <span class="muted">v<?= e((string)$regulation_doc['version']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($regulation_doc['file_path'])): ?>
+                    · <a href="/media?f=<?= e(rawurlencode((string)$regulation_doc['file_path'])) ?>" target="_blank" rel="noopener">ver PDF firmado/aceptado</a>
+                <?php endif; ?>
+            </p>
+        <?php endif; ?>
+        <?php if ($sigAtt): ?>
+            <p>
+                Constancia de firma:
+                <a href="/media?f=<?= e(rawurlencode((string)$sigAtt['file_path'])) ?>" target="_blank" rel="noopener">
+                    <?= e((string)($sigAtt['label'] ?? 'ver constancia')) ?>
+                </a>
+            </p>
+        <?php endif; ?>
+        <p class="muted">Úsala si el alumno dice que no se le informó: hay registro de lectura/aceptación con nombre, fecha e IP.</p>
+    <?php else: ?>
+        <p class="muted">El alumno aún no ha firmado el reglamento de esta certificación.</p>
+    <?php endif; ?>
+</section>
+
+<section class="note">
     <h3>Credenciales y links operativos</h3>
     <form method="post" action="/admin/cases/update" class="stack form-grid">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
@@ -75,8 +119,16 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <label>Moodle password<input name="moodle_password" value="<?= e($item['moodle_password'] ?? '') ?>"></label>
         <label>URL resultados<input name="results_url" value="<?= e($item['results_url'] ?? '') ?>"></label>
         <label>Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
-        <div class="actions"><button class="btn" type="submit">Guardar credenciales</button></div>
+        <div class="actions">
+            <button class="btn" type="submit">Guardar credenciales</button>
+        </div>
     </form>
+    <form method="post" action="/admin/cases/moodle-enrol" class="actions" style="margin-top:0.75rem"
+          onsubmit="return confirm('¿Crear/matricular usuario Moodle para los cursos ligados a esta certificación?');">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <button class="btn btn-ghost" type="submit">Sincronizar Moodle (crear usuario + enrol)</button>
+    </form>
+    <p class="muted">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente si la certificación tiene cursos Moodle vinculados.</p>
 </section>
 
 <section class="note">

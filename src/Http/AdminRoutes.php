@@ -1018,9 +1018,15 @@ final class AdminRoutes
                 header('Location: /admin/cases');
                 exit;
             }
+            $regulationDoc = null;
+            $regDocId = (int) ($item['regulation_document_id'] ?? 0);
+            if ($regDocId > 0) {
+                $regulationDoc = $repo()->document($regDocId);
+            }
             view('admin/cases/show', [
                 'title' => 'Caso #' . $id,
                 'item' => $item,
+                'regulation_doc' => $regulationDoc,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
                 'mail_log' => $repo()->caseMailLog($id),
@@ -1090,6 +1096,13 @@ final class AdminRoutes
                     $msg .= ' Correo enviado a ' . $result['to'] . '.';
                 } else {
                     $msg .= ' Sin plantilla de solicitud al proveedor; descarga el archivo si aplica.';
+                }
+                $moodle = $result['moodle'] ?? null;
+                if (is_array($moodle) && empty($moodle['skipped']) && empty($moodle['error'])) {
+                    $msg .= ' Moodle: ' . (!empty($moodle['created_user']) ? 'usuario creado' : 'usuario existente')
+                        . ' · ' . count($moodle['enrolled'] ?? []) . ' curso(s).';
+                } elseif (is_array($moodle) && !empty($moodle['error'])) {
+                    $msg .= ' Moodle: ' . $moodle['error'];
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {
@@ -2457,6 +2470,129 @@ final class AdminRoutes
             }
             header('Location: /admin/openpay');
             exit;
+        });
+
+        $router->post('/admin/cases/moodle-enrol', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $result = (new \App\Integrations\MoodleEnrolService($repo()))->ensureAccessForCase(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                if (!empty($result['skipped'])) {
+                    flash('info', 'Sin acción Moodle: ' . ($result['reason'] ?? 'omitido'));
+                } else {
+                    flash(
+                        'info',
+                        (!empty($result['created_user']) ? 'Usuario Moodle creado' : 'Usuario Moodle existente')
+                        . ' (' . ($result['username'] ?? '') . ') · matriculado en '
+                        . count($result['enrolled'] ?? []) . ' curso(s)'
+                        . (!empty($result['access_mail']) ? ' · correo moodle_acceso enviado' : '')
+                    );
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->get('/admin/mail-templates', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $audience = trim((string) ($_GET['audience'] ?? ''));
+            $items = $repo()->mailTemplates(false);
+            if ($audience !== '') {
+                $items = array_values(array_filter(
+                    $items,
+                    static fn (array $t): bool => ($t['audience'] ?? '') === $audience
+                ));
+            }
+            view('admin/mail_templates/index', [
+                'title' => 'Plantillas de correo',
+                'items' => $items,
+                'audience' => $audience,
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/mail-templates/create', static function (): void {
+            Auth::requireAdmin();
+            view('admin/mail_templates/form', [
+                'title' => 'Nueva plantilla de correo',
+                'item' => null,
+                'tokens' => \App\Mail\CaseMailService::tokenHelp(),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/mail-templates/edit', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $repo()->mailTemplate($id);
+            if (!$item) {
+                flash('error', 'Plantilla no encontrada.');
+                header('Location: /admin/mail-templates');
+                exit;
+            }
+            view('admin/mail_templates/form', [
+                'title' => 'Editar plantilla · ' . $item['code'],
+                'item' => $item,
+                'tokens' => \App\Mail\CaseMailService::tokenHelp(),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/mail-templates/save', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            try {
+                $savedId = $repo()->saveMailTemplate([
+                    'code' => (string) ($_POST['code'] ?? ''),
+                    'name' => (string) ($_POST['name'] ?? ''),
+                    'audience' => (string) ($_POST['audience'] ?? 'student'),
+                    'to_mode' => (string) ($_POST['to_mode'] ?? 'student'),
+                    'to_fixed' => (string) ($_POST['to_fixed'] ?? ''),
+                    'cc_mode' => (string) ($_POST['cc_mode'] ?? 'none'),
+                    'cc_fixed' => (string) ($_POST['cc_fixed'] ?? ''),
+                    'subject' => (string) ($_POST['subject'] ?? ''),
+                    'body_html' => (string) ($_POST['body_html'] ?? ''),
+                    'attach_export' => isset($_POST['attach_export']) ? 1 : 0,
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $id);
+                flash('info', 'Plantilla guardada.');
+                header('Location: /admin/mail-templates/edit?id=' . $savedId);
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: ' . ($id ? '/admin/mail-templates/edit?id=' . $id : '/admin/mail-templates/create'));
+                exit;
+            }
+        });
+
+        $router->post('/admin/mail-templates/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            try {
+                $repo()->deleteMailTemplate($id);
+                flash('info', 'Plantilla eliminada.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/mail-templates');
+            exit;
+        });
+
+        $router->get('/admin/reglamentos-firmados', static function () use ($repo): void {
+            Auth::requireAdmin();
+            view('admin/regulations/signed', [
+                'title' => 'Reglamentos firmados',
+                'items' => $repo()->signedRegulations(),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
         });
     }
 }

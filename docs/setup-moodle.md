@@ -8,17 +8,26 @@
 
 - Activar REST.
 - Autorizar usuario del token.
-- Función mínima actual: `core_course_get_courses` (usada por el panel de salud).
+- Funciones requeridas por el PDV:
+  - `core_course_get_courses` (salud)
+  - `core_user_get_users_by_field`
+  - `core_user_create_users`
+  - `enrol_manual_enrol_users`
 
-## Funciones futuras (enrol / usuarios)
+Asignar capacidades al usuario del token (`webservice/rest:use`, crear usuarios, enrol manual, ver cursos).
 
-Cuando se automatice la asignación de cursos:
+## Alta automática tras el pago
 
-- `core_user_create_users`
-- `core_user_get_users_by_field`
-- `enrol_manual_enrol_users`
+Cuando OpenPay confirma el pago (o el admin usa “Confirmar pago”):
 
-Asignar capacidades al usuario del token (`webservice/rest:use`, create users, enrol manual, view courses).
+1. Busca cursos ligados a la certificación (`certification_courses`) con `platform_type=moodle` y `moodle_course_id`.
+2. Si el alumno no tiene usuario Moodle (por e-mail), lo crea y guarda `moodle_user` / `moodle_password` en el caso.
+3. Si ya existe, solo lo matricula en el/los cursos.
+4. Si existe la plantilla `moodle_acceso`, envía el correo con las credenciales.
+
+También puedes forzar la sync desde el caso: **Sincronizar Moodle**.
+
+Migración de plantilla: `sql/migration_mail_moodle_acceso.sql`.
 
 ## Seguridad
 
