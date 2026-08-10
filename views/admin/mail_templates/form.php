@@ -70,6 +70,16 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
             Actívalo en plantillas de solicitud (<code>uks_solicitud</code>, <code>toefl_solicitud</code>, <code>reagenda_solicitud</code>).
             El <strong>comprobante de pago</strong> se adjunta aparte cuando la audiencia es “Proveedor” y hay comprobante en el caso.
         </p>
+        <label class="check field-wide">
+            <input type="checkbox" name="attach_regulation" <?= !empty($item['attach_regulation']) ? 'checked' : '' ?>>
+            Adjuntar reglamento del alumno (PDF firmado; si no hay, el original)
+        </label>
+        <p class="muted field-wide" style="margin-top:-0.5rem">
+            Preferible para solicitudes al proveedor. Si solo quieres un botón con link en el cuerpo del correo
+            (como antes), usa el token <code>{{Reglamento Boton}}</code> o
+            <code>{{Reglamento Firmado Boton}}</code> / <code>{{Reglamento Firmado URL}}</code>
+            sin marcar este check.
+        </p>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || !empty($item['is_active']) ? 'checked' : '' ?>> Activa</label>
         <div class="actions">
             <button class="btn" type="submit">Guardar</button>

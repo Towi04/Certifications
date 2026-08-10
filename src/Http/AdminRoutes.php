@@ -2687,6 +2687,7 @@ final class AdminRoutes
                     'subject' => (string) ($_POST['subject'] ?? ''),
                     'body_html' => (string) ($_POST['body_html'] ?? ''),
                     'attach_export' => isset($_POST['attach_export']) ? 1 : 0,
+                    'attach_regulation' => isset($_POST['attach_regulation']) ? 1 : 0,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
                 flash('info', 'Plantilla guardada.');

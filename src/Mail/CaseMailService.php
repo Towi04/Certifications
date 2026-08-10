@@ -418,6 +418,14 @@ final class CaseMailService
             }
         }
 
+        // Adjuntar reglamento firmado (o original) si la plantilla lo pide
+        if (!empty($tpl['attach_regulation'])) {
+            $regAtt = $this->regulationAttachmentForCase($case);
+            if ($regAtt !== null) {
+                $attachments[] = $regAtt;
+            }
+        }
+
         try {
             $this->mailer->send($to, $subject, $bodyText, [
                 'cc' => $cc,
@@ -471,6 +479,8 @@ final class CaseMailService
         $cenniNotes = trim((string) ($case['cenni_notes'] ?? ''));
         $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
 
+        $regUrls = $this->regulationUrlsForCase($case, $appUrl);
+
         return [
             'Nombre' => $nombre,
             'Apellido P' => $ap,
@@ -506,7 +516,107 @@ final class CaseMailService
             'CENNI Notas Line' => $cenniNotes !== '' ? '<strong>Detalle:</strong> ' . htmlspecialchars($cenniNotes, ENT_QUOTES, 'UTF-8') . '<br>' : '',
             'CENNI Folio Suffix' => $folio !== '' ? ' (folio ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . ')' : '',
             'App URL' => $appUrl,
+            'Reglamento URL' => $regUrls['original_url'],
+            'Reglamento Firmado URL' => $regUrls['signed_url'],
+            'Reglamento Boton' => $regUrls['button_html'],
+            'Reglamento Firmado Boton' => $regUrls['signed_button_html'],
         ];
+    }
+
+    /**
+     * URLs del reglamento original y del PDF firmado para tokens de correo.
+     *
+     * @param array<string, mixed> $case
+     * @return array{original_url:string,signed_url:string,button_html:string,signed_button_html:string,original_path:?string,signed_path:?string}
+     */
+    private function regulationUrlsForCase(array $case, string $appUrl): array
+    {
+        $signedRel = trim((string) ($case['regulation_signed_pdf_path'] ?? ''));
+        $originalRel = '';
+        $docId = (int) ($case['regulation_document_id'] ?? 0);
+        if ($docId > 0) {
+            $doc = $this->repo->document($docId);
+            $originalRel = trim((string) ($doc['file_path'] ?? ''));
+        }
+        if ($originalRel === '') {
+            $certId = (int) ($case['certification_id'] ?? 0);
+            if ($certId > 0) {
+                $doc = $this->repo->regulationDocumentForCertification($certId);
+                $originalRel = trim((string) ($doc['file_path'] ?? ''));
+            }
+        }
+
+        $media = static function (string $rel) use ($appUrl): string {
+            if ($rel === '') {
+                return '';
+            }
+
+            return $appUrl . '/media?f=' . rawurlencode($rel);
+        };
+
+        $signedUrl = $media($signedRel);
+        $originalUrl = $media($originalRel);
+        // Prefer signed for the generic button; fall back to original
+        $primaryUrl = $signedUrl !== '' ? $signedUrl : $originalUrl;
+        $primaryLabel = $signedUrl !== '' ? 'Descargar reglamento firmado' : 'Abrir reglamento';
+
+        $button = static function (string $url, string $label): string {
+            if ($url === '') {
+                return '';
+            }
+            $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+            $safeLabel = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+
+            return '<p style="margin:16px 0;">'
+                . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" '
+                . 'style="display:inline-block;background:#315285;color:#ffffff;text-decoration:none;'
+                . 'padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">'
+                . $safeLabel . '</a></p>';
+        };
+
+        return [
+            'original_url' => $originalUrl,
+            'signed_url' => $signedUrl,
+            'button_html' => $button($primaryUrl, $primaryLabel),
+            'signed_button_html' => $button($signedUrl, 'Descargar reglamento firmado'),
+            'original_path' => $originalRel !== '' ? $originalRel : null,
+            'signed_path' => $signedRel !== '' ? $signedRel : null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $case
+     * @return array{path:string,name:string,mime:string}|null
+     */
+    private function regulationAttachmentForCase(array $case): ?array
+    {
+        $signedRel = trim((string) ($case['regulation_signed_pdf_path'] ?? ''));
+        if ($signedRel !== '') {
+            $abs = Uploader::absolutePath($signedRel);
+            if ($abs) {
+                return [
+                    'path' => $abs,
+                    'name' => 'reglamento_firmado_' . basename($abs),
+                    'mime' => 'application/pdf',
+                ];
+            }
+        }
+
+        $urls = $this->regulationUrlsForCase($case, '');
+        $originalRel = (string) ($urls['original_path'] ?? '');
+        if ($originalRel !== '') {
+            $abs = Uploader::absolutePath($originalRel);
+            if ($abs) {
+                $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
+                return [
+                    'path' => $abs,
+                    'name' => 'reglamento_' . basename($abs),
+                    'mime' => $ext === 'pdf' ? 'application/pdf' : 'application/octet-stream',
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -581,6 +691,10 @@ final class CaseMailService
             'App URL' => 'URL del PDV',
             'Logo URL' => 'URL del logo Doceo',
             'Escudo URL' => 'URL del escudo',
+            'Reglamento URL' => 'Link al PDF original del reglamento',
+            'Reglamento Firmado URL' => 'Link al PDF de evidencia firmado por el alumno',
+            'Reglamento Boton' => 'Botón HTML (firmado si existe; si no, original)',
+            'Reglamento Firmado Boton' => 'Botón HTML solo del PDF firmado',
         ];
     }
 
