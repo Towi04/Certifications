@@ -6,6 +6,7 @@ namespace App\Http;
 
 use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
+use App\Config\Env;
 use App\Support\SecretBox;
 use App\Support\Str;
 use App\Support\Uploader;
@@ -19,6 +20,91 @@ final class AdminRoutes
 
         $providerTabUrl = static function (int $id, string $tab): string {
             return '/admin/providers/edit?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
+        $saveDocumentFromPost = static function (
+            CatalogRepository $repo,
+            ?int $id,
+            ?array $existing,
+            bool $requireProviderId = true
+        ): int {
+            $title = trim((string) ($_POST['title'] ?? ''));
+            $version = trim((string) ($_POST['version'] ?? ''));
+            $providerId = (int) ($_POST['provider_id'] ?? ($existing['provider_id'] ?? 0));
+            $docType = (string) ($_POST['doc_type'] ?? 'other');
+            if (!isset(CatalogRepository::documentTypes()[$docType])) {
+                $docType = 'other';
+            }
+
+            $scopeType = (string) ($_POST['scope_type'] ?? ($existing['scope_type'] ?? 'provider'));
+            if (!in_array($scopeType, ['provider', 'group', 'certification'], true)) {
+                $scopeType = 'provider';
+            }
+            $providerGroupId = null;
+            $certificationId = null;
+            if ($scopeType === 'group') {
+                $providerGroupId = (int) ($_POST['provider_group_id'] ?? ($existing['provider_group_id'] ?? 0));
+                if ($providerGroupId <= 0) {
+                    throw new \RuntimeException('Selecciona el grupo de alcance.');
+                }
+            } elseif ($scopeType === 'certification') {
+                $certificationId = (int) ($_POST['certification_id'] ?? ($existing['certification_id'] ?? 0));
+                if ($certificationId <= 0) {
+                    throw new \RuntimeException('Selecciona la certificación de alcance.');
+                }
+            }
+
+            if ($title === '' || $version === '') {
+                throw new \RuntimeException('Nombre y versión son obligatorios.');
+            }
+            if ($requireProviderId && $providerId <= 0) {
+                throw new \RuntimeException('Proveedor obligatorio.');
+            }
+
+            $code = strtoupper(trim((string) ($_POST['code'] ?? ($existing['code'] ?? ''))));
+            if ($code === '') {
+                $code = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '_', Str::slug($title) ?: 'DOC') ?? 'DOC');
+                $code = trim($code, '_');
+                if (strlen($code) > 48) {
+                    $code = substr($code, 0, 48);
+                }
+                $verSlug = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '', $version) ?: 'V');
+                $code = $code . '_V' . $verSlug;
+            }
+
+            $filePath = $existing['file_path'] ?? null;
+            $hasUpload = isset($_FILES['file']) && (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            if ($hasUpload) {
+                $newPath = Uploader::storeDocument($_FILES['file'], 'documents');
+                if (!empty($filePath) && $filePath !== $newPath) {
+                    Uploader::delete((string) $filePath);
+                }
+                $filePath = $newPath;
+            }
+
+            if (($filePath === null || $filePath === '') && !$id) {
+                throw new \RuntimeException('Debes subir el archivo del documento.');
+            }
+
+            $savedId = $repo->saveDocument([
+                'provider_id' => $providerId,
+                'scope_type' => $scopeType,
+                'provider_group_id' => $providerGroupId,
+                'certification_id' => $certificationId,
+                'code' => $code,
+                'title' => $title,
+                'version' => $version,
+                'doc_type' => $docType,
+                'file_path' => $filePath,
+                'body_html' => trim((string) ($_POST['notes'] ?? '')) ?: null,
+                'is_active' => isset($_POST['is_active']) ? 1 : 0,
+            ], $id);
+
+            if ($docType === 'regulation') {
+                $repo->syncRegulationLinksFromDocument($savedId);
+            }
+
+            return $savedId;
         };
 
         $router->get('/admin/providers', static function () use ($repo): void {
@@ -58,7 +144,11 @@ final class AdminRoutes
                 exit;
             }
             $repo()->ensureLegacyContactMigrated($id);
-            $allowedTabs = ['proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas', 'certificaciones', 'notas'];
+            $repo()->ensureProviderSetupSchema();
+            $allowedTabs = [
+                'proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas',
+                'certificaciones', 'grupos', 'documentos', 'campos', 'notas',
+            ];
             $tab = (string) ($_GET['tab'] ?? 'proveedor');
             if (!in_array($tab, $allowedTabs, true)) {
                 $tab = 'proveedor';
@@ -78,7 +168,28 @@ final class AdminRoutes
             if ($tab === 'cuentas' && $editAccountId > 0) {
                 $editAccount = $repo()->providerAccount($id, $editAccountId);
             }
-            $showForm = isset($_GET['form']) || $editVenue !== null || $editContact !== null || $editAccount !== null;
+            $editGroup = null;
+            $editGroupId = (int) ($_GET['edit_group'] ?? 0);
+            if ($tab === 'grupos' && $editGroupId > 0) {
+                $groupRow = $repo()->providerGroup($editGroupId);
+                if ($groupRow && (int) $groupRow['provider_id'] === $id) {
+                    $editGroup = $groupRow;
+                }
+            }
+            $editDocument = null;
+            $editDocId = (int) ($_GET['edit_doc'] ?? 0);
+            if ($tab === 'documentos' && $editDocId > 0) {
+                $docRow = $repo()->document($editDocId);
+                if ($docRow && (int) $docRow['provider_id'] === $id) {
+                    $editDocument = $docRow;
+                }
+            }
+            $showForm = isset($_GET['form'])
+                || $editVenue !== null
+                || $editContact !== null
+                || $editAccount !== null
+                || $editGroup !== null
+                || $editDocument !== null;
             view('admin/providers/form', [
                 'title' => 'Editar proveedor',
                 'item' => $item,
@@ -91,6 +202,13 @@ final class AdminRoutes
                 'editVenue' => $editVenue,
                 'editContact' => $editContact,
                 'editAccount' => $editAccount,
+                'editGroup' => $editGroup,
+                'editDocument' => $editDocument,
+                'groups' => $repo()->providerGroups($id),
+                'provider_documents' => $repo()->documents($id),
+                'provider_reg_fields' => $repo()->getProviderRegistrationFields($id),
+                'docTypes' => CatalogRepository::documentTypes(),
+                'appUrl' => rtrim((string) (Env::get('APP_URL', '') ?? ''), '/'),
                 'showForm' => $showForm,
                 'notes' => $repo()->providerNotes($id),
                 'info' => flash('info'),
@@ -629,6 +747,174 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/providers/group/save', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            $name = trim((string) ($_POST['name'] ?? ''));
+            if ($providerId < 1 || $name === '') {
+                flash('error', 'Nombre y proveedor son obligatorios.');
+                header('Location: ' . $providerTabUrl($providerId, 'grupos'));
+                exit;
+            }
+            $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
+            if ($code === '') {
+                $code = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', Str::slug($name) ?: 'GRUPO') ?? 'GRUPO');
+                $code = trim($code, '_') ?: 'GRUPO';
+                if (strlen($code) > 48) {
+                    $code = substr($code, 0, 48);
+                }
+            }
+            try {
+                $repo()->saveProviderGroup([
+                    'provider_id' => $providerId,
+                    'code' => $code,
+                    'name' => $name,
+                    'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
+                    'sort_order' => (int) ($_POST['sort_order'] ?? 0),
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $id);
+                flash('info', $id ? 'Grupo actualizado.' : 'Grupo creado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'grupos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/group/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $groupId = (int) ($_POST['group_id'] ?? 0);
+            try {
+                $group = $repo()->providerGroup($groupId);
+                if ($group && (int) $group['provider_id'] === $providerId) {
+                    $repo()->deleteProviderGroup($groupId);
+                    flash('info', 'Grupo eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'grupos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/group/assign', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $groupId = (int) ($_POST['group_id'] ?? 0);
+            $certIds = $_POST['certification_ids'] ?? [];
+            if (!is_array($certIds)) {
+                $certIds = [];
+            }
+            try {
+                $repo()->assignCertificationsToGroup($providerId, $groupId, $certIds);
+                flash('info', 'Certificaciones asignadas al grupo.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'grupos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/document/save', static function () use ($repo, $providerTabUrl, $saveDocumentFromPost): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            $existing = $id ? $repo()->document($id) : null;
+            if ($id && (!$existing || (int) $existing['provider_id'] !== $providerId)) {
+                flash('error', 'Documento no encontrado.');
+                header('Location: ' . $providerTabUrl($providerId, 'documentos'));
+                exit;
+            }
+            try {
+                $saveDocumentFromPost($repo(), $id, $existing);
+                flash('info', 'Documento guardado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'documentos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/document/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $docId = (int) ($_POST['document_id'] ?? ($_POST['id'] ?? 0));
+            try {
+                $doc = $repo()->document($docId);
+                if ($doc && (int) $doc['provider_id'] === $providerId) {
+                    $repo()->deleteDocument($docId);
+                    flash('info', 'Documento eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo eliminar: ' . $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'documentos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/fields/save', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            if ($providerId < 1) {
+                flash('error', 'Proveedor no válido.');
+                header('Location: /admin/providers');
+                exit;
+            }
+
+            $catalog = CatalogRepository::registrationFieldCatalog();
+            $fields = [];
+            $builtinKeys = $_POST['builtin_fields'] ?? [];
+            if (!is_array($builtinKeys)) {
+                $builtinKeys = [];
+            }
+            foreach ($builtinKeys as $key) {
+                $key = (string) $key;
+                if (!isset($catalog[$key]) || !empty($catalog[$key]['locked'])) {
+                    continue;
+                }
+                $meta = $catalog[$key];
+                $fields[] = [
+                    'key' => $key,
+                    'label' => (string) ($meta['label'] ?? $key),
+                    'type' => (string) ($meta['type'] ?? 'text'),
+                    'source' => 'builtin',
+                ];
+            }
+
+            $rawCustom = $_POST['custom_fields'] ?? [];
+            if (is_array($rawCustom)) {
+                foreach ($rawCustom as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    if (!empty($row['delete'])) {
+                        continue;
+                    }
+                    $label = trim((string) ($row['label'] ?? ''));
+                    if ($label === '') {
+                        continue;
+                    }
+                    $fields[] = [
+                        'key' => trim((string) ($row['key'] ?? '')),
+                        'label' => $label,
+                        'type' => (string) ($row['type'] ?? 'text'),
+                        'source' => 'custom',
+                    ];
+                }
+            }
+
+            try {
+                $repo()->saveProviderRegistrationFields($providerId, $fields);
+                flash('info', 'Campos de adquisición guardados.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'campos'));
+            exit;
+        });
+
         $router->get('/admin/documents', static function () use ($repo): void {
             Auth::requireAdmin();
             $providerFilter = (int) ($_GET['provider_id'] ?? 0) ?: null;
@@ -638,6 +924,7 @@ final class AdminRoutes
                 'providers' => $repo()->providers(true),
                 'docTypes' => CatalogRepository::documentTypes(),
                 'providerFilter' => $providerFilter,
+                'appUrl' => rtrim((string) (Env::get('APP_URL', '') ?? ''), '/'),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -645,11 +932,21 @@ final class AdminRoutes
 
         $router->get('/admin/documents/create', static function () use ($repo): void {
             Auth::requireAdmin();
+            $repo()->ensureProviderSetupSchema();
+            $groupsByProvider = [];
+            $certsByProvider = [];
+            foreach ($repo()->providers(true) as $p) {
+                $pid = (int) $p['id'];
+                $groupsByProvider[$pid] = $repo()->providerGroups($pid, true);
+                $certsByProvider[$pid] = $repo()->certificationsByProvider($pid);
+            }
             view('admin/documents/form', [
                 'title' => 'Nuevo documento',
                 'item' => null,
                 'providers' => $repo()->providers(true),
                 'docTypes' => CatalogRepository::documentTypes(),
+                'groupsByProvider' => $groupsByProvider,
+                'certsByProvider' => $certsByProvider,
                 'error' => flash('error'),
             ]);
         });
@@ -663,16 +960,19 @@ final class AdminRoutes
                 header('Location: /admin/documents');
                 exit;
             }
+            $providerId = (int) ($item['provider_id'] ?? 0);
             view('admin/documents/form', [
                 'title' => 'Editar documento',
                 'item' => $item,
                 'providers' => $repo()->providers(true),
                 'docTypes' => CatalogRepository::documentTypes(),
+                'groups' => $providerId > 0 ? $repo()->providerGroups($providerId, true) : [],
+                'certifications' => $providerId > 0 ? $repo()->certificationsByProvider($providerId) : [],
                 'error' => flash('error'),
             ]);
         });
 
-        $router->post('/admin/documents/save', static function () use ($repo): void {
+        $router->post('/admin/documents/save', static function () use ($repo, $saveDocumentFromPost): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
             $existing = $id ? $repo()->document($id) : null;
@@ -682,61 +982,8 @@ final class AdminRoutes
                 exit;
             }
 
-            $title = trim((string) ($_POST['title'] ?? ''));
-            $version = trim((string) ($_POST['version'] ?? ''));
-            $providerId = (int) ($_POST['provider_id'] ?? 0);
-            $docType = (string) ($_POST['doc_type'] ?? 'other');
-            if (!isset(CatalogRepository::documentTypes()[$docType])) {
-                $docType = 'other';
-            }
-
-            if ($title === '' || $version === '' || $providerId <= 0) {
-                flash('error', 'Nombre, versión y proveedor son obligatorios.');
-                header('Location: ' . ($id ? '/admin/documents/edit?id=' . $id : '/admin/documents/create'));
-                exit;
-            }
-
-            $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
-            if ($code === '') {
-                $code = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '_', Str::slug($title) ?: 'DOC') ?? 'DOC');
-                $code = trim($code, '_');
-                if (strlen($code) > 48) {
-                    $code = substr($code, 0, 48);
-                }
-                // Evitar choque de códigos entre versiones: título + versión
-                $verSlug = strtoupper(preg_replace('/[^a-zA-Z0-9]+/', '', $version) ?: 'V');
-                $code = $code . '_V' . $verSlug;
-            }
-
-            $filePath = $existing['file_path'] ?? null;
-            $hasUpload = isset($_FILES['file']) && (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
-
             try {
-                if ($hasUpload) {
-                    $newPath = Uploader::store($_FILES['file'], 'documents');
-                    if (!empty($filePath) && $filePath !== $newPath) {
-                        Uploader::delete((string) $filePath);
-                    }
-                    $filePath = $newPath;
-                }
-
-                if (($filePath === null || $filePath === '') && !$id) {
-                    flash('error', 'Debes subir el archivo del documento (PDF).');
-                    header('Location: /admin/documents/create');
-                    exit;
-                }
-
-                $repo()->saveDocument([
-                    'provider_id' => $providerId,
-                    'code' => $code,
-                    'title' => $title,
-                    'version' => $version,
-                    'doc_type' => $docType,
-                    'file_path' => $filePath,
-                    'body_html' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
-                ], $id);
-
+                $saveDocumentFromPost($repo(), $id, $existing);
                 flash('info', 'Documento guardado.');
                 header('Location: /admin/documents');
                 exit;
@@ -1801,7 +2048,7 @@ final class AdminRoutes
                 $regulations = $repo()->regulationDocuments($providerId);
             }
             view('admin/certifications/pricing', [
-                'title' => 'Precios y reglamentos',
+                'title' => 'Precios',
                 'providers' => $repo()->providers(true),
                 'tiers' => $repo()->partnerTiers(true),
                 'items' => $items,
@@ -1936,6 +2183,14 @@ final class AdminRoutes
 
         $router->get('/admin/certifications/create', static function () use ($repo): void {
             Auth::requireAdmin();
+            $repo()->ensureProviderSetupSchema();
+            $providerGroupsMap = [];
+            $providerFieldsMap = [];
+            foreach ($repo()->providers(true) as $p) {
+                $pid = (int) $p['id'];
+                $providerGroupsMap[$pid] = $repo()->providerGroups($pid, true);
+                $providerFieldsMap[$pid] = $repo()->availableFieldsForCertification($pid);
+            }
             view('admin/certifications/form', [
                 'title' => 'Nueva certificación',
                 'item' => null,
@@ -1943,6 +2198,10 @@ final class AdminRoutes
                 'protocols' => $repo()->protocols(true),
                 'tiers' => $repo()->partnerTiers(true),
                 'tierPrices' => [],
+                'provider_groups' => [],
+                'provider_available_fields' => [],
+                'provider_groups_map' => $providerGroupsMap,
+                'provider_fields_map' => $providerFieldsMap,
                 'error' => flash('error'),
             ]);
         });
@@ -1956,6 +2215,7 @@ final class AdminRoutes
                 header('Location: /admin/certifications');
                 exit;
             }
+            $providerId = (int) ($item['provider_id'] ?? 0);
             view('admin/certifications/form', [
                 'title' => 'Editar certificación',
                 'item' => $item,
@@ -1969,6 +2229,8 @@ final class AdminRoutes
                 'assetTypes' => CatalogRepository::assetTypesFor('certification'),
                 'documents' => $repo()->documents(null, true),
                 'cenni_instruction_doc_id' => (int) (($repo()->certificationDocumentsByStage($id, 'cenni')[0]['id'] ?? 0)),
+                'provider_groups' => $providerId > 0 ? $repo()->providerGroups($providerId, true) : [],
+                'provider_available_fields' => $providerId > 0 ? $repo()->availableFieldsForCertification($providerId) : [],
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -2123,9 +2385,13 @@ final class AdminRoutes
                 $rawTierPrices = [];
             }
 
+            $providerGroupId = trim((string) ($_POST['provider_group_id'] ?? ''));
+            $providerGroupId = $providerGroupId !== '' ? (int) $providerGroupId : null;
+
             try {
                 $savedId = $repo()->saveCertification([
                     'provider_id' => $providerId,
+                    'provider_group_id' => $providerGroupId,
                     'protocol_id' => $protocolId > 0 ? $protocolId : null,
                     'code' => $code,
                     'slug' => $slug,

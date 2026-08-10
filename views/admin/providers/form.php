@@ -11,6 +11,13 @@ $notes = $notes ?? [];
 $editVenue = $editVenue ?? null;
 $editContact = $editContact ?? null;
 $editAccount = $editAccount ?? null;
+$editGroup = $editGroup ?? null;
+$editDocument = $editDocument ?? null;
+$groups = $groups ?? [];
+$provider_documents = $provider_documents ?? [];
+$provider_reg_fields = $provider_reg_fields ?? [];
+$docTypes = $docTypes ?? [];
+$appUrl = $appUrl ?? '';
 $showForm = (bool) ($showForm ?? false);
 $authType = $item['auth_proof_type'] ?? 'none';
 $icon = $item['logo_icon_path'] ?? $item['logo_path'] ?? null;
@@ -31,6 +38,9 @@ $tabs = $item ? [
     'convenio' => 'Convenio',
     'cuentas' => 'Cuentas',
     'certificaciones' => 'Certificaciones',
+    'grupos' => 'Grupos',
+    'documentos' => 'Documentos',
+    'campos' => 'Campos',
     'notas' => 'Notas',
 ] : ['proveedor' => 'Proveedor'];
 
@@ -899,6 +909,18 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php endif; ?>
                 <?php endif; ?>
             </section>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'grupos'): ?>
+            <?php require __DIR__ . '/_tab_grupos.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'documentos'): ?>
+            <?php require __DIR__ . '/_tab_documentos.php'; ?>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'campos'): ?>
+            <?php require __DIR__ . '/_tab_campos.php'; ?>
         <?php endif; ?>
 
         <?php if ($item && $tab === 'notas'): ?>

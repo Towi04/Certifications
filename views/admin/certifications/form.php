@@ -37,6 +37,14 @@ if (!isset($modalities[$modality])) {
     $modality = 'online';
 }
 $published = !empty($item['is_published']);
+$providerGroups = $provider_groups ?? [];
+$providerAvailableFields = $provider_available_fields ?? [];
+$providerGroupsMap = $provider_groups_map ?? [];
+$providerFieldsMap = $provider_fields_map ?? [];
+$availableFieldKeys = [];
+foreach ($providerAvailableFields as $af) {
+    $availableFieldKeys[$af['key']] = $af;
+}
 $iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>';
 $iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -59,7 +67,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
 
         <?php if (!$item): ?>
             <label>Proveedor
-                <select name="provider_id" required>
+                <select name="provider_id" id="certProviderId" required>
                     <option value="">—</option>
                     <?php foreach ($providers as $p): ?>
                         <option value="<?= (int)$p['id'] ?>"><?= e($p['name']) ?></option>
@@ -67,6 +75,18 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 </select>
             </label>
         <?php endif; ?>
+
+        <label>Grupo del proveedor
+            <select name="provider_group_id" id="certProviderGroupId">
+                <option value="">— Sin grupo —</option>
+                <?php foreach ($providerGroups as $g): ?>
+                    <option value="<?= (int)$g['id'] ?>" <?= (int)($item['provider_group_id'] ?? 0) === (int)$g['id'] ? 'selected' : '' ?>>
+                        <?= e($g['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small class="muted">Opcional. Los grupos se definen en Proveedores → Grupos.</small>
+        </label>
 
         <label>Protocolo
             <select name="protocol_id">
@@ -196,16 +216,31 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             $regCustom = $regConfig['custom'];
             $schedule = $regConfig['schedule'];
             $modeLabels = ['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'];
+            if ($providerAvailableFields === []) {
+                foreach ($regCatalog as $key => $meta) {
+                    if (!empty($meta['locked'])) {
+                        $providerAvailableFields[] = [
+                            'key' => $key,
+                            'label' => (string) $meta['label'],
+                            'type' => (string) ($meta['type'] ?? 'text'),
+                            'source' => 'builtin',
+                        ];
+                    }
+                }
+            }
             ?>
             <h3 class="reg-subtitle">Campos base</h3>
-            <div class="reg-fields-grid">
-                <?php foreach ($regCatalog as $key => $meta): ?>
+            <p class="muted">Solo aparecen los campos habilitados para el proveedor (Proveedores → Campos).</p>
+            <div class="reg-fields-grid" id="certBaseFieldsGrid">
+                <?php foreach ($providerAvailableFields as $af): ?>
                     <?php
+                    $key = $af['key'];
+                    $meta = $regCatalog[$key] ?? ['label' => $af['label'], 'locked' => false, 'default' => 'optional'];
                     $mode = $regFields[$key] ?? ($meta['default'] ?? 'off');
                     $locked = !empty($meta['locked']);
                     ?>
-                    <label class="reg-field-row">
-                        <span><?= e($meta['label']) ?><?= $locked ? ' <em class="muted">(fijo)</em>' : '' ?></span>
+                    <label class="reg-field-row" data-field-key="<?= e($key) ?>">
+                        <span><?= e($meta['label'] ?? $af['label']) ?><?= $locked ? ' <em class="muted">(fijo)</em>' : '' ?></span>
                         <?php if ($locked): ?>
                             <input type="hidden" name="registration_fields[<?= e($key) ?>]" value="required">
                             <select disabled>
@@ -707,6 +742,81 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
   });
 })();
 </script>
+<?php if (!$item): ?>
+<script>
+(function () {
+  const providerSel = document.getElementById('certProviderId');
+  const groupSel = document.getElementById('certProviderGroupId');
+  const fieldsGrid = document.getElementById('certBaseFieldsGrid');
+  const fieldsMap = <?= json_encode($providerFieldsMap, JSON_UNESCAPED_UNICODE) ?>;
+  const groupsMap = <?= json_encode($providerGroupsMap, JSON_UNESCAPED_UNICODE) ?>;
+  const regCatalog = <?= json_encode(\App\Catalog\CatalogRepository::registrationFieldCatalog(), JSON_UNESCAPED_UNICODE) ?>;
+  const modeLabels = <?= json_encode(['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'], JSON_UNESCAPED_UNICODE) ?>;
+
+  function rebuildGroups(pid) {
+    if (!groupSel) return;
+    groupSel.innerHTML = '<option value="">— Sin grupo —</option>';
+    (groupsMap[pid] || groupsMap[String(pid)] || []).forEach((g) => {
+      const opt = document.createElement('option');
+      opt.value = String(g.id);
+      opt.textContent = g.name;
+      groupSel.appendChild(opt);
+    });
+  }
+
+  function rebuildFields(pid) {
+    if (!fieldsGrid) return;
+    const fields = fieldsMap[pid] || fieldsMap[String(pid)] || [];
+    const lockedOnly = [];
+    Object.entries(regCatalog).forEach(([key, meta]) => {
+      if (meta.locked) lockedOnly.push({ key, label: meta.label, locked: true, default: meta.default || 'required' });
+    });
+    const list = fields.length ? fields : lockedOnly;
+    fieldsGrid.innerHTML = '';
+    list.forEach((af) => {
+      const key = af.key;
+      const meta = regCatalog[key] || { label: af.label, locked: !!af.locked, default: 'optional' };
+      const locked = !!meta.locked;
+      const label = document.createElement('label');
+      label.className = 'reg-field-row';
+      label.dataset.fieldKey = key;
+      const span = document.createElement('span');
+      span.innerHTML = (meta.label || af.label) + (locked ? ' <em class="muted">(fijo)</em>' : '');
+      label.appendChild(span);
+      if (locked) {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'registration_fields[' + key + ']';
+        hidden.value = 'required';
+        label.appendChild(hidden);
+        const sel = document.createElement('select');
+        sel.disabled = true;
+        sel.innerHTML = '<option selected>Obligatorio</option>';
+        label.appendChild(sel);
+      } else {
+        const sel = document.createElement('select');
+        sel.name = 'registration_fields[' + key + ']';
+        Object.entries(modeLabels).forEach(([val, lab]) => {
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = lab;
+          if (val === (meta.default || 'off')) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        label.appendChild(sel);
+      }
+      fieldsGrid.appendChild(label);
+    });
+  }
+
+  providerSel?.addEventListener('change', () => {
+    const pid = providerSel.value;
+    rebuildGroups(pid);
+    rebuildFields(pid);
+  });
+})();
+</script>
+<?php endif; ?>
 
 <?php if ($item): ?>
 <?php

@@ -351,11 +351,37 @@ final class ProviderSetupRepository
             if (!is_array($row)) {
                 continue;
             }
+            $key = trim((string) ($row['key'] ?? ''));
+            $source = (string) ($row['source'] ?? 'custom');
+            if (!in_array($source, ['builtin', 'custom'], true)) {
+                $source = 'custom';
+            }
+
+            if ($source === 'builtin') {
+                if ($key === '' || !isset($catalogKeys[$key])) {
+                    continue;
+                }
+                $catalogMeta = CatalogRepository::registrationFieldCatalog()[$key] ?? null;
+                if (!is_array($catalogMeta) || !empty($catalogMeta['locked'])) {
+                    continue;
+                }
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $out[] = [
+                    'key' => $key,
+                    'label' => (string) ($catalogMeta['label'] ?? $key),
+                    'type' => (string) ($catalogMeta['type'] ?? 'text'),
+                    'source' => 'builtin',
+                ];
+                continue;
+            }
+
             $label = trim((string) ($row['label'] ?? ''));
             if ($label === '') {
                 continue;
             }
-            $key = trim((string) ($row['key'] ?? ''));
             if ($key === '' || isset($catalogKeys[$key])) {
                 $key = 'custom_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($label));
                 $key = trim($key, '_') ?: ('custom_' . substr(md5($label), 0, 8));
@@ -367,13 +393,6 @@ final class ProviderSetupRepository
             $type = (string) ($row['type'] ?? 'text');
             if (!in_array($type, ['text', 'textarea', 'date', 'number', 'tel', 'email', 'time', 'sex'], true)) {
                 $type = 'text';
-            }
-            $source = (string) ($row['source'] ?? 'custom');
-            if (!in_array($source, ['builtin', 'custom'], true)) {
-                $source = 'custom';
-            }
-            if ($source === 'builtin') {
-                continue;
             }
             $out[] = [
                 'key' => $key,
