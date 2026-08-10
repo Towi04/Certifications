@@ -1753,3 +1753,49 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
     max-width: none;
   }
 }
+
+.acquire-warning {
+  border-left: 4px solid var(--yellow);
+}
+.howto-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.student-checklist {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.student-checklist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+}
+.student-checklist .is-done {
+  border-color: rgba(31, 122, 76, 0.35);
+  background: rgba(229, 245, 236, 0.45);
+}
+.student-check-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.student-stage h2 { margin-top: 0; }
+.note.is-dim { opacity: 0.72; }
+.acquire-grid { display: grid; gap: 1rem; }
