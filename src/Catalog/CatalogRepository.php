@@ -12,9 +12,21 @@ final class CatalogRepository
 {
     private PDO $pdo;
 
+    private ?ProviderSetupRepository $providerSetupRepo = null;
+
     public function __construct(?PDO $pdo = null)
     {
         $this->pdo = $pdo ?? Connection::get();
+    }
+
+    private function providerSetup(): ProviderSetupRepository
+    {
+        return $this->providerSetupRepo ??= new ProviderSetupRepository($this->pdo);
+    }
+
+    public function ensureProviderSetupSchema(): void
+    {
+        $this->providerSetup()->ensureProviderSetupSchema();
     }
 
     /** @return list<array<string, mixed>> */
@@ -1217,13 +1229,67 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function certificationsByProvider(int $providerId): array
     {
+        $this->ensureProviderSetupSchema();
         $stmt = $this->pdo->prepare(
-            'SELECT id, code, slug, name, is_published, sort_order
-             FROM certifications WHERE provider_id = ?
-             ORDER BY sort_order, name'
+            'SELECT c.id, c.code, c.slug, c.name, c.is_published, c.sort_order,
+                    c.provider_group_id, g.name AS group_name
+             FROM certifications c
+             LEFT JOIN provider_groups g ON g.id = c.provider_group_id
+             WHERE c.provider_id = ?
+             ORDER BY c.sort_order, c.name'
         );
         $stmt->execute([$providerId]);
         return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function providerGroups(int $providerId, bool $onlyActive = false): array
+    {
+        return $this->providerSetup()->providerGroups($providerId, $onlyActive);
+    }
+
+    public function providerGroup(int $id): ?array
+    {
+        return $this->providerSetup()->providerGroup($id);
+    }
+
+    public function saveProviderGroup(array $data, ?int $id = null): int
+    {
+        return $this->providerSetup()->saveProviderGroup($data, $id);
+    }
+
+    public function deleteProviderGroup(int $id): void
+    {
+        $this->providerSetup()->deleteProviderGroup($id);
+    }
+
+    public function setCertificationGroup(int $certId, ?int $groupId): void
+    {
+        $this->providerSetup()->setCertificationGroup($certId, $groupId);
+    }
+
+    /** @param list<int> $certIds */
+    public function assignCertificationsToGroup(int $providerId, int $groupId, array $certIds): void
+    {
+        $this->providerSetup()->assignCertificationsToGroup($providerId, $groupId, $certIds);
+    }
+
+    /** @return list<array{key:string,label:string,type:string,source:string}> */
+    public function getProviderRegistrationFields(int $providerId): array
+    {
+        return $this->providerSetup()->getProviderRegistrationFields($providerId);
+    }
+
+    /** @param list<array<string,mixed>> $fields */
+    public function saveProviderRegistrationFields(int $providerId, array $fields): void
+    {
+        $this->providerSetup()->saveProviderRegistrationFields($providerId, $fields);
+    }
+
+    /** @return list<array{key:string,label:string,type:string,source:string}> */
+    public function availableFieldsForCertification(int $providerId): array
+    {
+        return $this->providerSetup()->availableFieldsForCertification($providerId);
     }
 
     /** @return list<array<string, mixed>> */
@@ -1689,6 +1755,7 @@ final class CatalogRepository
     public function regulationDocumentForCertification(int $certificationId): ?array
     {
         $this->ensureCertificationDocsTable();
+        $this->ensureProviderSetupSchema();
         $stmt = $this->pdo->prepare(
             "SELECT d.*
              FROM certification_docs cd
@@ -1700,6 +1767,53 @@ final class CatalogRepository
         );
         $stmt->execute([$certificationId]);
         $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+
+        $cert = $this->certification($certificationId);
+        if (!$cert) {
+            return null;
+        }
+
+        $providerId = (int) $cert['provider_id'];
+        $groupId = isset($cert['provider_group_id']) ? (int) $cert['provider_group_id'] : null;
+
+        $stmt = $this->pdo->prepare(
+            "SELECT d.* FROM documents d
+             WHERE d.is_active = 1 AND d.doc_type = 'regulation'
+               AND d.scope_type = 'certification' AND d.certification_id = ?
+             ORDER BY d.id DESC LIMIT 1"
+        );
+        $stmt->execute([$certificationId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+
+        if ($groupId !== null && $groupId > 0) {
+            $stmt = $this->pdo->prepare(
+                "SELECT d.* FROM documents d
+                 WHERE d.is_active = 1 AND d.doc_type = 'regulation'
+                   AND d.scope_type = 'group' AND d.provider_group_id = ?
+                 ORDER BY d.id DESC LIMIT 1"
+            );
+            $stmt->execute([$groupId]);
+            $row = $stmt->fetch();
+            if ($row) {
+                return $row;
+            }
+        }
+
+        $stmt = $this->pdo->prepare(
+            "SELECT d.* FROM documents d
+             WHERE d.is_active = 1 AND d.doc_type = 'regulation'
+               AND d.scope_type = 'provider' AND d.provider_id = ?
+             ORDER BY d.id DESC LIMIT 1"
+        );
+        $stmt->execute([$providerId]);
+        $row = $stmt->fetch();
+
         return $row ?: null;
     }
 
@@ -3528,6 +3642,7 @@ final class CatalogRepository
     public function saveCertification(array $data, ?int $id = null): int
     {
         $this->ensureRegistrationFieldsColumn();
+        $this->ensureProviderSetupSchema();
         $skillsJson = $data['skills_json'] ?? null;
         if (is_array($skillsJson)) {
             $skillsJson = json_encode(array_values($skillsJson), JSON_UNESCAPED_UNICODE) ?: '[]';
@@ -3566,25 +3681,39 @@ final class CatalogRepository
             $data['sort_order'],
         ];
 
+        $includeGroup = array_key_exists('provider_group_id', $data);
+        if ($includeGroup) {
+            $fields[] = $data['provider_group_id'] !== null && $data['provider_group_id'] !== ''
+                ? (int) $data['provider_group_id']
+                : null;
+        }
+
         if ($id) {
-            $stmt = $this->pdo->prepare(
-                'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
+            $sql = 'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
                  short_description=?, value_points_json=?, registration_fields_json=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
                  is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
                  public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
-                 cenni_process=?, conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
-            );
+                 cenni_process=?, conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=?';
+            if ($includeGroup) {
+                $sql .= ', provider_group_id=?';
+            }
+            $sql .= ' WHERE id=?';
+            $stmt = $this->pdo->prepare($sql);
             $stmt->execute([...$fields, $id]);
             return $id;
         }
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO certifications (
-                provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, registration_fields_json, description_html,
+        $columns = 'provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, registration_fields_json, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
-                cenni_included, cenni_fee, cenni_process, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                cenni_included, cenni_fee, cenni_process, conocer_eligible, conocer_fee, is_published, is_featured, sort_order';
+        $placeholders = '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?';
+        if ($includeGroup) {
+            $columns .= ', provider_group_id';
+            $placeholders .= ',?';
+        }
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO certifications ({$columns}) VALUES ({$placeholders})"
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -4343,6 +4472,9 @@ final class CatalogRepository
             'form' => 'Formulario',
             'checklist' => 'Checklist',
             'instructions' => 'Instrucciones',
+            'export_template' => 'Plantilla exportación (CSV/Excel)',
+            'student' => 'Doc. alumno',
+            'provider_ops' => 'Operación proveedor',
             'other' => 'Otro',
         ];
     }
@@ -4350,9 +4482,13 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function documents(?int $providerId = null, bool $onlyActive = false): array
     {
-        $sql = 'SELECT d.*, p.name AS provider_name
+        $this->ensureProviderSetupSchema();
+        $sql = 'SELECT d.*, p.name AS provider_name,
+                       pg.name AS group_name, c.name AS certification_name
                 FROM documents d
                 LEFT JOIN providers p ON p.id = d.provider_id
+                LEFT JOIN provider_groups pg ON pg.id = d.provider_group_id
+                LEFT JOIN certifications c ON c.id = d.certification_id
                 WHERE 1=1';
         $params = [];
         if ($providerId !== null && $providerId > 0) {
@@ -4370,10 +4506,14 @@ final class CatalogRepository
 
     public function document(int $id): ?array
     {
+        $this->ensureProviderSetupSchema();
         $stmt = $this->pdo->prepare(
-            'SELECT d.*, p.name AS provider_name
+            'SELECT d.*, p.name AS provider_name,
+                    pg.name AS group_name, c.name AS certification_name
              FROM documents d
              LEFT JOIN providers p ON p.id = d.provider_id
+             LEFT JOIN provider_groups pg ON pg.id = d.provider_group_id
+             LEFT JOIN certifications c ON c.id = d.certification_id
              WHERE d.id = ?'
         );
         $stmt->execute([$id]);
@@ -4381,34 +4521,166 @@ final class CatalogRepository
         return $row ?: null;
     }
 
+    public function documentByShareToken(string $token): ?array
+    {
+        $this->ensureProviderSetupSchema();
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT d.*, p.name AS provider_name,
+                    pg.name AS group_name, c.name AS certification_name
+             FROM documents d
+             LEFT JOIN providers p ON p.id = d.provider_id
+             LEFT JOIN provider_groups pg ON pg.id = d.provider_group_id
+             LEFT JOIN certifications c ON c.id = d.certification_id
+             WHERE d.share_token = ?'
+        );
+        $stmt->execute([$token]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public function ensureDocumentShareToken(int $id): ?string
+    {
+        $this->ensureProviderSetupSchema();
+        $doc = $this->document($id);
+        if (!$doc) {
+            return null;
+        }
+        $token = trim((string) ($doc['share_token'] ?? ''));
+        if ($token !== '') {
+            return $token;
+        }
+        $token = bin2hex(random_bytes(16));
+        $this->pdo->prepare('UPDATE documents SET share_token = ? WHERE id = ?')->execute([$token, $id]);
+
+        return $token;
+    }
+
     public function saveDocument(array $data, ?int $id = null): int
     {
+        $this->ensureProviderSetupSchema();
+        $scopeType = (string) ($data['scope_type'] ?? 'provider');
+        if (!in_array($scopeType, ['provider', 'group', 'certification'], true)) {
+            $scopeType = 'provider';
+        }
+        $providerGroupId = isset($data['provider_group_id']) && $data['provider_group_id'] !== ''
+            ? (int) $data['provider_group_id']
+            : null;
+        $certificationId = isset($data['certification_id']) && $data['certification_id'] !== ''
+            ? (int) $data['certification_id']
+            : null;
+
+        $existing = null;
+        if ($id) {
+            $existing = $this->document($id);
+        }
+
+        if (array_key_exists('share_token', $data)) {
+            $shareToken = trim((string) ($data['share_token'] ?? ''));
+            if ($shareToken === '') {
+                $shareToken = null;
+            }
+        } elseif ($existing) {
+            $shareToken = trim((string) ($existing['share_token'] ?? ''));
+            if ($shareToken === '') {
+                $shareToken = null;
+            }
+        } else {
+            $shareToken = bin2hex(random_bytes(16));
+        }
+
+        $docType = (string) ($data['doc_type'] ?? 'other');
+        if (!isset(self::documentTypes()[$docType])) {
+            $docType = 'other';
+        }
+
         $fields = [
             $data['provider_id'],
+            $scopeType,
+            $providerGroupId,
+            $certificationId,
             $data['code'],
             $data['title'],
             $data['version'],
-            $data['doc_type'],
+            $docType,
             $data['file_path'],
+            $shareToken,
             $data['body_html'] ?? null,
             $data['is_active'],
         ];
 
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE documents SET provider_id=?, code=?, title=?, version=?, doc_type=?,
-                 file_path=?, body_html=?, is_active=? WHERE id=?'
+                'UPDATE documents SET provider_id=?, scope_type=?, provider_group_id=?, certification_id=?,
+                 code=?, title=?, version=?, doc_type=?, file_path=?, share_token=?, body_html=?, is_active=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
+            if ($shareToken === null) {
+                $this->ensureDocumentShareToken($id);
+            }
+
             return $id;
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO documents (provider_id, code, title, version, doc_type, file_path, body_html, is_active)
-             VALUES (?,?,?,?,?,?,?,?)'
+            'INSERT INTO documents (
+                provider_id, scope_type, provider_group_id, certification_id,
+                code, title, version, doc_type, file_path, share_token, body_html, is_active
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
-        return (int) $this->pdo->lastInsertId();
+        $newId = (int) $this->pdo->lastInsertId();
+        if ($shareToken === null) {
+            $this->ensureDocumentShareToken($newId);
+        }
+
+        return $newId;
+    }
+
+    public function syncRegulationLinksFromDocument(int $documentId): int
+    {
+        $this->ensureCertificationDocsTable();
+        $this->ensureProviderSetupSchema();
+        $doc = $this->document($documentId);
+        if (!$doc || ($doc['doc_type'] ?? '') !== 'regulation' || empty($doc['is_active'])) {
+            return 0;
+        }
+
+        $certIds = [];
+        $scope = (string) ($doc['scope_type'] ?? 'provider');
+        $providerId = isset($doc['provider_id']) ? (int) $doc['provider_id'] : 0;
+
+        if ($scope === 'certification') {
+            $certId = isset($doc['certification_id']) ? (int) $doc['certification_id'] : 0;
+            if ($certId > 0) {
+                $certIds[] = $certId;
+            }
+        } elseif ($scope === 'group') {
+            $groupId = isset($doc['provider_group_id']) ? (int) $doc['provider_group_id'] : 0;
+            if ($groupId > 0) {
+                $stmt = $this->pdo->prepare(
+                    'SELECT id FROM certifications WHERE provider_group_id = ?'
+                );
+                $stmt->execute([$groupId]);
+                $certIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+            }
+        } elseif ($providerId > 0) {
+            $stmt = $this->pdo->prepare('SELECT id FROM certifications WHERE provider_id = ?');
+            $stmt->execute([$providerId]);
+            $certIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        $n = 0;
+        foreach ($certIds as $certId) {
+            $this->setCertificationRegulationDocument($certId, $documentId);
+            $n++;
+        }
+
+        return $n;
     }
 
     public function deleteDocument(int $id): void
