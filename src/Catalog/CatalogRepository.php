@@ -1647,6 +1647,87 @@ final class CatalogRepository
         )->execute([$ok ? 1 : 0, $error, $eventId]);
     }
 
+    /** @return list<array<string, mixed>> */
+    public function recentOpenPayWebhookEvents(int $limit = 30): array
+    {
+        $limit = max(1, min(100, $limit));
+        try {
+            $stmt = $this->pdo->query(
+                'SELECT id, event_type, openpay_charge_id, order_id, case_id, processed, error_message, payload_json, created_at
+                 FROM openpay_webhook_events
+                 ORDER BY id DESC
+                 LIMIT ' . $limit
+            );
+
+            return $stmt ? $stmt->fetchAll() : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /** Último código de verificación recibido de OpenPay (alta manual en dashboard). */
+    public function latestOpenPayVerificationCode(): ?array
+    {
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT id, payload_json, error_message, created_at
+                 FROM openpay_webhook_events
+                 WHERE event_type = 'verification'
+                 ORDER BY id DESC
+                 LIMIT 1"
+            );
+            $row = $stmt ? $stmt->fetch() : false;
+            if (!$row) {
+                return null;
+            }
+            $code = null;
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (is_array($payload) && !empty($payload['verification_code'])) {
+                $code = (string) $payload['verification_code'];
+            }
+            if ($code === null && is_string($row['error_message'] ?? null)
+                && preg_match('/verification_code:([A-Za-z0-9]+)/', (string) $row['error_message'], $m)) {
+                $code = $m[1];
+            }
+
+            return [
+                'id' => (int) $row['id'],
+                'verification_code' => $code,
+                'created_at' => $row['created_at'] ?? null,
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    public function ensureOpenPayWebhookEventsTable(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $this->pdo->exec(
+                'CREATE TABLE IF NOT EXISTS openpay_webhook_events (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  event_type VARCHAR(64) NULL,
+                  openpay_charge_id VARCHAR(64) NULL,
+                  order_id VARCHAR(100) NULL,
+                  case_id BIGINT UNSIGNED NULL,
+                  payload_json MEDIUMTEXT NOT NULL,
+                  processed TINYINT(1) NOT NULL DEFAULT 0,
+                  error_message TEXT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  KEY idx_openpay_webhook_charge (openpay_charge_id),
+                  KEY idx_openpay_webhook_order (order_id),
+                  KEY idx_openpay_webhook_case (case_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+        } catch (\Throwable) {
+        }
+    }
+
     /** @param array<string, mixed> $fields */
     public function updateCertificationCase(int $id, array $fields): void
     {

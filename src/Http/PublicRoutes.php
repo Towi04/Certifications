@@ -513,11 +513,34 @@ final class PublicRoutes
         });
 
         $router->post('/webhooks/openpay', static function () use ($repo): void {
+            header('Content-Type: application/json; charset=utf-8');
+
+            $expectedUser = trim((string) (\App\Config\Env::get('OPENPAY_WEBHOOK_USER', '') ?? ''));
+            $expectedPass = (string) (\App\Config\Env::get('OPENPAY_WEBHOOK_PASSWORD', '') ?? '');
+            if ($expectedUser !== '') {
+                $givenUser = (string) ($_SERVER['PHP_AUTH_USER'] ?? '');
+                $givenPass = (string) ($_SERVER['PHP_AUTH_PW'] ?? '');
+                if ($givenUser === '' && isset($_SERVER['HTTP_AUTHORIZATION'])
+                    && preg_match('/Basic\s+(\S+)/i', (string) $_SERVER['HTTP_AUTHORIZATION'], $m)) {
+                    $decoded = base64_decode($m[1], true);
+                    if (is_string($decoded) && str_contains($decoded, ':')) {
+                        [$givenUser, $givenPass] = explode(':', $decoded, 2);
+                    }
+                }
+                $userOk = hash_equals($expectedUser, $givenUser);
+                $passOk = hash_equals($expectedPass, $givenPass);
+                if (!$userOk || !$passOk) {
+                    http_response_code(401);
+                    header('WWW-Authenticate: Basic realm="OpenPay Webhook"');
+                    echo json_encode(['error' => 'unauthorized']);
+                    exit;
+                }
+            }
+
             $raw = file_get_contents('php://input') ?: '';
             $payload = json_decode($raw, true);
             if (!is_array($payload)) {
                 http_response_code(400);
-                header('Content-Type: application/json');
                 echo json_encode(['error' => 'invalid_json']);
                 exit;
             }
@@ -525,14 +548,26 @@ final class PublicRoutes
                 $svc = new \App\Payments\OpenPayPaymentService($repo());
                 $result = $svc->handleWebhook($payload);
                 http_response_code(200);
-                header('Content-Type: application/json');
-                echo json_encode($result);
+                echo json_encode($result, JSON_UNESCAPED_UNICODE);
             } catch (\Throwable $e) {
                 error_log('[PDV] OpenPay webhook: ' . $e->getMessage());
+                // OpenPay reintenta si no es 2xx; devolvemos 200 tras registrar el error
+                // para no ciclar, salvo fallos de autenticación ya manejados arriba.
                 http_response_code(200);
-                header('Content-Type: application/json');
-                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
             }
+            exit;
+        });
+
+        // Ping público simple (GET) para comprobar que la URL está viva antes de registrarla.
+        $router->get('/webhooks/openpay', static function (): void {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(200);
+            echo json_encode([
+                'ok' => true,
+                'service' => 'openpay-webhook',
+                'hint' => 'Usa POST con el JSON de OpenPay. Registra la URL desde Admin → OpenPay.',
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         });
     }

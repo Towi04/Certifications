@@ -55,15 +55,24 @@ final class OpenPayClient
             throw new \RuntimeException("cURL OpenPay: {$error}");
         }
 
-        $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
-        if (!is_array($decoded)) {
-            throw new \RuntimeException("OpenPay respuesta inválida (HTTP {$status}).");
+        if ($status >= 400) {
+            $decodedErr = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+            if (is_array($decodedErr)) {
+                $description = (string) ($decodedErr['description'] ?? $decodedErr['message'] ?? 'error');
+                $code = (string) ($decodedErr['error_code'] ?? $status);
+                throw new \RuntimeException("OpenPay [{$code}]: {$description}");
+            }
+            throw new \RuntimeException("OpenPay error HTTP {$status}.");
         }
 
-        if ($status >= 400) {
-            $description = (string) ($decoded['description'] ?? $decoded['message'] ?? 'error');
-            $code = (string) ($decoded['error_code'] ?? $status);
-            throw new \RuntimeException("OpenPay [{$code}]: {$description}");
+        // DELETE u otras respuestas vacías (p. ej. 204)
+        if ($raw === false || $raw === null || $raw === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException("OpenPay respuesta inválida (HTTP {$status}).");
         }
 
         return $decoded;
@@ -124,5 +133,81 @@ final class OpenPayClient
             : 'https://dashboard.openpay.mx';
 
         return $host . '/spei-pdf/' . $this->merchantId() . '/' . rawurlencode($chargeId);
+    }
+
+    /** @return list<string> */
+    public static function defaultWebhookEventTypes(): array
+    {
+        return [
+            'charge.succeeded',
+            'charge.created',
+            'charge.failed',
+            'charge.cancelled',
+            'spei.received',
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function listWebhooks(): array
+    {
+        $result = $this->request('GET', 'webhooks');
+        if (isset($result[0]) && is_array($result[0])) {
+            /** @var list<array<string, mixed>> $result */
+            return $result;
+        }
+        if (isset($result['data']) && is_array($result['data'])) {
+            $out = [];
+            foreach ($result['data'] as $row) {
+                if (is_array($row)) {
+                    $out[] = $row;
+                }
+            }
+
+            return $out;
+        }
+
+        return [];
+    }
+
+    /**
+     * @param list<string>|null $eventTypes
+     * @return array<string, mixed>
+     */
+    public function createWebhook(
+        string $url,
+        ?string $user = null,
+        ?string $password = null,
+        ?array $eventTypes = null
+    ): array {
+        $payload = [
+            'url' => $url,
+            'event_types' => $eventTypes ?? self::defaultWebhookEventTypes(),
+        ];
+        if ($user !== null && $user !== '') {
+            $payload['user'] = $user;
+        }
+        if ($password !== null && $password !== '') {
+            $payload['password'] = $password;
+        }
+
+        return $this->request('POST', 'webhooks', $payload);
+    }
+
+    /** @return array<string, mixed> */
+    public function getWebhook(string $webhookId): array
+    {
+        return $this->request('GET', 'webhooks/' . rawurlencode($webhookId));
+    }
+
+    public function deleteWebhook(string $webhookId): void
+    {
+        $this->request('DELETE', 'webhooks/' . rawurlencode($webhookId));
+    }
+
+    public static function publicWebhookUrl(): string
+    {
+        $base = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/');
+
+        return $base . '/webhooks/openpay';
     }
 }

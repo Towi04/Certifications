@@ -2358,5 +2358,105 @@ final class AdminRoutes
             header('Location: /admin/users');
             exit;
         });
+
+        $router->get('/admin/openpay', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $repo()->ensureOpenPayWebhookEventsTable();
+            $client = new \App\Integrations\OpenPayClient();
+            $webhookUrl = \App\Integrations\OpenPayClient::publicWebhookUrl();
+            $webhooks = [];
+            $listError = null;
+            try {
+                $webhooks = $client->listWebhooks();
+            } catch (\Throwable $e) {
+                $listError = $e->getMessage();
+            }
+
+            $matched = null;
+            foreach ($webhooks as $wh) {
+                $url = rtrim((string) ($wh['url'] ?? ''), '/');
+                if ($url === rtrim($webhookUrl, '/')) {
+                    $matched = $wh;
+                    break;
+                }
+            }
+
+            view('admin/openpay', [
+                'title' => 'OpenPay · Webhook',
+                'webhookUrl' => $webhookUrl,
+                'webhooks' => $webhooks,
+                'matched' => $matched,
+                'listError' => $listError,
+                'verification' => $repo()->latestOpenPayVerificationCode(),
+                'events' => $repo()->recentOpenPayWebhookEvents(25),
+                'sandbox' => \App\Config\Env::getBool('OPENPAY_SANDBOX', true),
+                'merchantId' => \App\Config\Env::get('OPENPAY_MERCHANT_ID'),
+                'authUserConfigured' => \App\Config\Env::isFilled('OPENPAY_WEBHOOK_USER'),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/openpay/register-webhook', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $repo()->ensureOpenPayWebhookEventsTable();
+            try {
+                $client = new \App\Integrations\OpenPayClient();
+                $url = \App\Integrations\OpenPayClient::publicWebhookUrl();
+                $user = trim((string) (\App\Config\Env::get('OPENPAY_WEBHOOK_USER', '') ?? ''));
+                $pass = (string) (\App\Config\Env::get('OPENPAY_WEBHOOK_PASSWORD', '') ?? '');
+
+                foreach ($client->listWebhooks() as $existing) {
+                    if (rtrim((string) ($existing['url'] ?? ''), '/') === rtrim($url, '/')) {
+                        $status = (string) ($existing['status'] ?? '');
+                        flash(
+                            'info',
+                            'El webhook ya está registrado en OpenPay'
+                            . ($status !== '' ? ' (estado: ' . $status . ')' : '')
+                            . '. ID: ' . (string) ($existing['id'] ?? '—')
+                        );
+                        header('Location: /admin/openpay');
+                        exit;
+                    }
+                }
+
+                $created = $client->createWebhook(
+                    $url,
+                    $user !== '' ? $user : null,
+                    $user !== '' ? $pass : null
+                );
+                $status = (string) ($created['status'] ?? '');
+                flash(
+                    'info',
+                    'Webhook registrado en OpenPay'
+                    . ($status !== '' ? ' · estado: ' . $status : '')
+                    . '. ID: ' . (string) ($created['id'] ?? '—')
+                    . '. Si quedó unverified, usa el código de verificación de abajo o “Reenviar código” en el dashboard.'
+                );
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/openpay');
+            exit;
+        });
+
+        $router->post('/admin/openpay/delete-webhook', static function (): void {
+            Auth::requireAdmin();
+            $webhookId = trim((string) ($_POST['webhook_id'] ?? ''));
+            if ($webhookId === '') {
+                flash('error', 'Falta el ID del webhook.');
+                header('Location: /admin/openpay');
+                exit;
+            }
+            try {
+                $client = new \App\Integrations\OpenPayClient();
+                $client->deleteWebhook($webhookId);
+                flash('info', 'Webhook eliminado en OpenPay.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/openpay');
+            exit;
+        });
     }
 }

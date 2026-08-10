@@ -536,6 +536,7 @@ $router->get('/admin/salud', static function (): void {
             $checker->checkDatabase(),
             $checker->checkMoodle(),
             $checker->checkOpenPay(),
+            $checker->checkOpenPayWebhook(),
             $checker->checkStorage(),
         ];
 

@@ -80,6 +80,8 @@ Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max
 
 - Dashboard sandbox → copiar **llave privada** a `OPENPAY_PRIVATE_KEY`.
 - La prueba de salud hace `GET /v1/{merchantId}` con autenticación básica (private key).
+- Webhook: en **Admin → OpenPay** pulsa **Registrar webhook** (URL `APP_URL/webhooks/openpay`). Detalle en `docs/openpay-cenni.md`.
+- Opcional: `OPENPAY_WEBHOOK_USER` / `OPENPAY_WEBHOOK_PASSWORD` para Basic Auth del endpoint.
 
 ## 6. SMTP / correo
 
@@ -109,8 +111,9 @@ SMTP_FROM=certificaciones@institutodoceo.com
 1. Abre https://pdv.institutodoceo.com/
 2. Entra en `/login`
 3. Ve a `/admin/salud`
-4. Semáforos verdes: MariaDB, Moodle, OpenPay, Storage
+4. Semáforos verdes: MariaDB, Moodle, OpenPay, OpenPay webhook, Storage
 5. Probar SMTP aparte
+6. Si el webhook no está registrado: **Admin → OpenPay** → Registrar
 
 ## Reset de contraseña admin (importante)
 

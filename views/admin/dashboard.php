@@ -101,6 +101,14 @@ $menus = [
         'tone' => 'slate',
         'icon' => 'list',
     ],
+    [
+        'href' => '/admin/openpay',
+        'title' => 'OpenPay',
+        'desc' => 'Webhook SPEI y eventos de pago',
+        'count' => null,
+        'tone' => 'blue',
+        'icon' => 'badge',
+    ],
 ];
 
 $icons = [
