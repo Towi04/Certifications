@@ -229,18 +229,37 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 }
             }
             ?>
-            <h3 class="reg-subtitle">Campos base</h3>
-            <p class="muted">Solo aparecen los campos habilitados para el proveedor (Proveedores → Campos).</p>
+            <h3 class="reg-subtitle">Campos del proveedor</h3>
+            <p class="muted">
+                Solo puedes elegir entre los campos definidos en <strong>Proveedores → Campos</strong>.
+                Si dejas “No pedir”, el admin los completará más adelante (no se piden al alumno en la adquisición).
+            </p>
             <div class="reg-fields-grid" id="certBaseFieldsGrid">
-                <?php foreach ($providerAvailableFields as $af): ?>
-                    <?php
-                    $key = $af['key'];
+                <?php
+                $customModeMap = [];
+                foreach ($regCustom as $cf) {
+                    $customModeMap[(string) ($cf['key'] ?? '')] = (string) ($cf['mode'] ?? 'off');
+                }
+                foreach ($providerAvailableFields as $af):
+                    $key = (string) ($af['key'] ?? '');
+                    if ($key === '') {
+                        continue;
+                    }
                     $meta = $regCatalog[$key] ?? ['label' => $af['label'], 'locked' => false, 'default' => 'optional'];
-                    $mode = $regFields[$key] ?? ($meta['default'] ?? 'off');
                     $locked = !empty($meta['locked']);
-                    ?>
+                    $isProviderCustom = ($af['source'] ?? '') === 'custom';
+                    $mode = $isProviderCustom
+                        ? ($customModeMap[$key] ?? 'off')
+                        : ($regFields[$key] ?? ($meta['default'] ?? 'off'));
+                    $label = (string) ($meta['label'] ?? $af['label'] ?? $key);
+                ?>
                     <label class="reg-field-row" data-field-key="<?= e($key) ?>">
-                        <span><?= e($meta['label'] ?? $af['label']) ?><?= $locked ? ' <em class="muted">(fijo)</em>' : '' ?></span>
+                        <span>
+                            <?= e($label) ?>
+                            <?php if ($locked): ?> <em class="muted">(fijo)</em>
+                            <?php elseif ($isProviderCustom): ?> <em class="muted">(proveedor)</em>
+                            <?php endif; ?>
+                        </span>
                         <?php if ($locked): ?>
                             <input type="hidden" name="registration_fields[<?= e($key) ?>]" value="required">
                             <select disabled>
@@ -354,81 +373,6 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 En horas fijas escribe HH:MM separadas por coma. Presets: UKS lun–vie 10:00–17:30 y sáb 08:00–12:00 sin extraordinarias;
                 iTEP mismo rango todos los días; TOEFL solo sábado 11:00 y 13:00 con extraordinarias.
             </p>
-
-            <h3 class="reg-subtitle">Campos personalizados</h3>
-            <p class="muted">Agrega campos nuevos o elimínalos si ya no aplican. No afecta los campos base (esos se ocultan con “No pedir”).</p>
-            <div id="customFieldsList" class="custom-fields-list">
-                <?php foreach ($regCustom as $i => $cf): ?>
-                    <div class="custom-field-row" data-custom-row>
-                        <input type="hidden" name="custom_fields[<?= (int)$i ?>][key]" value="<?= e($cf['key']) ?>">
-                        <label>Etiqueta
-                            <input name="custom_fields[<?= (int)$i ?>][label]" required value="<?= e($cf['label']) ?>">
-                        </label>
-                        <label>Tipo
-                            <select name="custom_fields[<?= (int)$i ?>][type]">
-                                <?php foreach (['text' => 'Texto', 'textarea' => 'Texto largo', 'date' => 'Fecha', 'number' => 'Número', 'tel' => 'Teléfono', 'email' => 'Correo'] as $tv => $tl): ?>
-                                    <option value="<?= e($tv) ?>" <?= ($cf['type'] ?? '') === $tv ? 'selected' : '' ?>><?= e($tl) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                        <label>Uso
-                            <select name="custom_fields[<?= (int)$i ?>][mode]">
-                                <?php foreach (['optional' => 'Opcional', 'required' => 'Obligatorio'] as $mv => $ml): ?>
-                                    <option value="<?= e($mv) ?>" <?= ($cf['mode'] ?? '') === $mv ? 'selected' : '' ?>><?= e($ml) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                        <label class="check">
-                            <input type="checkbox" name="custom_fields[<?= (int)$i ?>][delete]" value="1"> Eliminar
-                        </label>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <div class="actions" style="margin-top:0.75rem">
-                <button class="btn btn-ghost" type="button" id="addCustomFieldBtn">Agregar campo</button>
-            </div>
-            <template id="customFieldTemplate">
-                <div class="custom-field-row" data-custom-row>
-                    <input type="hidden" name="custom_fields[__i__][key]" value="">
-                    <label>Etiqueta
-                        <input name="custom_fields[__i__][label]" required placeholder="Ej. Dirección">
-                    </label>
-                    <label>Tipo
-                        <select name="custom_fields[__i__][type]">
-                            <option value="text">Texto</option>
-                            <option value="textarea">Texto largo</option>
-                            <option value="date">Fecha</option>
-                            <option value="number">Número</option>
-                            <option value="tel">Teléfono</option>
-                            <option value="email">Correo</option>
-                        </select>
-                    </label>
-                    <label>Uso
-                        <select name="custom_fields[__i__][mode]">
-                            <option value="optional">Opcional</option>
-                            <option value="required">Obligatorio</option>
-                        </select>
-                    </label>
-                    <label class="check">
-                        <input type="checkbox" name="custom_fields[__i__][delete]" value="1"> Eliminar
-                    </label>
-                </div>
-            </template>
-            <script>
-            (function () {
-              var list = document.getElementById('customFieldsList');
-              var btn = document.getElementById('addCustomFieldBtn');
-              var tpl = document.getElementById('customFieldTemplate');
-              if (!list || !btn || !tpl) return;
-              var idx = list.querySelectorAll('[data-custom-row]').length;
-              btn.addEventListener('click', function () {
-                var html = tpl.innerHTML.replaceAll('__i__', String(idx++));
-                var wrap = document.createElement('div');
-                wrap.innerHTML = html.trim();
-                list.appendChild(wrap.firstElementChild);
-              });
-            })();
-            </script>
         </fieldset>
 
         <div class="eligibility-row">
