@@ -396,14 +396,14 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         <?php if ($linkedCourses): ?>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Curso</th><th>Relación</th><th>Precio bundle</th><th>Plataforma</th><th></th></tr></thead>
+                    <thead><tr><th>Curso</th><th>Relación</th><th>Precio</th><th>Plataforma</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($linkedCourses as $c): ?>
                         <tr>
                             <td><?= e($c['course_name']) ?></td>
                             <td><?= e($relationTypes[$c['relation_type']] ?? $c['relation_type']) ?></td>
                             <td>
-                                <?php if (($c['relation_type'] ?? '') === 'bundle_discount' && $c['bundle_price'] !== null): ?>
+                                <?php if ($c['bundle_price'] !== null && in_array(($c['relation_type'] ?? ''), ['bundle_discount', 'sold_separate'], true)): ?>
                                     <?= e(\App\Support\Str::money((float)$c['bundle_price'])) ?>
                                 <?php else: ?>
                                     —
@@ -443,9 +443,9 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                     <?php endforeach; ?>
                 </select>
             </label>
-            <label id="bundlePriceField" style="display:none">Precio bundle
-                <input type="number" step="0.01" name="bundle_price">
-                <small class="muted">Solo aplica con bundle con descuento.</small>
+            <label id="bundlePriceField" style="display:none">Precio
+                <input type="number" step="0.01" min="0" name="bundle_price">
+                <small class="muted" id="bundlePriceHint">Requerido si se vende por separado. Opcional en bundle.</small>
             </label>
             <label>Notas<input name="notes"></label>
             <div class="actions"><button class="btn" type="submit">Vincular curso</button></div>
@@ -475,9 +475,16 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
 
   const rel = document.getElementById('relationType');
   const bundle = document.getElementById('bundlePriceField');
+  const hint = document.getElementById('bundlePriceHint');
   const syncRel = () => {
     if (!bundle || !rel) return;
-    bundle.style.display = rel.value === 'bundle_discount' ? '' : 'none';
+    const needs = rel.value === 'sold_separate' || rel.value === 'bundle_discount';
+    bundle.style.display = needs ? '' : 'none';
+    if (hint) {
+      hint.textContent = rel.value === 'sold_separate'
+        ? 'Requerido: precio de venta del curso.'
+        : 'Opcional: precio del bundle con descuento.';
+    }
   };
   rel?.addEventListener('change', syncRel);
   syncRel();
