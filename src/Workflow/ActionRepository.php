@@ -23,6 +23,8 @@ final class ActionRepository
         if ($done) {
             return;
         }
+        // Marcar antes de seed/save para evitar recursión (seed → save → ensureSchema).
+        $done = true;
 
         try {
             $this->pdo->exec(
@@ -63,9 +65,7 @@ final class ActionRepository
                   is_active TINYINT(1) NOT NULL DEFAULT 1,
                   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   UNIQUE KEY uq_protocol_action (protocol_id, action_id),
-                  KEY idx_protocol_actions_protocol (protocol_id),
-                  CONSTRAINT fk_protocol_actions_protocol FOREIGN KEY (protocol_id) REFERENCES protocols(id) ON DELETE CASCADE,
-                  CONSTRAINT fk_protocol_actions_action FOREIGN KEY (action_id) REFERENCES workflow_actions(id) ON DELETE CASCADE
+                  KEY idx_protocol_actions_protocol (protocol_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             );
         } catch (\Throwable) {
@@ -90,7 +90,6 @@ final class ActionRepository
 
         $this->ensureCaseShareColumns();
         $this->seedDefaults();
-        $done = true;
     }
 
     /** @return array<string, string> */
@@ -329,75 +328,32 @@ final class ActionRepository
 
     private function seedDefaults(): void
     {
-        if ($this->findByCode('confirm_payment')) {
+        try {
+            $count = (int) $this->pdo->query('SELECT COUNT(*) FROM workflow_actions')->fetchColumn();
+            if ($count > 0) {
+                return;
+            }
+        } catch (\Throwable) {
             return;
         }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT IGNORE INTO workflow_actions
+             (code, name, description, handler, mail_template_code, button_label, show_as_button, auto_triggers, requires_json, sort_order, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,1)'
+        );
+
         $defaults = [
-            [
-                'code' => 'confirm_payment',
-                'name' => 'Confirmar pago',
-                'description' => 'Marca pago recibido y genera link del comprobante.',
-                'handler' => 'confirm_payment',
-                'button_label' => 'Confirmar pago',
-                'show_as_button' => 1,
-                'auto_triggers' => [],
-                'requires_json' => [],
-                'sort_order' => 10,
-                'is_active' => 1,
-            ],
-            [
-                'code' => 'request_provider',
-                'name' => 'Solicitar examen al proveedor',
-                'description' => 'Exportación + correo al proveedor con links.',
-                'handler' => 'request_provider',
-                'button_label' => 'Solicitar examen',
-                'show_as_button' => 1,
-                'auto_triggers' => [],
-                'requires_json' => ['payment_confirmed'],
-                'sort_order' => 20,
-                'is_active' => 1,
-            ],
-            [
-                'code' => 'fulfill_after_payment',
-                'name' => 'Habilitar curso / inventario',
-                'description' => 'Moodle/inventario tras pago.',
-                'handler' => 'fulfill_after_payment',
-                'button_label' => 'Habilitar curso',
-                'show_as_button' => 1,
-                'auto_triggers' => ['payment_confirmed'],
-                'requires_json' => ['payment_confirmed'],
-                'sort_order' => 30,
-                'is_active' => 1,
-            ],
-            [
-                'code' => 'send_student_access',
-                'name' => 'Enviar datos de acceso al alumno',
-                'description' => 'Correo con folio/clave/zoom o Moodle.',
-                'handler' => 'send_student_access',
-                'button_label' => 'Enviar accesos',
-                'show_as_button' => 1,
-                'auto_triggers' => ['access_data_ready'],
-                'requires_json' => ['folio_or_moodle'],
-                'sort_order' => 40,
-                'is_active' => 1,
-            ],
-            [
-                'code' => 'send_confirmacion_datos',
-                'name' => 'Correo confirmación de datos',
-                'description' => 'Plantilla confirmacion_datos.',
-                'handler' => 'send_mail',
-                'mail_template_code' => 'confirmacion_datos',
-                'button_label' => 'Enviar confirmación',
-                'show_as_button' => 1,
-                'auto_triggers' => ['registration_complete'],
-                'requires_json' => [],
-                'sort_order' => 5,
-                'is_active' => 1,
-            ],
+            ['confirm_payment', 'Confirmar pago', 'Marca pago recibido y genera link del comprobante.', 'confirm_payment', null, 'Confirmar pago', 1, '[]', '[]', 10],
+            ['request_provider', 'Solicitar examen al proveedor', 'Exportación + correo al proveedor con links.', 'request_provider', null, 'Solicitar examen', 1, '[]', '["payment_confirmed"]', 20],
+            ['fulfill_after_payment', 'Habilitar curso / inventario', 'Moodle/inventario tras pago.', 'fulfill_after_payment', null, 'Habilitar curso', 1, '["payment_confirmed"]', '["payment_confirmed"]', 30],
+            ['send_student_access', 'Enviar datos de acceso al alumno', 'Correo con folio/clave/zoom o Moodle.', 'send_student_access', null, 'Enviar accesos', 1, '["access_data_ready"]', '["folio_or_moodle"]', 40],
+            ['send_confirmacion_datos', 'Correo confirmación de datos', 'Plantilla confirmacion_datos.', 'send_mail', 'confirmacion_datos', 'Enviar confirmación', 1, '["registration_complete"]', '[]', 5],
         ];
+
         foreach ($defaults as $row) {
             try {
-                $this->save($row);
+                $stmt->execute($row);
             } catch (\Throwable) {
             }
         }
