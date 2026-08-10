@@ -1896,6 +1896,25 @@ final class CatalogRepository
         $done = true;
     }
 
+    private function ensureRegistrationFieldsColumn(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['certifications', 'registration_fields_json']);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $this->pdo->exec(
+                "ALTER TABLE certifications ADD COLUMN registration_fields_json JSON NULL COMMENT 'Campos adquisición off|optional|required' AFTER value_points_json"
+            );
+        }
+        $done = true;
+    }
+
     public function certificationTierPrice(int $certificationId, int $partnerTierId): ?array
     {
         $stmt = $this->pdo->prepare(
