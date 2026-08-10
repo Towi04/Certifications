@@ -62,13 +62,14 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
         </div>
         <label class="check field-wide">
             <input type="checkbox" name="attach_export" <?= !empty($item['attach_export']) ? 'checked' : '' ?>>
-            Adjuntar archivo de exportación del proveedor (CSV/Excel del alumno)
+            Incluir link de exportación del proveedor en el correo
         </label>
         <p class="muted field-wide" style="margin-top:-0.5rem">
-            No es el PDF del reglamento. Es la plantilla/archivo que genera el PDV para registrar al alumno
-            ante UKS, TOEFL, etc. (según el <strong>formato de exportación</strong> del protocolo).
+            Ya <strong>no se adjunta</strong> el CSV/Excel (rompe la entrega en el hosting).
+            Se agrega el enlace público <code>{{Exportacion URL}}</code> / botón
+            <code>{{Exportacion Boton}}</code>. El comprobante usa
+            <code>{{Comprobante URL}}</code> / <code>{{Comprobante Boton}}</code>.
             Actívalo en plantillas de solicitud (<code>uks_solicitud</code>, <code>toefl_solicitud</code>, <code>reagenda_solicitud</code>).
-            El <strong>comprobante de pago</strong> se adjunta aparte cuando la audiencia es “Proveedor” y hay comprobante en el caso.
         </p>
         <label class="check field-wide">
             <input type="checkbox" name="attach_regulation" <?= !empty($item['attach_regulation']) ? 'checked' : '' ?>>

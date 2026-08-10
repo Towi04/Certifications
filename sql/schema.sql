@@ -655,8 +655,10 @@ CREATE TABLE IF NOT EXISTS case_attachments (
   kind VARCHAR(64) NOT NULL,
   label VARCHAR(190) NULL,
   file_path VARCHAR(255) NOT NULL,
+  share_token VARCHAR(64) NULL,
   uploaded_by BIGINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_case_attachments_share_token (share_token),
   KEY idx_case_attachments_case (case_id),
   CONSTRAINT fk_case_attachments_case FOREIGN KEY (case_id) REFERENCES certification_cases(id) ON DELETE CASCADE,
   CONSTRAINT fk_case_attachments_user FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL

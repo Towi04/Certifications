@@ -404,6 +404,9 @@ final class CaseMailService
             || ($tpl['audience'] ?? '') === 'provider'
             || ($tpl['to_mode'] ?? '') === 'provider';
 
+        // Asegura links públicos antes de armar tokens (comprobante / exportación)
+        $this->ensureCaseShareLinks($case);
+
         $tokens = $this->tokens($case);
         $subject = $this->render((string) $tpl['subject'], $tokens);
         $bodyInner = $this->render((string) $tpl['body_html'], $tokens);
@@ -411,113 +414,55 @@ final class CaseMailService
         $to = $this->resolveTo($tpl, $case, $isProviderRequest);
         $cc = $this->resolveCc($tpl, $case);
 
-        $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
-        $maxPerFile = 1_400_000; // ~1.4 MB: base64 + MIME suelen romper en hosting compartido
-        $maxTotal = 2_200_000;
-        $attachments = [];
-        $totalBytes = 0;
+        // Sin adjuntos MIME: en Neubox rompen la entrega. Solo enlaces públicos /c/{token}.
         $linkRows = [];
-        $linksOnly = [];
-
-        $attachFile = static function (
-            string $absPath,
-            string $name,
-            string $mime,
-            ?string $mediaRel,
-            string $linkLabel
-        ) use (&$attachments, &$totalBytes, &$linkRows, &$linksOnly, $maxPerFile, $maxTotal, $appUrl): void {
-            $size = @filesize($absPath);
-            $size = is_int($size) ? $size : 0;
-            $url = '';
-            if ($mediaRel !== null && $mediaRel !== '') {
-                $url = $appUrl . '/media?f=' . rawurlencode(ltrim($mediaRel, '/'))
-                    . '&download=1&name=' . rawurlencode(pathinfo($name, PATHINFO_FILENAME));
-                $linkRows[] = [
-                    'label' => $linkLabel,
-                    'url' => $url,
-                    'name' => $name,
-                ];
-            }
-
-            $fits = $size > 0
-                && $size <= $maxPerFile
-                && ($totalBytes + $size) <= $maxTotal;
-            if ($fits) {
-                $attachments[] = [
-                    'path' => $absPath,
-                    'name' => $name,
-                    'mime' => $mime,
-                ];
-                $totalBytes += $size;
-            } elseif ($url !== '') {
-                $linksOnly[] = $linkLabel . ' (' . $name . ')';
-            }
-        };
-
-        $attachExport = $forceAttachExport || !empty($tpl['attach_export']);
-        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
-        if ($attachExport && $exportRel !== '') {
-            $abs = dirname(__DIR__, 2) . '/storage/' . ltrim($exportRel, '/');
-            if (is_file($abs)) {
-                $attachFile(
-                    $abs,
-                    basename($abs),
-                    str_ends_with(strtolower($abs), '.csv')
-                        ? 'text/csv'
-                        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    $exportRel,
-                    'Archivo de exportación / registro'
-                );
-            }
+        $includeExportLink = $forceAttachExport || !empty($tpl['attach_export']);
+        if ($includeExportLink && trim((string) ($tokens['Exportacion URL'] ?? '')) !== '') {
+            $linkRows[] = [
+                'label' => 'Archivo de exportación / registro',
+                'url' => (string) $tokens['Exportacion URL'],
+                'name' => 'exportacion',
+            ];
         }
-
-        // Comprobante: siempre en solicitudes a proveedor (no solo si audience=provider)
-        if ($isProviderRequest && !empty($case['payment_proof_path'])) {
-            $payRel = trim((string) $case['payment_proof_path']);
-            $payAbs = Uploader::absolutePath($payRel);
-            if ($payAbs) {
-                $attachFile(
-                    $payAbs,
-                    'comprobante_pago_' . basename($payAbs),
-                    str_ends_with(strtolower($payAbs), '.pdf') ? 'application/pdf' : 'application/octet-stream',
-                    $payRel,
-                    'Comprobante de pago'
-                );
-            }
+        if ($isProviderRequest && trim((string) ($tokens['Comprobante URL'] ?? '')) !== '') {
+            $linkRows[] = [
+                'label' => 'Comprobante de pago',
+                'url' => (string) $tokens['Comprobante URL'],
+                'name' => 'comprobante',
+            ];
         }
-
         if (!empty($tpl['attach_regulation'])) {
-            $regAtt = $this->regulationAttachmentForCase($case);
-            if ($regAtt !== null) {
-                $attachFile(
-                    (string) $regAtt['path'],
-                    (string) ($regAtt['name'] ?? 'reglamento.pdf'),
-                    (string) ($regAtt['mime'] ?? 'application/pdf'),
-                    isset($regAtt['relative']) ? (string) $regAtt['relative'] : null,
-                    'Reglamento'
-                );
+            $regUrl = trim((string) ($tokens['Reglamento Firmado URL'] ?? ''));
+            if ($regUrl === '') {
+                $regUrl = trim((string) ($tokens['Reglamento URL'] ?? ''));
+            }
+            if ($regUrl !== '') {
+                $linkRows[] = [
+                    'label' => 'Reglamento',
+                    'url' => $regUrl,
+                    'name' => 'reglamento',
+                ];
             }
         }
 
         if ($linkRows !== []) {
-            $bodyInner .= $this->attachmentsLinkBlockHtml($linkRows, $linksOnly !== []);
+            $bodyInner .= $this->attachmentsLinkBlockHtml($linkRows, true);
         }
 
         $bodyHtml = $this->wrapBrandedHtml($bodyInner, $tokens);
         $bodyText = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], ["\n", "\n", "\n", "\n\n"], $bodyInner)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
 
         try {
             $this->mailer->send($to, $subject, $bodyText, [
                 'cc' => $cc,
                 'html' => true,
                 'body_html' => $bodyHtml,
-                'attachments' => $attachments,
+                'attachments' => [],
             ]);
             $endpoint = \App\Integrations\Mailer::lastEndpoint();
-            $note = 'adjuntos=' . count($attachments);
-            if ($linksOnly !== []) {
-                $note .= '; enlaces_por_tamaño=' . count($linksOnly);
-            }
+            $note = 'sin_adjuntos_mime; links=' . count($linkRows);
             if (is_array($endpoint) && !empty($endpoint['transport'])) {
                 $note .= '; via=' . $endpoint['transport'];
             }
@@ -550,9 +495,26 @@ final class CaseMailService
         return [
             'to' => $to,
             'subject' => $subject,
-            'attachments' => count($attachments),
-            'links_only' => $linksOnly,
+            'attachments' => 0,
+            'links_only' => array_column($linkRows, 'label'),
         ];
+    }
+
+    /** @param array<string, mixed> $case */
+    private function ensureCaseShareLinks(array &$case): void
+    {
+        $caseId = (int) ($case['id'] ?? 0);
+        if ($caseId < 1) {
+            return;
+        }
+        $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
+        if ($payRel !== '') {
+            $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+        }
+        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
+        if ($exportRel !== '') {
+            $this->repo->ensureCaseFileShare($caseId, 'export', $exportRel, 'Exportación proveedor');
+        }
     }
 
     /**
@@ -561,23 +523,18 @@ final class CaseMailService
     private function attachmentsLinkBlockHtml(array $rows, bool $oversizedNote): string
     {
         $html = '<hr style="border:none;border-top:1px solid #d7dde5;margin:24px 0 16px">'
-            . '<p style="margin:0 0 8px;font-size:14px;"><strong>Archivos de esta solicitud</strong></p>';
-        if ($oversizedNote) {
-            $html .= '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
-                . 'Algunos archivos son grandes para adjuntar por correo; usa los enlaces:</p>';
-        } else {
-            $html .= '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
-                . 'También puedes descargarlos aquí si el adjunto no llega:</p>';
-        }
-        $html .= '<ul style="margin:0;padding-left:18px;">';
+            . '<p style="margin:0 0 8px;font-size:14px;"><strong>Archivos de esta solicitud</strong></p>'
+            . '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
+            . 'Descarga los archivos con estos enlaces (no van como adjunto del correo):</p>'
+            . '<ul style="margin:0;padding-left:18px;">';
         foreach ($rows as $row) {
             $safeUrl = htmlspecialchars($row['url'], ENT_QUOTES, 'UTF-8');
             $safeLabel = htmlspecialchars($row['label'], ENT_QUOTES, 'UTF-8');
-            $safeName = htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8');
             $html .= '<li style="margin:0 0 8px;"><a href="' . $safeUrl . '" target="_blank" rel="noopener">'
-                . $safeLabel . '</a> <span style="color:#777;font-size:12px;">(' . $safeName . ')</span></li>';
+                . $safeLabel . '</a></li>';
         }
         $html .= '</ul>';
+        unset($oversizedNote);
 
         return $html;
     }
@@ -617,6 +574,7 @@ final class CaseMailService
 
         $regUrls = $this->regulationUrlsForCase($case, $appUrl);
         $linkTokens = $this->providerLinkTokensForCase($case);
+        $fileLinks = $this->caseFileLinkTokens($case, $appUrl);
 
         return array_merge([
             'Nombre' => $nombre,
@@ -664,7 +622,64 @@ final class CaseMailService
             'Reglamento Firmado URL' => $regUrls['signed_url'],
             'Reglamento Boton' => $regUrls['button_html'],
             'Reglamento Firmado Boton' => $regUrls['signed_button_html'],
+            'Comprobante URL' => $fileLinks['payment_url'],
+            'Comprobante Boton' => $fileLinks['payment_button'],
+            'Exportacion URL' => $fileLinks['export_url'],
+            'Exportacion Boton' => $fileLinks['export_button'],
         ], $linkTokens);
+    }
+
+    /**
+     * @param array<string, mixed> $case
+     * @return array{payment_url:string,payment_button:string,export_url:string,export_button:string}
+     */
+    private function caseFileLinkTokens(array $case, string $appUrl): array
+    {
+        $empty = [
+            'payment_url' => '',
+            'payment_button' => '',
+            'export_url' => '',
+            'export_button' => '',
+        ];
+        $caseId = (int) ($case['id'] ?? 0);
+        if ($caseId < 1) {
+            return $empty;
+        }
+
+        $paymentUrl = '';
+        $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
+        if ($payRel !== '') {
+            $att = $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+            if ($att) {
+                $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            }
+        } else {
+            $att = $this->repo->latestCaseAttachment($caseId, 'payment');
+            if ($att) {
+                $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            }
+        }
+
+        $exportUrl = '';
+        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
+        if ($exportRel !== '') {
+            $att = $this->repo->ensureCaseFileShare($caseId, 'export', $exportRel, 'Exportación proveedor');
+            if ($att) {
+                $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            }
+        } else {
+            $att = $this->repo->latestCaseAttachment($caseId, 'export');
+            if ($att) {
+                $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            }
+        }
+
+        return [
+            'payment_url' => $paymentUrl,
+            'payment_button' => self::linkButton('Descargar comprobante de pago', $paymentUrl),
+            'export_url' => $exportUrl,
+            'export_button' => self::linkButton('Descargar exportación / registro', $exportUrl),
+        ];
     }
 
     /**
@@ -1028,6 +1043,10 @@ final class CaseMailService
             'Reglamento Firmado URL' => 'Link al PDF de evidencia firmado por el alumno',
             'Reglamento Boton' => 'Botón HTML (firmado si existe; si no, original)',
             'Reglamento Firmado Boton' => 'Botón HTML solo del PDF firmado',
+            'Comprobante URL' => 'Link público de descarga del comprobante subido en el caso',
+            'Comprobante Boton' => 'Botón HTML para descargar el comprobante',
+            'Exportacion URL' => 'Link público de descarga del CSV/Excel de exportación',
+            'Exportacion Boton' => 'Botón HTML para descargar la exportación',
             'Links Alumno' => 'Lista HTML de todos los links del proveedor aplicables al caso',
             'Links Estudio' => 'Lista HTML de links tipo material de estudio',
             'Links Software' => 'Lista HTML de links tipo software / descarga',
