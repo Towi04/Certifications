@@ -450,6 +450,46 @@ final class PublicRoutes
             exit;
         });
 
+        $router->post('/alumno/caso/reschedule', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $paid = !empty($item['payment_confirmed_at'])
+                || in_array(strtolower((string) ($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
+            if (!$paid) {
+                flash('error', 'Solo puedes solicitar reagenda después de confirmar el pago.');
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            }
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->rescheduleAndNotifyProvider(
+                    $caseId,
+                    trim((string) ($_POST['reschedule_date'] ?? '')),
+                    trim((string) ($_POST['reschedule_time'] ?? '')),
+                    trim((string) ($_POST['reschedule_reason'] ?? '')) ?: null,
+                    null,
+                    (int) $user['id'],
+                    true
+                );
+                if (!empty($result['mailed'])) {
+                    flash('info', 'Reagenda solicitada. Se notificó al proveedor.');
+                } else {
+                    flash('info', 'Reagenda guardada. El equipo Doceo dará seguimiento.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId);
+            exit;
+        });
+
         $router->post('/alumno/caso/upload-cenni', static function () use ($repo): void {
             Auth::requireStudent();
             $user = Auth::user();

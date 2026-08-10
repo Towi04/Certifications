@@ -126,6 +126,9 @@ $checklist = [
             <?php if (!empty($item['folio_id'])): ?><li><strong>ID / Folio:</strong> <code><?= e($item['folio_id']) ?></code></li><?php endif; ?>
             <?php if (!empty($item['access_key'])): ?><li><strong>Clave / código:</strong> <code><?= e($item['access_key']) ?></code></li><?php endif; ?>
             <?php if (!empty($item['exam_date'])): ?><li><strong>Fecha:</strong> <?= e($item['exam_date']) ?><?= !empty($item['exam_time']) ? ' · ' . e($item['exam_time']) : '' ?></li><?php endif; ?>
+            <?php if (!empty($item['reschedule_date'])): ?>
+                <li><strong>Reagenda solicitada:</strong> <?= e($item['reschedule_date']) ?><?= !empty($item['reschedule_time']) ? ' · ' . e($item['reschedule_time']) : '' ?></li>
+            <?php endif; ?>
             <?php if (!empty($item['zoom_url'])): ?><li><strong>Zoom:</strong> <a href="<?= e($item['zoom_url']) ?>" target="_blank" rel="noopener">Abrir enlace</a></li><?php endif; ?>
         </ul>
     <?php else: ?>
@@ -133,8 +136,28 @@ $checklist = [
             Un día antes de tu examen te enviaremos el código de acceso.
             También puedes entrar a esta cuenta para revisar si ya fue asignado.
         </p>
-        <p class="muted">Mientras tanto no necesitas hacer nada más aquí.</p>
+        <?php if (!empty($item['exam_date'])): ?>
+            <p class="muted">Fecha solicitada: <?= e($item['exam_date']) ?><?= !empty($item['exam_time']) ? ' · ' . e($item['exam_time']) : '' ?></p>
+        <?php endif; ?>
+        <?php if (!empty($item['reschedule_date'])): ?>
+            <p class="muted">Reagenda pendiente: <?= e($item['reschedule_date']) ?><?= !empty($item['reschedule_time']) ? ' · ' . e($item['reschedule_time']) : '' ?></p>
+        <?php endif; ?>
     <?php endif; ?>
+</section>
+
+<section class="note student-stage" id="reagenda">
+    <h2>Solicitar reagenda</h2>
+    <p class="muted">
+        Si necesitas cambiar la fecha u hora, indícala aquí. Se notificará automáticamente al proveedor
+        (y al equipo Doceo verá la solicitud en tu caso).
+    </p>
+    <form method="post" action="/alumno/caso/reschedule" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Nueva fecha<input type="date" name="reschedule_date" required value="<?= e($item['reschedule_date'] ?? '') ?>"></label>
+        <label>Nueva hora<input type="time" name="reschedule_time" required value="<?= e(substr((string)($item['reschedule_time'] ?? $item['exam_time'] ?? '11:00'), 0, 5)) ?>"></label>
+        <label class="field-wide">Motivo (opcional)<input name="reschedule_reason" placeholder="Ej. conflicto de trabajo"></label>
+        <div class="actions"><button class="btn" type="submit">Solicitar reagenda</button></div>
+    </form>
 </section>
 
 <section class="note student-stage" id="cenni">
