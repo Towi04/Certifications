@@ -235,6 +235,12 @@ final class OpenPayPaymentService
             } catch (\Throwable) {
             }
 
+            try {
+                (new \App\Workflow\ActionRunner($this->repo))->runTriggers($caseId, 'payment_confirmed', null);
+            } catch (\Throwable $e) {
+                error_log('[PDV] Action triggers OpenPay payment #' . $caseId . ': ' . $e->getMessage());
+            }
+
             $moodleNote = null;
             try {
                 $fulfill = (new \App\Services\ExamFulfillmentService($this->repo, $this->mailer()))->fulfillAfterPayment($caseId, null);

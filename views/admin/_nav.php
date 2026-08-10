@@ -18,6 +18,7 @@
     <a href="/admin/documents">Documentos</a>
     <a href="/admin/inventory">Inventario</a>
     <a href="/admin/protocols">Protocolos</a>
+    <a href="/admin/actions">Acciones</a>
     <a href="/admin/pendientes">Pendientes</a>
     <a href="/admin/cases">Casos</a>
     <a href="/admin/courses">Cursos</a>

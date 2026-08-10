@@ -2477,8 +2477,8 @@ final class CatalogRepository
             'exam_extraordinary', 'exam_extraordinary_fee', 'registration_extra_json',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
-            'payment_method',
-            'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
+            'payment_method', 'payment_proof_share_token',
+            'provider_export_path', 'provider_export_share_token', 'provider_request_sent_at', 'cancel_reason', 'results_url',
             'score_url', 'certificate_url', 'exam_outcome', 'invalidation_reason', 'inventory_code_id',
             'cc_email', 'notes', 'status', 'partner_id',
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
@@ -2514,8 +2514,63 @@ final class CatalogRepository
              VALUES (?,?,?,?,?,?)'
         );
         $stmt->execute([$caseId, $kind, $label, $filePath, $token, $uploadedBy]);
+        $id = (int) $this->pdo->lastInsertId();
 
-        return (int) $this->pdo->lastInsertId();
+        // Guarda el token también en el registro del caso (para correos / plantillas)
+        if ($kind === 'payment' || $kind === 'export') {
+            (new \App\Workflow\ActionRepository($this->pdo))->ensureSchema();
+            if ($kind === 'payment') {
+                $this->updateCertificationCase($caseId, [
+                    'payment_proof_path' => $filePath,
+                    'payment_proof_share_token' => $token,
+                ]);
+            } else {
+                $this->updateCertificationCase($caseId, [
+                    'provider_export_path' => $filePath,
+                    'provider_export_share_token' => $token,
+                ]);
+            }
+        }
+
+        return $id;
+    }
+
+    /**
+     * Asegura tokens de comprobante/exportación en certification_cases a partir de paths/adjuntos.
+     *
+     * @return array{payment_url:string,export_url:string}
+     */
+    public function persistCaseFileShareTokens(int $caseId): array
+    {
+        (new \App\Workflow\ActionRepository($this->pdo))->ensureSchema();
+        $case = $this->certificationCase($caseId);
+        if (!$case) {
+            return ['payment_url' => '', 'export_url' => ''];
+        }
+
+        $paymentUrl = '';
+        $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
+        if ($payRel !== '') {
+            $att = $this->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+            $token = $att ? trim((string) ($att['share_token'] ?? '')) : '';
+            if ($token !== '') {
+                $this->updateCertificationCase($caseId, ['payment_proof_share_token' => $token]);
+                $paymentUrl = $this->caseAttachmentShareUrl($att ?? ['share_token' => $token]);
+            }
+        }
+
+        $exportUrl = '';
+        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
+        if ($exportRel !== '') {
+            $att = $this->ensureCaseFileShare($caseId, 'export', $exportRel, 'Exportación proveedor');
+            $token = $att ? trim((string) ($att['share_token'] ?? '')) : '';
+            if ($token !== '') {
+                $this->updateCertificationCase($caseId, ['provider_export_share_token' => $token]);
+                $exportUrl = $this->caseAttachmentShareUrl($att ?? ['share_token' => $token]);
+            }
+        }
+
+        return ['payment_url' => $paymentUrl, 'export_url' => $exportUrl];
     }
 
     /** @return list<array<string, mixed>> */

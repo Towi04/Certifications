@@ -71,6 +71,7 @@ final class CaseMailService
         }
 
         $this->repo->updateCertificationCase($caseId, $fields);
+        $this->repo->persistCaseFileShareTokens($caseId);
 
         try {
             $this->repo->markCaseStepDoneByKeywords(
@@ -88,6 +89,13 @@ final class CaseMailService
         } catch (\Throwable $e) {
             error_log('[PDV] Fulfill (mark payment) case #' . $caseId . ': ' . $e->getMessage());
             $fulfill = ['moodle' => ['error' => $e->getMessage()]];
+        }
+
+        try {
+            (new \App\Workflow\ActionRunner($this->repo, new \App\Workflow\ActionRepository(), $this))
+                ->runTriggers($caseId, 'payment_confirmed', $userId);
+        } catch (\Throwable $e) {
+            error_log('[PDV] Action triggers payment_confirmed #' . $caseId . ': ' . $e->getMessage());
         }
 
         return [
@@ -118,6 +126,7 @@ final class CaseMailService
                 'payment_proof_path' => $path,
                 'payment_confirmed_at' => date('Y-m-d H:i:s'),
             ]);
+            $this->repo->persistCaseFileShareTokens($caseId);
             $case['payment_proof_path'] = $path;
             $case['payment_confirmed_at'] = date('Y-m-d H:i:s');
         } elseif (empty($case['payment_confirmed_at'])) {
@@ -145,11 +154,13 @@ final class CaseMailService
             ]);
             $case['provider_export_path'] = $export['relative'];
         }
+        $this->repo->persistCaseFileShareTokens($caseId);
 
         $templateCode = trim((string) ($case['provider_request_template'] ?? ''));
         $mailed = false;
         $to = null;
         $mailSkip = null;
+        $linksOnly = [];
         if ($templateCode !== '') {
             $tpl = $this->repo->mailTemplateByCode($templateCode);
             if (!$tpl || !(int) ($tpl['is_active'] ?? 0)) {
@@ -646,31 +657,53 @@ final class CaseMailService
             return $empty;
         }
 
-        $paymentUrl = '';
-        $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
-        if ($payRel !== '') {
-            $att = $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
-            if ($att) {
-                $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+        $shareFromToken = static function (string $token) use ($appUrl): string {
+            $token = trim($token);
+            if ($token === '') {
+                return '';
             }
-        } else {
-            $att = $this->repo->latestCaseAttachment($caseId, 'payment');
-            if ($att) {
-                $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            $base = rtrim($appUrl, '/');
+
+            return $base . '/c/' . rawurlencode($token);
+        };
+
+        $paymentUrl = $shareFromToken((string) ($case['payment_proof_share_token'] ?? ''));
+        if ($paymentUrl === '') {
+            $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
+            if ($payRel !== '') {
+                $att = $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+                if ($att) {
+                    $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                    $token = trim((string) ($att['share_token'] ?? ''));
+                    if ($token !== '') {
+                        $this->repo->updateCertificationCase($caseId, ['payment_proof_share_token' => $token]);
+                    }
+                }
+            } else {
+                $att = $this->repo->latestCaseAttachment($caseId, 'payment');
+                if ($att) {
+                    $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                }
             }
         }
 
-        $exportUrl = '';
-        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
-        if ($exportRel !== '') {
-            $att = $this->repo->ensureCaseFileShare($caseId, 'export', $exportRel, 'Exportación proveedor');
-            if ($att) {
-                $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
-            }
-        } else {
-            $att = $this->repo->latestCaseAttachment($caseId, 'export');
-            if ($att) {
-                $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+        $exportUrl = $shareFromToken((string) ($case['provider_export_share_token'] ?? ''));
+        if ($exportUrl === '') {
+            $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
+            if ($exportRel !== '') {
+                $att = $this->repo->ensureCaseFileShare($caseId, 'export', $exportRel, 'Exportación proveedor');
+                if ($att) {
+                    $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                    $token = trim((string) ($att['share_token'] ?? ''));
+                    if ($token !== '') {
+                        $this->repo->updateCertificationCase($caseId, ['provider_export_share_token' => $token]);
+                    }
+                }
+            } else {
+                $att = $this->repo->latestCaseAttachment($caseId, 'export');
+                if ($att) {
+                    $exportUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                }
             }
         }
 

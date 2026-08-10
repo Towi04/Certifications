@@ -74,6 +74,31 @@ foreach ($steps as $s) {
             <small class="muted">Se envía manualmente desde el caso cuando ya tienes folio/clave (o Moodle usa <code>moodle_acceso</code>).</small>
         </label>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>
+        <?php
+        $workflow_actions = $workflow_actions ?? [];
+        $protocol_action_ids = $protocol_action_ids ?? [];
+        ?>
+        <div class="field-wide">
+            <h3 style="margin:0.5rem 0">Acciones del protocolo</h3>
+            <p class="muted" style="margin:0 0 0.75rem">
+                Elige del catálogo <a href="/admin/actions">Acciones</a>. El orden de los checks (arriba→abajo en la lista)
+                define el orden de los botones en Casos. Cada acción puede ser botón y/o trigger automático.
+            </p>
+            <?php if ($workflow_actions): ?>
+                <div class="reg-fields-grid">
+                    <?php foreach ($workflow_actions as $wa): ?>
+                        <label class="check">
+                            <input type="checkbox" name="action_ids[]" value="<?= (int)$wa['id'] ?>"
+                                <?= in_array((int)$wa['id'], array_map('intval', $protocol_action_ids), true) ? 'checked' : '' ?>>
+                            <?= e($wa['name']) ?>
+                            <code class="muted"><?= e($wa['code']) ?></code>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="muted">Aún no hay acciones. Crea algunas en Admin → Acciones.</p>
+            <?php endif; ?>
+        </div>
         <div class="actions"><button class="btn" type="submit">Guardar protocolo</button><a class="btn btn-ghost" href="/admin/protocols">Volver</a></div>
     </form>
 </section>
