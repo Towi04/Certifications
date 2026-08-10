@@ -1573,6 +1573,9 @@ final class AdminRoutes
                 }
                 if ($result['mailed']) {
                     $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado a ' . $result['to'] . '.';
+                    if (!empty($result['links_only']) && is_array($result['links_only'])) {
+                        $msg .= ' Archivos grandes van como enlace en el correo (no adjunto).';
+                    }
                     $flashType = 'info';
                 } else {
                     $msg .= ' ' . ($result['mail_skip'] ?? 'No se envió correo al proveedor.');
@@ -1735,6 +1738,9 @@ final class AdminRoutes
                 $msg .= '.';
                 if (!empty($result['export']['filename'])) {
                     $msg .= ' Exportación: ' . $result['export']['filename'] . '.';
+                }
+                if (!empty($result['links_only']) && is_array($result['links_only'])) {
+                    $msg .= ' Nota: archivos grandes van como enlace en el cuerpo del correo.';
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {

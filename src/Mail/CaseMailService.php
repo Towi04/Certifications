@@ -52,7 +52,7 @@ final class CaseMailService
         ];
 
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $path = $this->storePaymentProof($paymentFile, $caseId);
             $labels = [
                 'cash' => 'Comprobante pago efectivo',
                 'transfer' => 'Comprobante transferencia',
@@ -112,7 +112,7 @@ final class CaseMailService
         }
 
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $path = $this->storePaymentProof($paymentFile, $caseId);
             $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
             $this->repo->updateCertificationCase($caseId, [
                 'payment_proof_path' => $path,
@@ -158,6 +158,7 @@ final class CaseMailService
                 $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
                 $mailed = true;
                 $to = $result['to'];
+                $linksOnly = $result['links_only'] ?? [];
                 $this->repo->updateCertificationCase($caseId, [
                     'provider_request_sent_at' => date('Y-m-d H:i:s'),
                 ]);
@@ -180,6 +181,7 @@ final class CaseMailService
             'to' => $to,
             'template' => $templateCode !== '' ? $templateCode : null,
             'mail_skip' => $mailSkip,
+            'links_only' => $linksOnly ?? [],
             'moodle' => $fulfill['moodle'] ?? null,
             'fulfill' => $fulfill,
         ];
@@ -199,7 +201,7 @@ final class CaseMailService
         }
 
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $path = $this->storePaymentProof($paymentFile, $caseId);
             $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
             $fields = ['payment_proof_path' => $path];
             if (empty($case['payment_confirmed_at'])) {
@@ -238,6 +240,8 @@ final class CaseMailService
             'mailed' => true,
             'to' => $result['to'],
             'template' => $templateCode,
+            'links_only' => $result['links_only'] ?? [],
+            'attachments' => $result['attachments'] ?? 0,
         ];
     }
 
@@ -292,7 +296,7 @@ final class CaseMailService
         }
 
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $path = $this->storePaymentProof($paymentFile, $caseId);
             $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante (reagenda)', $path, $userId);
             $this->repo->updateCertificationCase($caseId, ['payment_proof_path' => $path]);
         }
@@ -383,7 +387,7 @@ final class CaseMailService
     }
 
     /**
-     * @return array{to: string, subject: string}
+     * @return array{to: string, subject: string, attachments: int, links_only: list<string>}
      */
     public function sendTemplate(int $caseId, string $templateCode, ?int $userId, bool $forceAttachExport = false): array
     {
@@ -396,50 +400,111 @@ final class CaseMailService
             throw new \RuntimeException('Plantilla de correo no encontrada: ' . $templateCode);
         }
 
+        $isProviderRequest = $forceAttachExport
+            || ($tpl['audience'] ?? '') === 'provider'
+            || ($tpl['to_mode'] ?? '') === 'provider';
+
         $tokens = $this->tokens($case);
         $subject = $this->render((string) $tpl['subject'], $tokens);
         $bodyInner = $this->render((string) $tpl['body_html'], $tokens);
-        $bodyHtml = $this->wrapBrandedHtml($bodyInner, $tokens);
-        $bodyText = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], ["\n", "\n", "\n", "\n\n"], $bodyInner)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
-        $to = $this->resolveTo($tpl, $case);
+        $to = $this->resolveTo($tpl, $case, $isProviderRequest);
         $cc = $this->resolveCc($tpl, $case);
 
+        $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
+        $maxPerFile = 1_400_000; // ~1.4 MB: base64 + MIME suelen romper en hosting compartido
+        $maxTotal = 2_200_000;
         $attachments = [];
+        $totalBytes = 0;
+        $linkRows = [];
+        $linksOnly = [];
+
+        $attachFile = static function (
+            string $absPath,
+            string $name,
+            string $mime,
+            ?string $mediaRel,
+            string $linkLabel
+        ) use (&$attachments, &$totalBytes, &$linkRows, &$linksOnly, $maxPerFile, $maxTotal, $appUrl): void {
+            $size = @filesize($absPath);
+            $size = is_int($size) ? $size : 0;
+            $url = '';
+            if ($mediaRel !== null && $mediaRel !== '') {
+                $url = $appUrl . '/media?f=' . rawurlencode(ltrim($mediaRel, '/'))
+                    . '&download=1&name=' . rawurlencode(pathinfo($name, PATHINFO_FILENAME));
+                $linkRows[] = [
+                    'label' => $linkLabel,
+                    'url' => $url,
+                    'name' => $name,
+                ];
+            }
+
+            $fits = $size > 0
+                && $size <= $maxPerFile
+                && ($totalBytes + $size) <= $maxTotal;
+            if ($fits) {
+                $attachments[] = [
+                    'path' => $absPath,
+                    'name' => $name,
+                    'mime' => $mime,
+                ];
+                $totalBytes += $size;
+            } elseif ($url !== '') {
+                $linksOnly[] = $linkLabel . ' (' . $name . ')';
+            }
+        };
+
         $attachExport = $forceAttachExport || !empty($tpl['attach_export']);
-        $exportRel = (string) ($case['provider_export_path'] ?? '');
+        $exportRel = trim((string) ($case['provider_export_path'] ?? ''));
         if ($attachExport && $exportRel !== '') {
             $abs = dirname(__DIR__, 2) . '/storage/' . ltrim($exportRel, '/');
             if (is_file($abs)) {
-                $attachments[] = [
-                    'path' => $abs,
-                    'name' => basename($abs),
-                    'mime' => str_ends_with(strtolower($abs), '.csv')
+                $attachFile(
+                    $abs,
+                    basename($abs),
+                    str_ends_with(strtolower($abs), '.csv')
                         ? 'text/csv'
                         : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                ];
+                    $exportRel,
+                    'Archivo de exportación / registro'
+                );
             }
         }
 
-        // Adjuntar comprobante de pago si es solicitud a proveedor
-        if (($tpl['audience'] ?? '') === 'provider' && !empty($case['payment_proof_path'])) {
-            $payAbs = Uploader::absolutePath((string) $case['payment_proof_path']);
+        // Comprobante: siempre en solicitudes a proveedor (no solo si audience=provider)
+        if ($isProviderRequest && !empty($case['payment_proof_path'])) {
+            $payRel = trim((string) $case['payment_proof_path']);
+            $payAbs = Uploader::absolutePath($payRel);
             if ($payAbs) {
-                $attachments[] = [
-                    'path' => $payAbs,
-                    'name' => 'comprobante_pago_' . basename($payAbs),
-                    'mime' => str_ends_with(strtolower($payAbs), '.pdf') ? 'application/pdf' : 'application/octet-stream',
-                ];
+                $attachFile(
+                    $payAbs,
+                    'comprobante_pago_' . basename($payAbs),
+                    str_ends_with(strtolower($payAbs), '.pdf') ? 'application/pdf' : 'application/octet-stream',
+                    $payRel,
+                    'Comprobante de pago'
+                );
             }
         }
 
-        // Adjuntar reglamento firmado (o original) si la plantilla lo pide
         if (!empty($tpl['attach_regulation'])) {
             $regAtt = $this->regulationAttachmentForCase($case);
             if ($regAtt !== null) {
-                $attachments[] = $regAtt;
+                $attachFile(
+                    (string) $regAtt['path'],
+                    (string) ($regAtt['name'] ?? 'reglamento.pdf'),
+                    (string) ($regAtt['mime'] ?? 'application/pdf'),
+                    isset($regAtt['relative']) ? (string) $regAtt['relative'] : null,
+                    'Reglamento'
+                );
             }
         }
+
+        if ($linkRows !== []) {
+            $bodyInner .= $this->attachmentsLinkBlockHtml($linkRows, $linksOnly !== []);
+        }
+
+        $bodyHtml = $this->wrapBrandedHtml($bodyInner, $tokens);
+        $bodyText = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], ["\n", "\n", "\n", "\n\n"], $bodyInner)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
         try {
             $this->mailer->send($to, $subject, $bodyText, [
@@ -448,6 +513,14 @@ final class CaseMailService
                 'body_html' => $bodyHtml,
                 'attachments' => $attachments,
             ]);
+            $endpoint = \App\Integrations\Mailer::lastEndpoint();
+            $note = 'adjuntos=' . count($attachments);
+            if ($linksOnly !== []) {
+                $note .= '; enlaces_por_tamaño=' . count($linksOnly);
+            }
+            if (is_array($endpoint) && !empty($endpoint['transport'])) {
+                $note .= '; via=' . $endpoint['transport'];
+            }
             $this->repo->logCaseMail([
                 'case_id' => $caseId,
                 'template_code' => $templateCode,
@@ -456,7 +529,7 @@ final class CaseMailService
                 'subject' => $subject,
                 'attachment_path' => $exportRel !== '' ? $exportRel : null,
                 'status' => 'sent',
-                'error_message' => null,
+                'error_message' => $note,
                 'sent_by' => $userId,
             ]);
         } catch (\Throwable $e) {
@@ -474,7 +547,55 @@ final class CaseMailService
             throw $e;
         }
 
-        return ['to' => $to, 'subject' => $subject];
+        return [
+            'to' => $to,
+            'subject' => $subject,
+            'attachments' => count($attachments),
+            'links_only' => $linksOnly,
+        ];
+    }
+
+    /**
+     * @param list<array{label:string,url:string,name:string}> $rows
+     */
+    private function attachmentsLinkBlockHtml(array $rows, bool $oversizedNote): string
+    {
+        $html = '<hr style="border:none;border-top:1px solid #d7dde5;margin:24px 0 16px">'
+            . '<p style="margin:0 0 8px;font-size:14px;"><strong>Archivos de esta solicitud</strong></p>';
+        if ($oversizedNote) {
+            $html .= '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
+                . 'Algunos archivos son grandes para adjuntar por correo; usa los enlaces:</p>';
+        } else {
+            $html .= '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
+                . 'También puedes descargarlos aquí si el adjunto no llega:</p>';
+        }
+        $html .= '<ul style="margin:0;padding-left:18px;">';
+        foreach ($rows as $row) {
+            $safeUrl = htmlspecialchars($row['url'], ENT_QUOTES, 'UTF-8');
+            $safeLabel = htmlspecialchars($row['label'], ENT_QUOTES, 'UTF-8');
+            $safeName = htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8');
+            $html .= '<li style="margin:0 0 8px;"><a href="' . $safeUrl . '" target="_blank" rel="noopener">'
+                . $safeLabel . '</a> <span style="color:#777;font-size:12px;">(' . $safeName . ')</span></li>';
+        }
+        $html .= '</ul>';
+
+        return $html;
+    }
+
+    /**
+     * Guarda comprobante: comprime imágenes para que el correo al proveedor no se descarte por tamaño.
+     *
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int} $file
+     */
+    private function storePaymentProof(array $file, int $caseId): string
+    {
+        $name = strtolower((string) ($file['name'] ?? ''));
+        $ext = pathinfo($name, PATHINFO_EXTENSION);
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+            return Uploader::storeImage($file, 'cases/' . $caseId, 1600, 1600);
+        }
+
+        return Uploader::store($file, 'cases/' . $caseId);
     }
 
     /** @param array<string, mixed> $case */
@@ -695,6 +816,7 @@ final class CaseMailService
             if ($abs) {
                 return [
                     'path' => $abs,
+                    'relative' => $signedRel,
                     'name' => 'reglamento_firmado_' . basename($abs),
                     'mime' => 'application/pdf',
                 ];
@@ -709,6 +831,7 @@ final class CaseMailService
                 $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
                 return [
                     'path' => $abs,
+                    'relative' => $originalRel,
                     'name' => 'reglamento_' . basename($abs),
                     'mime' => $ext === 'pdf' ? 'application/pdf' : 'application/octet-stream',
                 ];
@@ -980,15 +1103,31 @@ final class CaseMailService
     }
 
     /** @param array<string, mixed> $tpl @param array<string, mixed> $case */
-    private function resolveTo(array $tpl, array $case): string
+    private function resolveTo(array $tpl, array $case, bool $forceProvider = false): string
     {
         $mode = (string) ($tpl['to_mode'] ?? 'student');
-        if ($mode === 'fixed' && !empty($tpl['to_fixed'])) {
-            return (string) $tpl['to_fixed'];
+        if ($mode === 'manual') {
+            throw new \RuntimeException(
+                'La plantilla tiene destinatario “Manual”: no se puede enviar automáticamente. '
+                . 'Cámbiala a “Contacto del proveedor” o “Correo fijo” en Admin → Correos.'
+            );
         }
-        if ($mode === 'provider') {
-            if (!empty($tpl['to_fixed'])) {
-                return (string) $tpl['to_fixed'];
+
+        if ($mode === 'fixed' && !empty($tpl['to_fixed'])) {
+            $fixed = trim((string) $tpl['to_fixed']);
+            if ($fixed !== '' && filter_var($fixed, FILTER_VALIDATE_EMAIL)) {
+                return $fixed;
+            }
+        }
+
+        $wantProvider = $forceProvider || $mode === 'provider';
+        if ($wantProvider) {
+            // to_fixed en modo provider = override de pruebas / correo fijo del proveedor
+            if ($mode === 'provider' && !empty($tpl['to_fixed'])) {
+                $fixed = trim((string) $tpl['to_fixed']);
+                if ($fixed !== '' && filter_var($fixed, FILTER_VALIDATE_EMAIL)) {
+                    return $fixed;
+                }
             }
             $email = trim((string) ($case['provider_contact_email'] ?? ''));
             if ($email === '') {
@@ -1013,6 +1152,7 @@ final class CaseMailService
                 . '(correo principal o contacto primario), o pon un correo fijo en la plantilla (To = fijo / pruebas).'
             );
         }
+
         $email = trim((string) ($case['student_email'] ?? ''));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('El caso no tiene correo de alumno válido.');

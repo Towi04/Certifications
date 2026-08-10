@@ -58,8 +58,11 @@ final class Mailer
         }
 
         $errors = [];
+        $hasAttachments = !empty($options['attachments']) && is_array($options['attachments']);
+        // Con adjuntos, SMTP suele entregar mejor el MIME; mail() a veces “acepta” y el hosting descarta.
+        $preferSmtp = $transport === 'auto' && $hasAttachments;
 
-        if ($transport === 'mail' || $transport === 'auto') {
+        if (($transport === 'mail' || $transport === 'auto') && !$preferSmtp) {
             try {
                 $this->sendViaPhpMail($to, $subject, $bodyText, $options);
                 self::$lastEndpoint = ['transport' => 'mail'];
@@ -83,6 +86,17 @@ final class Mailer
                 if ($transport === 'smtp') {
                     throw $this->wrapFinalError($errors);
                 }
+            }
+        }
+
+        if ($preferSmtp) {
+            try {
+                $this->sendViaPhpMail($to, $subject, $bodyText, $options);
+                self::$lastEndpoint = ['transport' => 'mail'];
+
+                return;
+            } catch (\Throwable $e) {
+                $errors[] = 'mail() → ' . $e->getMessage();
             }
         }
 
