@@ -416,34 +416,90 @@ if ($needsSign) {
 <?php if (!$needsSign): ?>
 <section class="note student-stage <?= !$paid ? 'student-stage-active' : '' ?>" id="pago">
     <h2><?= $paid ? 'Pago' : 'Pendiente de pago' ?></h2>
+    <?php
+    $hasPaymentProof = trim((string) ($item['payment_proof_path'] ?? '')) !== '';
+    ?>
     <?php if ($paid): ?>
         <p class="alert alert-ok">
             Pago confirmado
             <?= $paymentMethodLabel !== '' ? ' · ' . e($paymentMethodLabel) : '' ?>
             <?= !empty($item['openpay_paid_at']) ? ' el ' . e($item['openpay_paid_at']) : (!empty($item['payment_confirmed_at']) ? ' el ' . e($item['payment_confirmed_at']) : '') ?>.
         </p>
-    <?php else: ?>
-        <p class="alert alert-warn">
-            Aún no aparece tu pago. Si usas OpenPay SPEI se confirma solo; si pagaste en <strong>efectivo</strong> o <strong>transferencia</strong>, avisa a Doceo para que lo marquen recibido desde admin.
-        </p>
-        <?php if (!empty($item['openpay_clabe'])): ?>
-            <p>Datos SPEI OpenPay:</p>
-            <ul>
-                <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
-                <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? 'BBVA Bancomer') ?></li>
-                <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
-                <li><strong>Convenio / referencia:</strong> <?= e($item['openpay_reference'] ?? $item['openpay_agreement'] ?? '') ?></li>
-                <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?> MXN</li>
-            </ul>
+        <?php if ($hasPaymentProof): ?>
             <p class="actions">
-                <a class="btn" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ver ficha SPEI Doceo</a>
-                <?php if (!empty($item['openpay_pdf_url'])): ?>
-                    <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
-                <?php endif; ?>
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">Ver comprobante enviado</a>
+            </p>
+        <?php endif; ?>
+    <?php else: ?>
+        <?php if ($hasPaymentProof): ?>
+            <p class="alert alert-warn">
+                Ya subiste tu comprobante. Instituto Doceo debe confirmar la recepción del pago para que el proceso continúe
+                (Moodle, códigos de examen, etc.).
+            </p>
+            <p class="actions">
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">Ver comprobante</a>
             </p>
         <?php else: ?>
-            <p class="muted">No hay CLABE OpenPay en este caso. Puedes pagar en efectivo o transferencia y Doceo confirmará el pago manualmente.</p>
+            <p class="alert alert-warn">
+                Elige cómo pagar: genera una CLABE SPEI (OpenPay se confirma solo) o, si ya pagaste en efectivo/transferencia, sube tu comprobante.
+            </p>
         <?php endif; ?>
+
+        <div class="stack" style="gap:1.25rem;margin-top:1rem">
+            <div>
+                <h3 style="margin:0 0 0.5rem">Opción 1 · SPEI OpenPay</h3>
+                <?php if (!empty($item['openpay_clabe'])): ?>
+                    <p>Datos SPEI:</p>
+                    <ul>
+                        <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
+                        <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? 'BBVA Bancomer') ?></li>
+                        <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
+                        <li><strong>Convenio / referencia:</strong> <?= e($item['openpay_reference'] ?? $item['openpay_agreement'] ?? '') ?></li>
+                        <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?> MXN</li>
+                    </ul>
+                    <p class="actions">
+                        <a class="btn" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ver ficha SPEI Doceo</a>
+                        <?php if (!empty($item['openpay_pdf_url'])): ?>
+                            <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
+                        <?php endif; ?>
+                    </p>
+                    <form method="post" action="/alumno/caso/request-spei" class="actions" style="margin-top:0.5rem">
+                        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                        <button class="btn btn-ghost" type="submit">Reenviar instrucciones SPEI</button>
+                    </form>
+                <?php else: ?>
+                    <p class="muted">Aún no tienes CLABE. Genera una para pagar por transferencia SPEI.</p>
+                    <form method="post" action="/alumno/caso/request-spei" class="actions">
+                        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                        <button class="btn" type="submit">Generar CLABE SPEI</button>
+                    </form>
+                <?php endif; ?>
+            </div>
+
+            <div>
+                <h3 style="margin:0 0 0.5rem">Opción 2 · Ya pagué (efectivo / transferencia)</h3>
+                <p class="muted">
+                    Sube el comprobante. No avanza el caso hasta que Doceo confirme la recepción del pago.
+                </p>
+                <form method="post" action="/alumno/caso/upload-payment-proof" enctype="multipart/form-data" class="stack form-grid">
+                    <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                    <label>Método
+                        <select name="payment_method" required>
+                            <option value="transfer" selected>Transferencia bancaria</option>
+                            <option value="cash">Efectivo</option>
+                            <option value="other">Otro</option>
+                        </select>
+                    </label>
+                    <label>Nota (opcional)<input name="payment_note" placeholder="Ej. ref. 1234 / banco"></label>
+                    <label class="field-wide">Comprobante (PDF o imagen)
+                        <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                    </label>
+                    <div class="actions">
+                        <button class="btn" type="submit"><?= $hasPaymentProof ? 'Reemplazar comprobante' : 'Subir comprobante' ?></button>
+                    </div>
+                </form>
+            </div>
+        </div>
     <?php endif; ?>
 </section>
 <?php endif; ?>

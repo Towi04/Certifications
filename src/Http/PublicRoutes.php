@@ -524,6 +524,105 @@ final class PublicRoutes
             exit;
         });
 
+        $router->post('/alumno/caso/request-spei', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $paid = !empty($item['payment_confirmed_at'])
+                || in_array(strtolower((string) ($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
+            if ($paid) {
+                flash('info', 'Tu pago ya está confirmado.');
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            }
+            try {
+                $force = isset($_POST['force_new']);
+                $fields = (new \App\Payments\OpenPayPaymentService($repo()))->ensureSpeiCharge($caseId, $force, true);
+                flash(
+                    'info',
+                    'CLABE SPEI lista: ' . ($fields['openpay_clabe'] ?? '')
+                    . '. También te enviamos las instrucciones por correo.'
+                );
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#pago');
+            exit;
+        });
+
+        $router->post('/alumno/caso/upload-payment-proof', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $paid = !empty($item['payment_confirmed_at'])
+                || in_array(strtolower((string) ($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
+            if ($paid) {
+                flash('info', 'Tu pago ya está confirmado; no es necesario subir otro comprobante.');
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            }
+            $file = $_FILES['payment_proof'] ?? null;
+            if (!$file || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                flash('error', 'Selecciona el comprobante de pago (PDF o imagen).');
+                header('Location: /alumno/caso?id=' . $caseId . '#pago');
+                exit;
+            }
+            try {
+                $method = strtolower(trim((string) ($_POST['payment_method'] ?? 'transfer')));
+                if (!in_array($method, ['cash', 'transfer', 'other'], true)) {
+                    $method = 'transfer';
+                }
+                $labels = [
+                    'cash' => 'Comprobante pago efectivo (alumno)',
+                    'transfer' => 'Comprobante transferencia (alumno)',
+                    'other' => 'Comprobante de pago (alumno)',
+                ];
+                $path = \App\Support\Uploader::store($file, 'cases/' . $caseId);
+                $repo()->addCaseAttachment($caseId, 'payment', $labels[$method], $path, (int) $user['id']);
+                $repo()->ensurePaymentMethodColumn();
+                $now = date('Y-m-d H:i:s');
+                $noteExtra = trim((string) ($_POST['payment_note'] ?? ''));
+                $stamp = $now . ' Comprobante subido por alumno (' . $method . ')'
+                    . ($noteExtra !== '' ? ': ' . $noteExtra : '');
+                $prev = trim((string) ($item['notes'] ?? ''));
+                $fields = [
+                    'payment_proof_path' => $path,
+                    'payment_method' => $method,
+                    'notes' => $prev !== '' ? ($prev . "\n" . $stamp) : $stamp,
+                ];
+                $repo()->updateCertificationCase($caseId, $fields);
+                try {
+                    $repo()->markCaseStepDoneByKeywords(
+                        $caseId,
+                        ['comprobante', 'transferencia', 'efectivo'],
+                        (int) $user['id'],
+                        'Comprobante subido por alumno — pendiente de confirmación Doceo'
+                    );
+                } catch (\Throwable) {
+                }
+                flash(
+                    'info',
+                    'Comprobante recibido. Instituto Doceo confirmará la recepción del pago para que puedas continuar.'
+                );
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#pago');
+            exit;
+        });
+
         $router->post('/alumno/caso/upload-cenni', static function () use ($repo): void {
             Auth::requireStudent();
             $user = Auth::user();
