@@ -3,6 +3,13 @@ require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
 $isEdit = $item !== null;
 $requiresInvoice = !empty($item['requires_invoice']);
+$statusLabels = [
+    'pending' => 'Pendiente de firma',
+    'submitted' => 'Firmado — en revisión',
+    'approved' => 'Confirmado',
+    'rejected' => 'Rechazado',
+    'expired' => 'Plazo vencido',
+];
 ?>
 <section class="note">
     <h2><?= e($title) ?></h2>
@@ -10,8 +17,19 @@ $requiresInvoice = !empty($item['requires_invoice']);
         El usuario Partner TR se crea aquí (no en Usuarios). Contraseña temporal:
         <code><?= e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) ?></code>
         — deberán cambiarla en el primer acceso.
-        El convenio vigente se toma automáticamente del nivel TR.
+        El convenio vigente del nivel se asigna automáticamente; el TR lo firma en el portal
+        (<code>/partner/convenio</code>) y Doceo lo confirma en Convenios TR.
     </p>
+
+    <?php if ($isEdit && !empty($item['access_restricted'])): ?>
+        <p class="error">
+            Acceso restringido: puede entrar al portal pero no registrar alumnos.
+            <?= e($item['restriction_reason'] ?? '') ?>
+            <?php if (!empty($item['signature_status'])): ?>
+                · Estado firma: <?= e($statusLabels[$item['signature_status']] ?? $item['signature_status']) ?>
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
 
     <form method="post" action="/admin/partners/save" class="stack form-grid" enctype="multipart/form-data">
         <?php if ($isEdit): ?>
@@ -45,7 +63,7 @@ $requiresInvoice = !empty($item['requires_invoice']);
                     </option>
                 <?php endforeach; ?>
             </select>
-            <small class="muted">Se asigna el convenio vigente de ese nivel.</small>
+            <small class="muted">Se asigna el convenio publicado de ese nivel (el TR debe firmarlo).</small>
         </label>
 
         <fieldset class="field-wide score-ranges-fieldset">
@@ -75,15 +93,12 @@ $requiresInvoice = !empty($item['requires_invoice']);
             </div>
         </fieldset>
 
-        <label class="field-wide">Convenio firmado (PDF)
-            <input type="file" name="signed_agreement" accept=".pdf,application/pdf" <?= $isEdit ? '' : 'required' ?>>
-            <?php if (!empty($item['signed_agreement_path'])): ?>
-                <small class="muted">
-                    Actual:
-                    <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
-                </small>
-            <?php endif; ?>
-        </label>
+        <?php if ($isEdit && !empty($item['signed_agreement_path'])): ?>
+            <p class="field-wide muted">
+                Último convenio confirmado:
+                <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver PDF</a>
+            </p>
+        <?php endif; ?>
 
         <label class="check field-wide">
             <input type="checkbox" name="requires_invoice" id="requiresInvoice" <?= $requiresInvoice ? 'checked' : '' ?>>
@@ -115,11 +130,6 @@ $requiresInvoice = !empty($item['requires_invoice']);
         <label class="field-wide">Notas
             <textarea name="notes" rows="3"><?= e($item['notes'] ?? '') ?></textarea>
         </label>
-        <?php if ($isEdit): ?>
-            <label>Motivo de cambio de nivel/convenio
-                <input name="assignment_reason" placeholder="Renovación, cambio de nivel, etc.">
-            </label>
-        <?php endif; ?>
 
         <div class="actions">
             <button class="btn" type="submit"><?= $isEdit ? 'Guardar cambios' : 'Crear partner' ?></button>
@@ -133,11 +143,12 @@ $requiresInvoice = !empty($item['requires_invoice']);
     <h3>Historial de convenios</h3>
     <div class="table-wrap">
         <table class="data-table">
-            <thead><tr><th>Convenio</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
+            <thead><tr><th>Convenio</th><th>Estado firma</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
             <tbody>
             <?php foreach ($history as $h): ?>
                 <tr>
                     <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
+                    <td><?= e($statusLabels[$h['signature_status'] ?? ''] ?? ($h['signature_status'] ?? '—')) ?></td>
                     <td><?= e($h['assigned_at']) ?></td>
                     <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
                     <td><?= e($h['reason'] ?? '—') ?></td>
