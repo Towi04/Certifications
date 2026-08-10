@@ -289,6 +289,7 @@ CREATE TABLE IF NOT EXISTS certifications (
   modality ENUM('online', 'paper') NOT NULL DEFAULT 'online',
   short_description TEXT NULL,
   value_points_json JSON NULL COMMENT 'Viñetas de valor agregado Doceo (por qué con nosotros)',
+  registration_fields_json JSON NULL COMMENT 'Campos del formulario de adquisición: off|optional|required',
   description_html MEDIUMTEXT NULL,
   syllabus_html MEDIUMTEXT NULL,
   duration_label VARCHAR(120) NULL,

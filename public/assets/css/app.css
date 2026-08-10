@@ -1799,3 +1799,17 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 .student-stage h2 { margin-top: 0; }
 .note.is-dim { opacity: 0.72; }
 .acquire-grid { display: grid; gap: 1rem; }
+
+.reg-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+}
+.reg-field-row {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.reg-field-row select { font-weight: 500; }

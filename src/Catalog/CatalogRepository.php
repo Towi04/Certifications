@@ -565,6 +565,100 @@ final class CatalogRepository
     }
 
     /**
+     * Catálogo de campos del formulario de adquisición por certificación.
+     * locked=true → siempre required (cuenta / identidad mínima).
+     *
+     * @return array<string, array{label:string,locked?:bool,type?:string,default:string}>
+     */
+    public static function registrationFieldCatalog(): array
+    {
+        return [
+            'first_name' => ['label' => 'Nombre(s)', 'locked' => true, 'type' => 'text', 'default' => 'required'],
+            'last_name_p' => ['label' => 'Apellido paterno', 'locked' => true, 'type' => 'text', 'default' => 'required'],
+            'last_name_m' => ['label' => 'Apellido materno', 'type' => 'text', 'default' => 'optional'],
+            'email' => ['label' => 'Correo', 'locked' => true, 'type' => 'email', 'default' => 'required'],
+            'phone' => ['label' => 'Teléfono', 'type' => 'tel', 'default' => 'optional'],
+            'curp' => ['label' => 'CURP', 'type' => 'text', 'default' => 'off'],
+            'birth_date' => ['label' => 'Fecha de nacimiento', 'type' => 'date', 'default' => 'off'],
+            'sex' => ['label' => 'Sexo', 'type' => 'sex', 'default' => 'off'],
+            'nationality' => ['label' => 'Nacionalidad', 'type' => 'text', 'default' => 'off'],
+            'exam_date' => ['label' => 'Fecha preferida de examen', 'type' => 'date', 'default' => 'required'],
+        ];
+    }
+
+    /** @return array<string, string> field => off|optional|required */
+    public static function defaultRegistrationFields(): array
+    {
+        $out = [];
+        foreach (self::registrationFieldCatalog() as $key => $meta) {
+            $out[$key] = (string) ($meta['default'] ?? 'off');
+        }
+
+        return $out;
+    }
+
+    /** @return array<string, string> field => off|optional|required */
+    public static function decodeRegistrationFields(mixed $raw): array
+    {
+        $defaults = self::defaultRegistrationFields();
+        $decoded = [];
+        if (is_string($raw) && $raw !== '') {
+            $tmp = json_decode($raw, true);
+            if (is_array($tmp)) {
+                $decoded = $tmp;
+            }
+        } elseif (is_array($raw)) {
+            $decoded = $raw;
+        }
+        $allowed = ['off', 'optional', 'required'];
+        $out = $defaults;
+        foreach ($defaults as $key => $fallback) {
+            $mode = strtolower(trim((string) ($decoded[$key] ?? $fallback)));
+            if (!in_array($mode, $allowed, true)) {
+                $mode = $fallback;
+            }
+            $meta = self::registrationFieldCatalog()[$key] ?? [];
+            if (!empty($meta['locked'])) {
+                $mode = 'required';
+            }
+            $out[$key] = $mode;
+        }
+
+        return $out;
+    }
+
+    /** @param array<string, string>|string|null $fields */
+    public static function encodeRegistrationFields(array|string|null $fields): ?string
+    {
+        if (is_string($fields)) {
+            $fields = self::decodeRegistrationFields($fields);
+        }
+        if ($fields === null) {
+            return null;
+        }
+        $normalized = self::decodeRegistrationFields($fields);
+        // Si coincide con defaults, igual persistimos para que el admin vea lo guardado.
+        return json_encode($normalized, JSON_UNESCAPED_UNICODE) ?: null;
+    }
+
+    public static function registrationFieldMode(array $fields, string $key): string
+    {
+        $fields = self::decodeRegistrationFields($fields);
+
+        return $fields[$key] ?? 'off';
+    }
+
+    public static function registrationFieldEnabled(array $fields, string $key): bool
+    {
+        return self::registrationFieldMode($fields, $key) !== 'off';
+    }
+
+    public static function registrationFieldRequired(array $fields, string $key): bool
+    {
+        return self::registrationFieldMode($fields, $key) === 'required';
+    }
+
+    /**
      * @param mixed $raw
      * @return list<array{min: string, max: string, label: string}>
      */
@@ -1802,6 +1896,25 @@ final class CatalogRepository
         $done = true;
     }
 
+    private function ensureRegistrationFieldsColumn(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['certifications', 'registration_fields_json']);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $this->pdo->exec(
+                "ALTER TABLE certifications ADD COLUMN registration_fields_json JSON NULL COMMENT 'Campos adquisición off|optional|required' AFTER value_points_json"
+            );
+        }
+        $done = true;
+    }
+
     public function certificationTierPrice(int $certificationId, int $partnerTierId): ?array
     {
         $stmt = $this->pdo->prepare(
@@ -1885,6 +1998,7 @@ final class CatalogRepository
 
     public function saveCertification(array $data, ?int $id = null): int
     {
+        $this->ensureRegistrationFieldsColumn();
         $skillsJson = $data['skills_json'] ?? null;
         if (is_array($skillsJson)) {
             $skillsJson = json_encode(array_values($skillsJson), JSON_UNESCAPED_UNICODE) ?: '[]';
@@ -1905,6 +2019,7 @@ final class CatalogRepository
             $data['provider_id'], $data['protocol_id'], $data['code'], $data['slug'], $data['name'],
             $data['modality'], $data['short_description'],
             $data['value_points_json'] ?? null,
+            $data['registration_fields_json'] ?? null,
             $data['description_html'], $data['syllabus_html'] ?? null,
             $data['duration_label'], $data['audience'],
             (int) ($data['is_level_exam'] ?? 0),
@@ -1925,7 +2040,7 @@ final class CatalogRepository
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE certifications SET provider_id=?, protocol_id=?, code=?, slug=?, name=?, modality=?,
-                 short_description=?, value_points_json=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
+                 short_description=?, value_points_json=?, registration_fields_json=?, description_html=?, syllabus_html=?, duration_label=?, audience=?,
                  is_level_exam=?, skills_json=?, score_range=?, score_ranges_json=?,
                  public_price=?, cost_price=?, currency=?, cenni_eligible=?, cenni_doc_type=?, cenni_included=?, cenni_fee=?,
                  cenni_process=?, conocer_eligible=?, conocer_fee=?, is_published=?, is_featured=?, sort_order=? WHERE id=?'
@@ -1936,11 +2051,11 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO certifications (
-                provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, description_html,
+                provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, registration_fields_json, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
                 cenni_included, cenni_fee, cenni_process, conocer_eligible, conocer_fee, is_published, is_featured, sort_order
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
