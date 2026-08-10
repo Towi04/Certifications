@@ -3383,7 +3383,239 @@ final class CatalogRepository
             'documents' => $this->safeCount('documents'),
             'tiers' => (int) $this->pdo->query('SELECT COUNT(*) FROM partner_tiers')->fetchColumn(),
             'users' => (int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
+            'pending_ops' => $this->countPendingOpsCases(),
         ];
+    }
+
+    /** @return array<string, string> */
+    public static function caseAttentionFilters(): array
+    {
+        return [
+            'needs_admin' => 'Requiere acción Doceo',
+            'awaiting_signature' => 'Pendiente firma reglamento',
+            'awaiting_payment' => 'Pendiente de pago',
+            'awaiting_provider_request' => 'Falta solicitar al proveedor',
+            'awaiting_access' => 'Falta enviar datos de acceso',
+            'awaiting_cenni' => 'Seguimiento CENNI / certificado',
+            'in_progress' => 'En proceso (todos)',
+            'completed' => 'Culminados',
+            'all' => 'Todos los casos',
+        ];
+    }
+
+    /**
+     * Resumen de casos por alumno (para listado de usuarios).
+     *
+     * @param list<int> $userIds
+     * @return array<int, array{total:int,open:int,completed:int,label:string,attention:string}>
+     */
+    public function studentCaseSummaryByUserIds(array $userIds): array
+    {
+        $userIds = array_values(array_filter(array_map('intval', $userIds), static fn (int $id): bool => $id > 0));
+        if ($userIds === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT c.*, cert.cenni_process, pr.requires_regulation_signature, pr.provider_request_template
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             WHERE c.student_user_id IN ($placeholders)
+             ORDER BY c.updated_at DESC"
+        );
+        $stmt->execute($userIds);
+        $byUser = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $uid = (int) ($row['student_user_id'] ?? 0);
+            if ($uid <= 0) {
+                continue;
+            }
+            if (!isset($byUser[$uid])) {
+                $byUser[$uid] = ['total' => 0, 'open' => 0, 'completed' => 0, 'latest' => null];
+            }
+            $byUser[$uid]['total']++;
+            if (($row['status'] ?? '') === 'completed') {
+                $byUser[$uid]['completed']++;
+            } elseif (($row['status'] ?? '') === 'in_progress') {
+                $byUser[$uid]['open']++;
+            }
+            if ($byUser[$uid]['latest'] === null) {
+                $byUser[$uid]['latest'] = $row;
+            }
+        }
+
+        $out = [];
+        foreach ($byUser as $uid => $agg) {
+            $latest = $agg['latest'] ?? [];
+            $att = $this->caseAttentionMeta(is_array($latest) ? $latest : []);
+            $label = $agg['completed'] > 0 && $agg['open'] === 0
+                ? 'Culminado'
+                : ($agg['open'] > 0 ? 'En proceso' : (string) ($att['label'] ?? '—'));
+            $out[$uid] = [
+                'total' => $agg['total'],
+                'open' => $agg['open'],
+                'completed' => $agg['completed'],
+                'label' => $label,
+                'attention' => (string) ($att['label'] ?? ''),
+            ];
+        }
+
+        return $out;
+    }
+
+    public function countPendingOpsCases(): int
+    {
+        try {
+            $rows = $this->opsBoardCases('needs_admin', 500);
+
+            return count($rows);
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Tablero operativo: casos con etapa de atención calculada.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function opsBoardCases(string $filter = 'needs_admin', int $limit = 200): array
+    {
+        $limit = max(1, min(500, $limit));
+        $stmt = $this->pdo->prepare(
+            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+                    cert.cenni_process,
+                    pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
+                    pr.requires_regulation_signature,
+                    ps.title AS current_step_title, ps.sort_order AS current_step_order,
+                    ps.responsible AS current_step_responsible
+             FROM certification_cases c
+             JOIN certifications cert ON cert.id = c.certification_id
+             JOIN protocols pr ON pr.id = c.protocol_id
+             LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
+             ORDER BY c.updated_at DESC, c.id DESC
+             LIMIT ' . (int) $limit
+        );
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+        $out = [];
+        foreach ($rows as $row) {
+            $att = $this->caseAttentionMeta($row);
+            $row['attention_key'] = $att['key'];
+            $row['attention_label'] = $att['label'];
+            $row['attention_hint'] = $att['hint'];
+            $row['needs_admin'] = $att['needs_admin'];
+            if ($this->opsBoardMatchesFilter($filter, $row)) {
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, mixed> $case
+     * @return array{key:string,label:string,hint:string,needs_admin:bool}
+     */
+    public function caseAttentionMeta(array $case): array
+    {
+        $status = (string) ($case['status'] ?? 'in_progress');
+        if ($status === 'completed') {
+            return [
+                'key' => 'completed',
+                'label' => 'Culminado',
+                'hint' => 'Proceso cerrado',
+                'needs_admin' => false,
+            ];
+        }
+        if ($status === 'cancelled') {
+            return [
+                'key' => 'cancelled',
+                'label' => 'Cancelado',
+                'hint' => '',
+                'needs_admin' => false,
+            ];
+        }
+
+        $requiresReg = !empty($case['requires_regulation_signature']);
+        $signed = !empty($case['regulation_signed_at']);
+        if ($requiresReg && !$signed) {
+            return [
+                'key' => 'awaiting_signature',
+                'label' => 'Pendiente firma',
+                'hint' => 'El alumno debe firmar el reglamento',
+                'needs_admin' => false,
+            ];
+        }
+
+        $paid = !empty($case['payment_confirmed_at'])
+            || in_array(strtolower((string) ($case['openpay_status'] ?? '')), ['completed', 'paid'], true);
+        if (!$paid) {
+            return [
+                'key' => 'awaiting_payment',
+                'label' => 'Pendiente de pago',
+                'hint' => 'Esperando OpenPay o marcar pago manual (efectivo/transferencia)',
+                'needs_admin' => true,
+            ];
+        }
+
+        $tpl = trim((string) ($case['provider_request_template'] ?? ''));
+        if ($tpl !== '' && empty($case['provider_request_sent_at'])) {
+            return [
+                'key' => 'awaiting_provider_request',
+                'label' => 'Falta solicitar al proveedor',
+                'hint' => 'Confirmar pago y enviar plantilla “' . $tpl . '”',
+                'needs_admin' => true,
+            ];
+        }
+
+        $hasAccess = trim((string) ($case['access_key'] ?? '')) !== ''
+            || trim((string) ($case['folio_id'] ?? '')) !== '';
+        if (!$hasAccess) {
+            return [
+                'key' => 'awaiting_access',
+                'label' => 'Falta datos de acceso',
+                'hint' => 'Cargar folio/clave y notificar al alumno',
+                'needs_admin' => true,
+            ];
+        }
+
+        $cenniProcess = (string) ($case['cenni_process'] ?? 'none');
+        $cenniStatus = (string) ($case['cenni_status'] ?? 'none');
+        if ($cenniProcess !== 'none' && $cenniStatus !== 'issued') {
+            return [
+                'key' => 'awaiting_cenni',
+                'label' => 'Seguimiento CENNI',
+                'hint' => 'Estatus: ' . $cenniStatus,
+                'needs_admin' => $cenniProcess === 'doceo_managed' || in_array($cenniStatus, ['docs_in_review', 'sep_pending', 'docs_rejected'], true),
+            ];
+        }
+
+        return [
+            'key' => 'in_progress',
+            'label' => 'En proceso',
+            'hint' => (string) ($case['current_step_title'] ?? 'Sin paso actual'),
+            'needs_admin' => (($case['current_step_responsible'] ?? '') === 'admin'),
+        ];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function opsBoardMatchesFilter(string $filter, array $row): bool
+    {
+        $key = (string) ($row['attention_key'] ?? '');
+        return match ($filter) {
+            'all' => true,
+            'completed' => $key === 'completed',
+            'in_progress' => ($row['status'] ?? '') === 'in_progress',
+            'needs_admin' => !empty($row['needs_admin']),
+            'awaiting_signature',
+            'awaiting_payment',
+            'awaiting_provider_request',
+            'awaiting_access',
+            'awaiting_cenni' => $key === $filter,
+            default => !empty($row['needs_admin']),
+        };
     }
 
     /** @return array<string, string> */

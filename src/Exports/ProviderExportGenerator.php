@@ -57,6 +57,8 @@ final class ProviderExportGenerator
         if ($fh === false) {
             throw new \RuntimeException('No se pudo crear el CSV UKS.');
         }
+        // BOM UTF-8: Excel / portales Windows reconocen acentos (Matrícula, Electrónico)
+        fwrite($fh, "\xEF\xBB\xBF");
         // Encabezados exactos de Plantilla Instituto DOCEO.csv
         fputcsv($fh, ['Matrícula', 'Apellido Paterno', 'Apellido Materno', 'Nombre(s)', 'Correo Electrónico']);
         fputcsv($fh, [
@@ -72,7 +74,7 @@ final class ProviderExportGenerator
             'relative' => $relative,
             'absolute' => $absolute,
             'filename' => $filename,
-            'mime' => 'text/csv',
+            'mime' => 'text/csv; charset=UTF-8',
         ];
     }
 
@@ -333,8 +335,12 @@ final class ProviderExportGenerator
         $v = self::toeflText($value);
         $v = preg_replace('/[^A-Z0-9]+/', '_', $v) ?? 'file';
         $v = trim($v, '_');
+        $slug = $v !== '' ? $v : 'file';
+        if (function_exists('mb_substr')) {
+            return mb_substr($slug, 0, 40);
+        }
 
-        return mb_substr($v !== '' ? $v : 'file', 0, 40);
+        return substr($slug, 0, 40);
     }
 
     public static function toeflText(string $value): string
@@ -350,7 +356,12 @@ final class ProviderExportGenerator
 
     public static function upper(string $value): string
     {
-        return mb_strtoupper(trim($value), 'UTF-8');
+        $value = trim($value);
+        if (function_exists('mb_strtoupper')) {
+            return mb_strtoupper($value, 'UTF-8');
+        }
+
+        return strtoupper($value);
     }
 
     public static function spanishLongDate(\DateTimeInterface $date): string

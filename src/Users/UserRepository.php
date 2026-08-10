@@ -350,7 +350,8 @@ final class UserRepository
     /**
      * Elimina un usuario (útil en pruebas). No permite borrarte a ti mismo
      * ni al último administrador activo. Si es Partner TR, también se elimina su ficha
-     * (FK ON DELETE CASCADE). Los casos de certificación quedan sin student_user_id.
+     * (FK ON DELETE CASCADE). También elimina sus casos de certificación y huérfanos
+     * del mismo correo para poder recrear usuarios de prueba limpios.
      */
     public function delete(int $id, ?int $actorId = null): void
     {
@@ -383,12 +384,34 @@ final class UserRepository
                 } catch (\Throwable) {
                 }
             }
+
+            // Borrar casos del alumno (adjuntos / pasos / mails en CASCADE)
+            $deletedCases = 0;
+            try {
+                $stmtCases = $this->pdo->prepare('DELETE FROM certification_cases WHERE student_user_id = ?');
+                $stmtCases->execute([$id]);
+                $deletedCases += $stmtCases->rowCount();
+                // Huérfanos de borrados previos (mismo correo, student_user_id NULL)
+                if ($email !== '') {
+                    $stmtOrphans = $this->pdo->prepare(
+                        'DELETE FROM certification_cases
+                         WHERE student_user_id IS NULL AND LOWER(TRIM(student_email)) = ?'
+                    );
+                    $stmtOrphans->execute([$email]);
+                    $deletedCases += $stmtOrphans->rowCount();
+                }
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('No se pudieron eliminar los casos del usuario: ' . $e->getMessage(), 0, $e);
+            }
+
             $stmt = $this->pdo->prepare('DELETE FROM users WHERE id = ?');
             $stmt->execute([$id]);
             if ($stmt->rowCount() === 0) {
                 throw new \RuntimeException('No se pudo eliminar el usuario.');
             }
             $this->pdo->commit();
+            // Stash count for flash via request attribute isn't available; store on instance briefly
+            $this->lastDeletedCasesCount = $deletedCases;
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
             $msg = $e->getMessage();
@@ -401,6 +424,13 @@ final class UserRepository
             }
             throw $e;
         }
+    }
+
+    private int $lastDeletedCasesCount = 0;
+
+    public function lastDeletedCasesCount(): int
+    {
+        return $this->lastDeletedCasesCount;
     }
 
     public function createActivationToken(int $userId): string

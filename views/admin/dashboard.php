@@ -2,24 +2,59 @@
 $counts = $counts ?? [
     'providers' => 0, 'certifications' => 0, 'published' => 0,
     'courses' => 0, 'partners' => 0, 'agreements' => 0, 'protocols' => 0, 'tiers' => 0, 'users' => 0,
+    'pending_ops' => 0, 'cases' => 0, 'documents' => 0,
+];
+
+$pendingCard = [
+    'href' => '/admin/pendientes',
+    'title' => 'Pendientes',
+    'desc' => 'Pagos, solicitudes al proveedor, accesos y CENNI',
+    'count' => (int) ($counts['pending_ops'] ?? 0),
+    'tone' => 'coral',
+    'icon' => 'list',
+    'pin' => true,
 ];
 
 $menus = [
     [
-        'href' => '/admin/users',
-        'title' => 'Usuarios',
-        'desc' => 'Personal Doceo y Partners TR',
-        'count' => (int) ($counts['users'] ?? 0),
+        'href' => '/admin/agreements',
+        'title' => 'Convenios',
+        'desc' => 'Versiones anuales y precios',
+        'count' => (int) $counts['agreements'],
+        'tone' => 'green',
+        'icon' => 'file',
+    ],
+    [
+        'href' => '/admin/cases',
+        'title' => 'Casos',
+        'desc' => 'Progreso del alumno en el flujo',
+        'count' => (int) ($counts['cases'] ?? 0),
         'tone' => 'slate',
         'icon' => 'id',
     ],
     [
-        'href' => '/admin/providers',
-        'title' => 'Proveedores',
-        'desc' => 'Casas certificadoras y logos',
-        'count' => (int) $counts['providers'],
-        'tone' => 'blue',
-        'icon' => 'building',
+        'href' => '/admin/certifications',
+        'title' => 'Certificaciones',
+        'desc' => (int) $counts['published'] . ' publicadas · fichas de producto',
+        'count' => (int) $counts['certifications'],
+        'tone' => 'yellow',
+        'icon' => 'badge',
+    ],
+    [
+        'href' => '/admin/mail-templates',
+        'title' => 'Correos',
+        'desc' => 'Plantillas a alumnos y proveedores',
+        'count' => null,
+        'tone' => 'green',
+        'icon' => 'file',
+    ],
+    [
+        'href' => '/admin/courses',
+        'title' => 'Cursos',
+        'desc' => 'Moodle, externos y paquetes',
+        'count' => (int) $counts['courses'],
+        'tone' => 'teal',
+        'icon' => 'book',
     ],
     [
         'href' => '/admin/documents',
@@ -30,12 +65,36 @@ $menus = [
         'icon' => 'file',
     ],
     [
-        'href' => '/admin/certifications',
-        'title' => 'Certificaciones',
-        'desc' => (int) $counts['published'] . ' publicadas · fichas de producto',
-        'count' => (int) $counts['certifications'],
-        'tone' => 'yellow',
+        'href' => '/admin/reglamentos-firmados',
+        'title' => 'Firmas reglamento',
+        'desc' => 'Evidencia de aceptación del alumno',
+        'count' => null,
+        'tone' => 'indigo',
+        'icon' => 'file',
+    ],
+    [
+        'href' => '/admin/tiers',
+        'title' => 'Niveles TR',
+        'desc' => 'Niveles Teacher Referral',
+        'count' => (int) ($counts['tiers'] ?? 0),
+        'tone' => 'amber',
+        'icon' => 'layers',
+    ],
+    [
+        'href' => '/admin/openpay',
+        'title' => 'OpenPay',
+        'desc' => 'Webhook SPEI y requisitos de producción',
+        'count' => null,
+        'tone' => 'blue',
         'icon' => 'badge',
+    ],
+    [
+        'href' => '/admin/partners',
+        'title' => 'Partners TR',
+        'desc' => 'Asignar nivel y convenio',
+        'count' => (int) $counts['partners'],
+        'tone' => 'coral',
+        'icon' => 'users',
     ],
     [
         'href' => '/admin/certifications/pricing',
@@ -54,44 +113,12 @@ $menus = [
         'icon' => 'list',
     ],
     [
-        'href' => '/admin/cases',
-        'title' => 'Casos',
-        'desc' => 'Progreso del alumno en el flujo',
-        'count' => (int) ($counts['cases'] ?? 0),
-        'tone' => 'slate',
-        'icon' => 'id',
-    ],
-    [
-        'href' => '/admin/courses',
-        'title' => 'Cursos',
-        'desc' => 'Moodle, externos y paquetes',
-        'count' => (int) $counts['courses'],
-        'tone' => 'teal',
-        'icon' => 'book',
-    ],
-    [
-        'href' => '/admin/tiers',
-        'title' => 'Niveles TR',
-        'desc' => 'Niveles Teacher Referral',
-        'count' => (int) ($counts['tiers'] ?? 0),
-        'tone' => 'amber',
-        'icon' => 'layers',
-    ],
-    [
-        'href' => '/admin/agreements',
-        'title' => 'Convenios',
-        'desc' => 'Versiones anuales y precios',
-        'count' => (int) $counts['agreements'],
-        'tone' => 'green',
-        'icon' => 'file',
-    ],
-    [
-        'href' => '/admin/partners',
-        'title' => 'Partners TR',
-        'desc' => 'Asignar nivel y convenio',
-        'count' => (int) $counts['partners'],
-        'tone' => 'coral',
-        'icon' => 'users',
+        'href' => '/admin/providers',
+        'title' => 'Proveedores',
+        'desc' => 'Casas certificadoras y logos',
+        'count' => (int) $counts['providers'],
+        'tone' => 'blue',
+        'icon' => 'building',
     ],
     [
         'href' => '/admin/salud',
@@ -102,30 +129,17 @@ $menus = [
         'icon' => 'list',
     ],
     [
-        'href' => '/admin/mail-templates',
-        'title' => 'Correos',
-        'desc' => 'Plantillas a alumnos y proveedores',
-        'count' => null,
-        'tone' => 'green',
-        'icon' => 'file',
-    ],
-    [
-        'href' => '/admin/reglamentos-firmados',
-        'title' => 'Firmas reglamento',
-        'desc' => 'Evidencia de aceptación del alumno',
-        'count' => null,
-        'tone' => 'indigo',
-        'icon' => 'file',
-    ],
-    [
-        'href' => '/admin/openpay',
-        'title' => 'OpenPay',
-        'desc' => 'Webhook SPEI y eventos de pago',
-        'count' => null,
-        'tone' => 'blue',
-        'icon' => 'badge',
+        'href' => '/admin/users',
+        'title' => 'Usuarios',
+        'desc' => 'Personal Doceo, Partners TR y alumnos',
+        'count' => (int) ($counts['users'] ?? 0),
+        'tone' => 'slate',
+        'icon' => 'id',
     ],
 ];
+
+usort($menus, static fn (array $a, array $b): int => strcasecmp($a['title'], $b['title']));
+array_unshift($menus, $pendingCard);
 
 $icons = [
     'id' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="12" r="2.4" stroke="currentColor" stroke-width="1.8"/><path d="M13.5 10.5h4M13.5 13.5h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
@@ -143,7 +157,7 @@ $icons = [
     <div class="admin-hero-copy">
         <p class="eyebrow">Panel de administración</p>
         <h1>Hola, <?= e($user['name'] ?? $user['email'] ?? 'Admin') ?></h1>
-        <p class="lede">Gestiona usuarios, catálogo, convenios y partners Teacher Referral desde aquí.</p>
+        <p class="lede">Empieza por <strong>Pendientes</strong> para no perder pagos, solicitudes al proveedor ni datos de acceso.</p>
     </div>
     <div class="admin-hero-visual" aria-hidden="true">
         <span class="hex hex-a"></span>
@@ -154,13 +168,13 @@ $icons = [
 
 <div class="admin-menu-grid">
     <?php foreach ($menus as $menu): ?>
-        <a class="admin-menu-card tone-<?= e($menu['tone']) ?>" href="<?= e($menu['href']) ?>">
+        <a class="admin-menu-card tone-<?= e($menu['tone']) ?><?= !empty($menu['pin']) ? ' is-pinned' : '' ?>" href="<?= e($menu['href']) ?>">
             <span class="admin-menu-icon"><?= $icons[$menu['icon']] ?></span>
             <span class="admin-menu-body">
                 <span class="admin-menu-title"><?= e($menu['title']) ?></span>
                 <span class="admin-menu-desc"><?= e($menu['desc']) ?></span>
             </span>
-            <span class="admin-menu-count"><?= (int) $menu['count'] ?></span>
+            <span class="admin-menu-count"><?= (int) ($menu['count'] ?? 0) ?></span>
         </a>
     <?php endforeach; ?>
 </div>

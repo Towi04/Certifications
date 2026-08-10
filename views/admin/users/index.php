@@ -55,6 +55,7 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                     <th>Teléfono</th>
                     <th>Rol</th>
                     <th>Estado</th>
+                    <th>Proceso</th>
                     <th></th>
                 </tr>
             </thead>
@@ -70,6 +71,7 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                     $item['name'] ?? null
                 );
                 $roleLabel = $roleLabels[$item['role']] ?? $item['role'];
+                $caseSummary = $item['case_summary'] ?? null;
                 ?>
                 <tr class="<?= $active ? '' : 'is-row-inactive' ?>">
                     <td><?= e($display) ?></td>
@@ -84,6 +86,20 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                             <span class="pill pill-muted">Pendiente</span>
                         <?php else: ?>
                             <span class="pill pill-muted">Deshabilitado</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (($item['role'] ?? '') === 'student' && is_array($caseSummary)): ?>
+                            <?php if ((int)($caseSummary['completed'] ?? 0) > 0 && (int)($caseSummary['open'] ?? 0) === 0): ?>
+                                <span class="pill pill-ok">Culminado</span>
+                            <?php elseif ((int)($caseSummary['open'] ?? 0) > 0): ?>
+                                <span class="pill pill-warn"><?= e((string)($caseSummary['attention'] ?: 'En proceso')) ?></span>
+                            <?php else: ?>
+                                <span class="pill pill-muted"><?= e((string)($caseSummary['label'] ?? '—')) ?></span>
+                            <?php endif; ?>
+                            <br><small class="muted"><?= (int)($caseSummary['total'] ?? 0) ?> caso(s)</small>
+                        <?php else: ?>
+                            <span class="muted">—</span>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -112,7 +128,7 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                                     </button>
                                 </form>
                                 <form method="post" action="/admin/users/delete" class="inline-form"
-                                      onsubmit="return confirm(<?= json_encode('¿Eliminar permanentemente a “' . $display . '” (' . $item['email'] . ')? Esta acción no se puede deshacer.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                                      onsubmit="return confirm(<?= json_encode('¿Eliminar permanentemente a “' . $display . '” (' . $item['email'] . ')? También se borrarán sus casos de certificación. Esta acción no se puede deshacer.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
                                     <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
                                     <button type="submit" class="icon-btn icon-btn-danger" title="Eliminar" aria-label="Eliminar"><?= $iconTrash ?></button>
                                 </form>
@@ -122,7 +138,7 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="7" class="muted">No hay usuarios con esos filtros.</td></tr>
+                <tr><td colspan="8" class="muted">No hay usuarios con esos filtros.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
