@@ -150,16 +150,35 @@ final class MoodleClient
         ];
     }
 
-    public function enrolUser(int $userId, int $courseId, int $roleId = 5): void
-    {
+    public function enrolUser(
+        int $userId,
+        int $courseId,
+        int $roleId = 5,
+        ?int $timestart = null,
+        ?int $timeend = null,
+        int $suspend = 0
+    ): void {
         if ($userId < 1 || $courseId < 1) {
             throw new \InvalidArgumentException('userId y courseId Moodle inválidos.');
         }
-        $this->call('enrol_manual_enrol_users', [
+        $params = [
             'enrolments[0][roleid]' => $roleId,
             'enrolments[0][userid]' => $userId,
             'enrolments[0][courseid]' => $courseId,
-            'enrolments[0][suspend]' => 0,
-        ]);
+            'enrolments[0][suspend]' => $suspend > 0 ? 1 : 0,
+        ];
+        if ($timestart !== null && $timestart > 0) {
+            $params['enrolments[0][timestart]'] = $timestart;
+        }
+        if ($timeend !== null && $timeend > 0) {
+            $params['enrolments[0][timeend]'] = $timeend;
+        }
+        $this->call('enrol_manual_enrol_users', $params);
+    }
+
+    /** Suspende (1) o reactiva (0) la matrícula manual en un curso. */
+    public function setEnrolmentSuspended(int $userId, int $courseId, int $suspend = 1, int $roleId = 5): void
+    {
+        $this->enrolUser($userId, $courseId, $roleId, null, null, $suspend > 0 ? 1 : 0);
     }
 }

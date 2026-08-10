@@ -160,6 +160,44 @@ final class OpenPayPaymentService
         }
 
         try {
+            // Prórroga Moodle (order PDV-EXT-…) antes que pago del caso
+            $prorroga = null;
+            if ($chargeId !== '') {
+                $prorroga = $this->repo->courseProrrogaByOpenPayChargeId($chargeId);
+            }
+            if (!$prorroga && $orderId !== '') {
+                $prorroga = $this->repo->courseProrrogaByOpenPayOrderId($orderId);
+            }
+            if (!$prorroga && $orderId !== '' && str_starts_with($orderId, 'PDV-EXT-')) {
+                if (preg_match('/^PDV-EXT-(\d+)-/', $orderId, $m)) {
+                    $prorroga = $this->repo->courseProrroga((int) $m[1]);
+                }
+            }
+            if ($prorroga) {
+                $prorrogaId = (int) $prorroga['id'];
+                $this->repo->attachOpenPayWebhookCase($eventId, (int) $prorroga['case_id']);
+                if (($prorroga['status'] ?? '') === 'paid') {
+                    $this->repo->markOpenPayWebhookProcessed($eventId, true, 'prorroga_already_paid');
+
+                    return ['ok' => true, 'prorroga_id' => $prorrogaId, 'already_paid' => true];
+                }
+                $result = (new \App\Services\CourseProrrogaService($this->repo, mail: $this->mailer()))
+                    ->confirmPaid($prorrogaId, 'openpay', null);
+                $this->repo->markOpenPayWebhookProcessed(
+                    $eventId,
+                    true,
+                    'prorroga_paid:ends:' . ($result['access_ends_at'] ?? '')
+                );
+
+                return [
+                    'ok' => true,
+                    'prorroga_id' => $prorrogaId,
+                    'case_id' => (int) $prorroga['case_id'],
+                    'paid' => true,
+                    'access_ends_at' => $result['access_ends_at'] ?? null,
+                ];
+            }
+
             $case = null;
             if ($chargeId !== '') {
                 $case = $this->repo->certificationCaseByOpenPayChargeId($chargeId);

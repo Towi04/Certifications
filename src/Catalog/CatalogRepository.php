@@ -2603,8 +2603,10 @@ final class CatalogRepository
      */
     public function moodleCoursesForCertification(int $certificationId): array
     {
+        $this->ensureCourseAccessTables();
         $stmt = $this->pdo->prepare(
             "SELECT co.id, co.code, co.name, co.moodle_course_id, co.platform_type,
+                    co.access_months, co.prorroga_price,
                     cc.relation_type, cc.bundle_price
              FROM certification_courses cc
              JOIN courses co ON co.id = cc.course_id
@@ -2728,28 +2730,376 @@ final class CatalogRepository
 
     public function saveCourse(array $data, ?int $id = null): int
     {
+        $this->ensureCourseAccessTables();
+        $accessMonths = (int) ($data['access_months'] ?? 6);
+        if ($accessMonths < 1) {
+            $accessMonths = 6;
+        }
+        $prorroga = $data['prorroga_price'] ?? null;
+        if ($prorroga === '' || $prorroga === null) {
+            $prorroga = null;
+        } else {
+            $prorroga = round((float) $prorroga, 2);
+        }
         $fields = [
             $data['protocol_id'] ?? null,
             $data['code'], $data['name'], $data['platform_type'], $data['external_url'],
-            $data['moodle_course_id'], $data['access_notes'], $data['description'], $data['is_active'],
+            $data['moodle_course_id'], $accessMonths, $prorroga,
+            $data['access_notes'], $data['description'], $data['is_active'],
         ];
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE courses SET protocol_id=?, code=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
-                 access_notes=?, description=?, is_active=? WHERE id=?'
+                 access_months=?, prorroga_price=?, access_notes=?, description=?, is_active=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
         }
         $stmt = $this->pdo->prepare(
-            'INSERT INTO courses (protocol_id, code, name, platform_type, external_url, moodle_course_id, access_notes, description, is_active)
-             VALUES (?,?,?,?,?,?,?,?,?)'
+            'INSERT INTO courses (protocol_id, code, name, platform_type, external_url, moodle_course_id,
+             access_months, prorroga_price, access_notes, description, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
     }
 
-    /** @return list<array<string, mixed>> */
+    public function ensureCourseAccessTables(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        try {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['courses', 'access_months']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    'ALTER TABLE courses
+                     ADD COLUMN access_months TINYINT UNSIGNED NOT NULL DEFAULT 6 AFTER moodle_course_id'
+                );
+            }
+            $stmt->execute(['courses', 'prorroga_price']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    'ALTER TABLE courses
+                     ADD COLUMN prorroga_price DECIMAL(12,2) NULL AFTER access_months'
+                );
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS case_moodle_enrolments (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  case_id BIGINT UNSIGNED NOT NULL,
+                  course_id BIGINT UNSIGNED NOT NULL,
+                  moodle_user_id INT UNSIGNED NULL,
+                  moodle_course_id INT UNSIGNED NOT NULL,
+                  access_starts_at DATETIME NOT NULL,
+                  access_ends_at DATETIME NOT NULL,
+                  status ENUM('active','suspended','expired') NOT NULL DEFAULT 'active',
+                  last_synced_at DATETIME NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uq_case_course_enrol (case_id, course_id),
+                  KEY idx_cme_ends (status, access_ends_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS course_prorrogas (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  case_id BIGINT UNSIGNED NOT NULL,
+                  case_moodle_enrolment_id BIGINT UNSIGNED NOT NULL,
+                  months TINYINT UNSIGNED NOT NULL DEFAULT 6,
+                  amount DECIMAL(12,2) NOT NULL,
+                  currency CHAR(3) NOT NULL DEFAULT 'MXN',
+                  status ENUM('pending','proof_uploaded','paid','cancelled') NOT NULL DEFAULT 'pending',
+                  payment_method VARCHAR(32) NULL,
+                  payment_proof_path VARCHAR(255) NULL,
+                  payment_confirmed_at DATETIME NULL,
+                  openpay_charge_id VARCHAR(64) NULL,
+                  openpay_order_id VARCHAR(100) NULL,
+                  openpay_clabe VARCHAR(32) NULL,
+                  openpay_bank VARCHAR(120) NULL,
+                  openpay_agreement VARCHAR(64) NULL,
+                  openpay_reference VARCHAR(120) NULL,
+                  openpay_amount DECIMAL(12,2) NULL,
+                  openpay_status VARCHAR(32) NULL,
+                  openpay_due_at DATETIME NULL,
+                  openpay_paid_at DATETIME NULL,
+                  openpay_pdf_url VARCHAR(512) NULL,
+                  notes TEXT NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uq_prorroga_charge (openpay_charge_id),
+                  KEY idx_prorroga_order (openpay_order_id),
+                  KEY idx_prorroga_case (case_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        } catch (\Throwable) {
+        }
+        $done = true;
+    }
+
+    public function caseMoodleEnrolment(int $id): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare(
+            'SELECT e.*, c.name AS course_name, c.code AS course_code, c.prorroga_price, c.access_months
+             FROM case_moodle_enrolments e
+             JOIN courses c ON c.id = e.course_id
+             WHERE e.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    public function caseMoodleEnrolmentByCaseCourse(int $caseId, int $courseId): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM case_moodle_enrolments WHERE case_id = ? AND course_id = ? LIMIT 1'
+        );
+        $stmt->execute([$caseId, $courseId]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function caseMoodleEnrolments(int $caseId): array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare(
+            'SELECT e.*, c.name AS course_name, c.code AS course_code,
+                    c.prorroga_price, c.access_months, c.platform_type
+             FROM case_moodle_enrolments e
+             JOIN courses c ON c.id = e.course_id
+             WHERE e.case_id = ?
+             ORDER BY e.id ASC'
+        );
+        $stmt->execute([$caseId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /** @param array<string,mixed> $data */
+    public function upsertCaseMoodleEnrolment(array $data): int
+    {
+        $this->ensureCourseAccessTables();
+        $caseId = (int) ($data['case_id'] ?? 0);
+        $courseId = (int) ($data['course_id'] ?? 0);
+        $existing = $this->caseMoodleEnrolmentByCaseCourse($caseId, $courseId);
+        if ($existing) {
+            $this->updateCaseMoodleEnrolment((int) $existing['id'], $data);
+
+            return (int) $existing['id'];
+        }
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO case_moodle_enrolments
+             (case_id, course_id, moodle_user_id, moodle_course_id, access_starts_at, access_ends_at, status, last_synced_at)
+             VALUES (?,?,?,?,?,?,?,NOW())'
+        );
+        $stmt->execute([
+            $caseId,
+            $courseId,
+            (int) ($data['moodle_user_id'] ?? 0) ?: null,
+            (int) ($data['moodle_course_id'] ?? 0),
+            $data['access_starts_at'],
+            $data['access_ends_at'],
+            $data['status'] ?? 'active',
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @param array<string,mixed> $fields */
+    public function updateCaseMoodleEnrolment(int $id, array $fields): void
+    {
+        $this->ensureCourseAccessTables();
+        $allowed = [
+            'moodle_user_id', 'moodle_course_id', 'access_starts_at', 'access_ends_at',
+            'status', 'last_synced_at',
+        ];
+        $sets = [];
+        $params = [];
+        foreach ($allowed as $col) {
+            if (!array_key_exists($col, $fields)) {
+                continue;
+            }
+            $sets[] = $col . ' = ?';
+            $params[] = $fields[$col] === '' ? null : $fields[$col];
+        }
+        if ($sets === []) {
+            return;
+        }
+        $params[] = $id;
+        $this->pdo->prepare(
+            'UPDATE case_moodle_enrolments SET ' . implode(', ', $sets) . ' WHERE id = ?'
+        )->execute($params);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function expiredActiveMoodleEnrolments(int $limit = 200): array
+    {
+        $this->ensureCourseAccessTables();
+        $limit = max(1, min(500, $limit));
+        $stmt = $this->pdo->query(
+            "SELECT * FROM case_moodle_enrolments
+             WHERE status = 'active' AND access_ends_at < NOW()
+             ORDER BY access_ends_at ASC
+             LIMIT " . $limit
+        );
+
+        return $stmt ? $stmt->fetchAll() : [];
+    }
+
+    public function courseProrroga(int $id): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare(
+            'SELECT p.*, e.course_id, e.access_ends_at, e.status AS enrolment_status,
+                    c.name AS course_name, c.code AS course_code, c.prorroga_price AS course_prorroga_price
+             FROM course_prorrogas p
+             JOIN case_moodle_enrolments e ON e.id = p.case_moodle_enrolment_id
+             JOIN courses c ON c.id = e.course_id
+             WHERE p.id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function courseProrrogasForCase(int $caseId): array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare(
+            'SELECT p.*, e.course_id, e.access_ends_at, c.name AS course_name, c.code AS course_code
+             FROM course_prorrogas p
+             JOIN case_moodle_enrolments e ON e.id = p.case_moodle_enrolment_id
+             JOIN courses c ON c.id = e.course_id
+             WHERE p.case_id = ?
+             ORDER BY p.id DESC'
+        );
+        $stmt->execute([$caseId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function pendingCourseProrrogas(int $limit = 100): array
+    {
+        $this->ensureCourseAccessTables();
+        $limit = max(1, min(300, $limit));
+        $stmt = $this->pdo->query(
+            "SELECT p.*, e.course_id, c.name AS course_name,
+                    cc.student_name, cc.student_email, cc.id AS case_id_ref,
+                    cert.name AS certification_name
+             FROM course_prorrogas p
+             JOIN case_moodle_enrolments e ON e.id = p.case_moodle_enrolment_id
+             JOIN courses c ON c.id = e.course_id
+             JOIN certification_cases cc ON cc.id = p.case_id
+             JOIN certifications cert ON cert.id = cc.certification_id
+             WHERE p.status IN ('pending','proof_uploaded')
+             ORDER BY FIELD(p.status,'proof_uploaded','pending'), p.id DESC
+             LIMIT " . $limit
+        );
+
+        return $stmt ? $stmt->fetchAll() : [];
+    }
+
+    public function createCourseProrroga(int $caseId, int $enrolmentId, float $amount, int $months = 6): int
+    {
+        $this->ensureCourseAccessTables();
+        $enrol = $this->caseMoodleEnrolment($enrolmentId);
+        if (!$enrol || (int) $enrol['case_id'] !== $caseId) {
+            throw new \RuntimeException('Matrícula no pertenece a este caso.');
+        }
+        $amount = round($amount, 2);
+        if ($amount <= 0) {
+            throw new \RuntimeException('El curso no tiene precio de prórroga configurado. Configúralo en Admin → Cursos.');
+        }
+        // Reutilizar prórroga pendiente del mismo enrolment si existe
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM course_prorrogas
+             WHERE case_moodle_enrolment_id = ? AND status IN ('pending','proof_uploaded')
+             ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute([$enrolmentId]);
+        $existingId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($existingId > 0) {
+            $this->updateCourseProrroga($existingId, [
+                'amount' => $amount,
+                'months' => $months,
+            ]);
+
+            return $existingId;
+        }
+        $ins = $this->pdo->prepare(
+            'INSERT INTO course_prorrogas (case_id, case_moodle_enrolment_id, months, amount, status)
+             VALUES (?,?,?,?,\'pending\')'
+        );
+        $ins->execute([$caseId, $enrolmentId, max(1, $months), $amount]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @param array<string,mixed> $fields */
+    public function updateCourseProrroga(int $id, array $fields): void
+    {
+        $this->ensureCourseAccessTables();
+        $allowed = [
+            'months', 'amount', 'currency', 'status', 'payment_method', 'payment_proof_path',
+            'payment_confirmed_at', 'openpay_charge_id', 'openpay_order_id', 'openpay_clabe',
+            'openpay_bank', 'openpay_agreement', 'openpay_reference', 'openpay_amount',
+            'openpay_status', 'openpay_due_at', 'openpay_paid_at', 'openpay_pdf_url', 'notes',
+        ];
+        $sets = [];
+        $params = [];
+        foreach ($allowed as $col) {
+            if (!array_key_exists($col, $fields)) {
+                continue;
+            }
+            $sets[] = $col . ' = ?';
+            $params[] = $fields[$col] === '' ? null : $fields[$col];
+        }
+        if ($sets === []) {
+            return;
+        }
+        $params[] = $id;
+        $this->pdo->prepare(
+            'UPDATE course_prorrogas SET ' . implode(', ', $sets) . ' WHERE id = ?'
+        )->execute($params);
+    }
+
+    public function courseProrrogaByOpenPayChargeId(string $chargeId): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare('SELECT id FROM course_prorrogas WHERE openpay_charge_id = ? LIMIT 1');
+        $stmt->execute([$chargeId]);
+        $id = (int) ($stmt->fetchColumn() ?: 0);
+
+        return $id > 0 ? $this->courseProrroga($id) : null;
+    }
+
+    public function courseProrrogaByOpenPayOrderId(string $orderId): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare('SELECT id FROM course_prorrogas WHERE openpay_order_id = ? LIMIT 1');
+        $stmt->execute([$orderId]);
+        $id = (int) ($stmt->fetchColumn() ?: 0);
+
+        return $id > 0 ? $this->courseProrroga($id) : null;
+    }
+
     public function partnerTiers(bool $onlyActive = false): array
     {
         $sql = 'SELECT * FROM partner_tiers';

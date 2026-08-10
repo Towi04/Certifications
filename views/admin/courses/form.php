@@ -24,6 +24,14 @@
         </label>
         <label>URL externa<input name="external_url" value="<?= e($item['external_url'] ?? '') ?>"></label>
         <label>Moodle course ID<input name="moodle_course_id" value="<?= e((string)($item['moodle_course_id'] ?? '')) ?>"></label>
+        <label>Meses de acceso
+            <input type="number" name="access_months" min="1" max="36" value="<?= e((string)($item['access_months'] ?? '6')) ?>">
+            <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">Al otorgar acceso desde el PDV (default 6).</span>
+        </label>
+        <label>Costo prórroga (MXN)
+            <input type="number" step="0.01" min="0" name="prorroga_price" value="<?= e((string)($item['prorroga_price'] ?? '')) ?>" placeholder="Ej. 500">
+            <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">La prórroga siempre suma 6 meses más de acceso Moodle.</span>
+        </label>
         <label>Notas de acceso<textarea name="access_notes" rows="3"><?= e($item['access_notes'] ?? '') ?></textarea></label>
         <label>Descripción<textarea name="description" rows="4"><?= e($item['description'] ?? '') ?></textarea></label>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>

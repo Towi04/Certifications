@@ -12,6 +12,10 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
         </div>
         <a class="btn" href="/admin/courses/create">Nuevo</a>
     </div>
+    <form method="post" action="/admin/moodle/expire-enrolments" class="actions" style="margin-top:0.75rem"
+          onsubmit="return confirm('¿Suspender en Moodle las matrículas con acceso vencido?');">
+        <button class="btn btn-ghost" type="submit">Suspender accesos Moodle vencidos</button>
+    </form>
     <div class="table-wrap">
         <table class="data-table">
             <thead>
@@ -20,6 +24,7 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
                     <th>Nombre</th>
                     <th>Plataforma</th>
                     <th>Moodle ID</th>
+                    <th>Acceso / prórroga</th>
                     <th>Certificación</th>
                     <th></th>
                 </tr>
@@ -35,6 +40,14 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
                     <td><?= e($item['name']) ?></td>
                     <td><?= e($item['platform_type']) ?></td>
                     <td><?= e((string)($item['moodle_course_id'] ?? '—')) ?></td>
+                    <td>
+                        <?= (int)($item['access_months'] ?? 6) ?> meses
+                        <?php if ($item['prorroga_price'] !== null && $item['prorroga_price'] !== ''): ?>
+                            <br><span class="muted">Prórroga: <?= e(\App\Support\Str::money((float)$item['prorroga_price'])) ?></span>
+                        <?php else: ?>
+                            <br><span class="muted">Sin precio prórroga</span>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <?php if ($linked): ?>
                             <div class="stack" style="gap:0.45rem">
@@ -98,7 +111,7 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="6" class="muted">No hay cursos registrados.</td></tr>
+                <tr><td colspan="7" class="muted">No hay cursos registrados.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

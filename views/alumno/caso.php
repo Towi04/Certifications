@@ -511,17 +511,112 @@ if ($needsSign) {
 <?php endif; ?>
 
 <?php if ($paid): ?>
-<?php if ($hasMoodle): ?>
+<?php
+$moodle_enrolments = $moodle_enrolments ?? [];
+$course_prorrogas = $course_prorrogas ?? [];
+$prorrogaByEnrol = [];
+foreach ($course_prorrogas as $pr) {
+    if (in_array(($pr['status'] ?? ''), ['pending', 'proof_uploaded'], true)) {
+        $prorrogaByEnrol[(int) ($pr['case_moodle_enrolment_id'] ?? 0)] = $pr;
+    }
+}
+?>
+<?php if ($hasMoodle || $moodle_enrolments): ?>
 <section class="note student-stage" id="moodle">
     <h2>Curso de preparación (Moodle)</h2>
-    <p>Ya tienes acceso a la plataforma de preparación.</p>
-    <ul>
-        <li><strong>Usuario:</strong> <code><?= e($item['moodle_user'] ?? '') ?></code></li>
-        <?php if (!empty($item['moodle_password'])): ?>
-            <li><strong>Contraseña:</strong> <code><?= e($item['moodle_password']) ?></code></li>
-        <?php endif; ?>
-    </ul>
-    <p class="muted">Revisa tu correo: también te enviamos estos datos con la plantilla de acceso Moodle.</p>
+    <?php if ($hasMoodle): ?>
+        <p>Credenciales de acceso:</p>
+        <ul>
+            <li><strong>Usuario:</strong> <code><?= e($item['moodle_user'] ?? '') ?></code></li>
+            <?php if (!empty($item['moodle_password'])): ?>
+                <li><strong>Contraseña:</strong> <code><?= e($item['moodle_password']) ?></code></li>
+            <?php endif; ?>
+        </ul>
+        <p class="muted">Campus: <a href="https://campus.institutodoceo.com" target="_blank" rel="noopener">campus.institutodoceo.com</a></p>
+    <?php endif; ?>
+
+    <?php if ($moodle_enrolments): ?>
+        <?php foreach ($moodle_enrolments as $enrol): ?>
+            <?php
+            $endsTs = strtotime((string) ($enrol['access_ends_at'] ?? '')) ?: 0;
+            $isExpired = $endsTs > 0 && $endsTs < time();
+            $status = (string) ($enrol['status'] ?? 'active');
+            $pendingPr = $prorrogaByEnrol[(int) $enrol['id']] ?? null;
+            $price = (float) ($enrol['prorroga_price'] ?? 0);
+            ?>
+            <div class="note" style="margin:0.85rem 0">
+                <p style="margin:0 0 0.35rem">
+                    <strong><?= e($enrol['course_name'] ?? $enrol['course_code'] ?? 'Curso') ?></strong>
+                    · acceso hasta <strong><?= e($enrol['access_ends_at'] ?? '—') ?></strong>
+                    <?php if ($isExpired || $status === 'expired'): ?>
+                        <span class="pill pill-warn">Vencido</span>
+                    <?php elseif ($status === 'active'): ?>
+                        <span class="pill pill-ok">Activo</span>
+                    <?php else: ?>
+                        <span class="pill"><?= e($status) ?></span>
+                    <?php endif; ?>
+                </p>
+                <?php if ($pendingPr): ?>
+                    <p class="alert alert-warn">
+                        Prórroga en curso (#<?= (int)$pendingPr['id'] ?>) · $<?= e(number_format((float)($pendingPr['amount'] ?? 0), 2)) ?> MXN
+                        · estatus: <?= e($pendingPr['status'] ?? '') ?>
+                        <?php if (($pendingPr['status'] ?? '') === 'proof_uploaded'): ?>
+                            — Doceo confirmará tu comprobante.
+                        <?php endif; ?>
+                    </p>
+                    <?php if (!empty($pendingPr['openpay_clabe'])): ?>
+                        <ul>
+                            <li><strong>CLABE:</strong> <code><?= e($pendingPr['openpay_clabe']) ?></code></li>
+                            <li><strong>Banco:</strong> <?= e($pendingPr['openpay_bank'] ?? '') ?></li>
+                            <li><strong>Referencia:</strong> <?= e($pendingPr['openpay_reference'] ?? '') ?></li>
+                            <li><strong>Monto:</strong> $<?= e(number_format((float)($pendingPr['openpay_amount'] ?? $pendingPr['amount'] ?? 0), 2)) ?> MXN</li>
+                        </ul>
+                        <?php if (!empty($pendingPr['openpay_pdf_url'])): ?>
+                            <p class="actions"><a class="btn btn-ghost" href="<?= e($pendingPr['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a></p>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <form method="post" action="/alumno/caso/prorroga/request-spei" class="actions" style="margin:0.5rem 0">
+                            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                            <input type="hidden" name="prorroga_id" value="<?= (int)$pendingPr['id'] ?>">
+                            <button class="btn" type="submit">Generar CLABE SPEI</button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if (($pendingPr['status'] ?? '') !== 'paid'): ?>
+                        <form method="post" action="/alumno/caso/prorroga/upload-proof" enctype="multipart/form-data" class="stack form-grid" style="margin-top:0.75rem">
+                            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                            <input type="hidden" name="prorroga_id" value="<?= (int)$pendingPr['id'] ?>">
+                            <label>Método
+                                <select name="payment_method">
+                                    <option value="transfer" selected>Transferencia</option>
+                                    <option value="cash">Efectivo</option>
+                                    <option value="other">Otro</option>
+                                </select>
+                            </label>
+                            <label>Nota<input name="payment_note" placeholder="Opcional"></label>
+                            <label class="field-wide">Comprobante<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp" required></label>
+                            <div class="actions"><button class="btn" type="submit">Subir comprobante de prórroga</button></div>
+                        </form>
+                    <?php endif; ?>
+                <?php elseif ($price > 0): ?>
+                    <p class="muted">
+                        Puedes extender el acceso <strong>6 meses</strong> más por
+                        <?= e(\App\Support\Str::money($price)) ?> (SPEI o comprobante).
+                    </p>
+                    <form method="post" action="/alumno/caso/prorroga/start" class="actions">
+                        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                        <input type="hidden" name="enrolment_id" value="<?= (int)$enrol['id'] ?>">
+                        <button class="btn <?= ($isExpired || $status === 'expired') ? '' : 'btn-ghost' ?>" type="submit">
+                            <?= ($isExpired || $status === 'expired') ? 'Pagar prórroga (+6 meses)' : 'Solicitar prórroga anticipada' ?>
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <p class="muted">Sin precio de prórroga configurado para este curso. Contacta a Doceo si necesitas extender el acceso.</p>
+                <?php endif; ?>
+            </div>
+        <?php endforeach; ?>
+    <?php elseif ($hasMoodle): ?>
+        <p class="muted">El acceso Moodle está limitado a 6 meses desde que se otorgó.</p>
+    <?php endif; ?>
 </section>
 <?php endif; ?>
 
