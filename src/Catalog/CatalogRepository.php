@@ -587,9 +587,44 @@ final class CatalogRepository
         ];
     }
 
-    /** @return array{time_start:string,time_end:string,slot_minutes:int,extraordinary_enabled:bool,extraordinary_fee:float,extraordinary_warning:string} */
+    /** @return array<int, string> 1=Lunes … 7=Domingo (ISO / date('N')) */
+    public static function weekdayLabels(): array
+    {
+        return [
+            1 => 'Lunes',
+            2 => 'Martes',
+            3 => 'Miércoles',
+            4 => 'Jueves',
+            5 => 'Viernes',
+            6 => 'Sábado',
+            7 => 'Domingo',
+        ];
+    }
+
+    /**
+     * @return array{
+     *   time_start:string,
+     *   time_end:string,
+     *   slot_minutes:int,
+     *   extraordinary_enabled:bool,
+     *   extraordinary_fee:float,
+     *   extraordinary_warning:string,
+     *   weekdays: array<string, array{enabled:bool,kind:string,time_start:?string,time_end:?string,times:list<string>}>
+     * }
+     */
     public static function defaultExamSchedule(): array
     {
+        $weekdays = [];
+        foreach (self::weekdayLabels() as $n => $_) {
+            $weekdays[(string) $n] = [
+                'enabled' => true,
+                'kind' => 'range',
+                'time_start' => '09:00',
+                'time_end' => '18:00',
+                'times' => [],
+            ];
+        }
+
         return [
             'time_start' => '09:00',
             'time_end' => '18:00',
@@ -597,6 +632,7 @@ final class CatalogRepository
             'extraordinary_enabled' => true,
             'extraordinary_fee' => 0.0,
             'extraordinary_warning' => 'Si eliges un horario fuera del rango indicado, se cobrará un costo extra por aplicación extraordinaria.',
+            'weekdays' => $weekdays,
         ];
     }
 
@@ -606,7 +642,7 @@ final class CatalogRepository
      * @return array{
      *   modes: array<string,string>,
      *   custom: list<array{key:string,label:string,type:string,mode:string}>,
-     *   schedule: array{time_start:string,time_end:string,slot_minutes:int,extraordinary_enabled:bool,extraordinary_fee:float,extraordinary_warning:string}
+     *   schedule: array<string,mixed>
      * }
      */
     public static function decodeRegistrationConfig(mixed $raw): array
@@ -680,31 +716,100 @@ final class CatalogRepository
             ];
         }
 
-        $schedule = self::defaultExamSchedule();
-        if ($scheduleRaw !== []) {
-            $start = trim((string) ($scheduleRaw['time_start'] ?? $schedule['time_start']));
-            $end = trim((string) ($scheduleRaw['time_end'] ?? $schedule['time_end']));
-            if (preg_match('/^\d{1,2}:\d{2}/', $start)) {
-                $schedule['time_start'] = substr($start, 0, 5);
-            }
-            if (preg_match('/^\d{1,2}:\d{2}/', $end)) {
-                $schedule['time_end'] = substr($end, 0, 5);
-            }
-            $slot = (int) ($scheduleRaw['slot_minutes'] ?? $schedule['slot_minutes']);
-            $schedule['slot_minutes'] = in_array($slot, [15, 30, 60], true) ? $slot : 30;
-            $schedule['extraordinary_enabled'] = !empty($scheduleRaw['extraordinary_enabled']);
-            $schedule['extraordinary_fee'] = max(0, (float) ($scheduleRaw['extraordinary_fee'] ?? 0));
-            $warn = trim((string) ($scheduleRaw['extraordinary_warning'] ?? ''));
-            if ($warn !== '') {
-                $schedule['extraordinary_warning'] = $warn;
-            }
-        }
-
         return [
             'modes' => $modes,
             'custom' => $custom,
-            'schedule' => $schedule,
+            'schedule' => self::normalizeExamSchedule($scheduleRaw),
         ];
+    }
+
+    /** @param array<string,mixed> $scheduleRaw */
+    public static function normalizeExamSchedule(array $scheduleRaw): array
+    {
+        $schedule = self::defaultExamSchedule();
+        if ($scheduleRaw === []) {
+            return $schedule;
+        }
+
+        $start = trim((string) ($scheduleRaw['time_start'] ?? $schedule['time_start']));
+        $end = trim((string) ($scheduleRaw['time_end'] ?? $schedule['time_end']));
+        if (preg_match('/^\d{1,2}:\d{2}/', $start)) {
+            $schedule['time_start'] = substr($start, 0, 5);
+        }
+        if (preg_match('/^\d{1,2}:\d{2}/', $end)) {
+            $schedule['time_end'] = substr($end, 0, 5);
+        }
+        $slotRaw = (int) ($scheduleRaw['slot_minutes'] ?? 30);
+        $schedule['slot_minutes'] = max(5, min(120, $slotRaw > 0 ? $slotRaw : 30));
+
+        $schedule['extraordinary_enabled'] = !empty($scheduleRaw['extraordinary_enabled']);
+        $schedule['extraordinary_fee'] = max(0, (float) ($scheduleRaw['extraordinary_fee'] ?? 0));
+        $warn = trim((string) ($scheduleRaw['extraordinary_warning'] ?? ''));
+        if ($warn !== '') {
+            $schedule['extraordinary_warning'] = $warn;
+        }
+
+        $weekdaysRaw = is_array($scheduleRaw['weekdays'] ?? null) ? $scheduleRaw['weekdays'] : null;
+        $weekdays = [];
+        if ($weekdaysRaw === null || $weekdaysRaw === []) {
+            // Compat: un solo rango para todos los días
+            foreach (self::weekdayLabels() as $n => $_) {
+                $weekdays[(string) $n] = [
+                    'enabled' => true,
+                    'kind' => 'range',
+                    'time_start' => $schedule['time_start'],
+                    'time_end' => $schedule['time_end'],
+                    'times' => [],
+                ];
+            }
+        } else {
+            foreach (self::weekdayLabels() as $n => $_) {
+                $key = (string) $n;
+                $row = is_array($weekdaysRaw[$key] ?? null)
+                    ? $weekdaysRaw[$key]
+                    : (is_array($weekdaysRaw[$n] ?? null) ? $weekdaysRaw[$n] : []);
+                $enabled = array_key_exists('enabled', $row) ? !empty($row['enabled']) : false;
+                $kind = (string) ($row['kind'] ?? 'range');
+                if (!in_array($kind, ['range', 'fixed'], true)) {
+                    $kind = 'range';
+                }
+                $dStart = trim((string) ($row['time_start'] ?? $schedule['time_start']));
+                $dEnd = trim((string) ($row['time_end'] ?? $schedule['time_end']));
+                if (!preg_match('/^\d{1,2}:\d{2}/', $dStart)) {
+                    $dStart = $schedule['time_start'];
+                }
+                if (!preg_match('/^\d{1,2}:\d{2}/', $dEnd)) {
+                    $dEnd = $schedule['time_end'];
+                }
+                $times = [];
+                $timesRaw = $row['times'] ?? [];
+                if (is_string($timesRaw)) {
+                    $timesRaw = preg_split('/[\s,;]+/', $timesRaw) ?: [];
+                }
+                if (is_array($timesRaw)) {
+                    foreach ($timesRaw as $t) {
+                        $t = substr(trim((string) $t), 0, 5);
+                        if (preg_match('/^\d{2}:\d{2}$/', $t)) {
+                            $times[] = $t;
+                        } elseif (preg_match('/^\d{1}:\d{2}$/', $t)) {
+                            $times[] = '0' . $t;
+                        }
+                    }
+                }
+                $times = array_values(array_unique($times));
+                sort($times);
+                $weekdays[$key] = [
+                    'enabled' => $enabled,
+                    'kind' => $kind,
+                    'time_start' => substr($dStart, 0, 5),
+                    'time_end' => substr($dEnd, 0, 5),
+                    'times' => $times,
+                ];
+            }
+        }
+        $schedule['weekdays'] = $weekdays;
+
+        return $schedule;
     }
 
     /** @param array<string,mixed>|string|null $config */
@@ -721,13 +826,79 @@ final class CatalogRepository
         return json_encode($normalized, JSON_UNESCAPED_UNICODE) ?: null;
     }
 
-    /** @return list<string> HH:MM slots inclusive of start, exclusive of end+slot if past end */
+    /** @param array<string,mixed> $schedule */
+    public static function weekdayConfig(array $schedule, int|string $weekdayN): ?array
+    {
+        $schedule = self::normalizeExamSchedule($schedule);
+        $key = (string) (int) $weekdayN;
+        $row = $schedule['weekdays'][$key] ?? null;
+
+        return is_array($row) ? $row : null;
+    }
+
+    /** ISO weekday 1–7 for Y-m-d. */
+    public static function dateWeekdayN(string $ymd): ?int
+    {
+        $ymd = trim($ymd);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+            return null;
+        }
+        try {
+            $n = (int) (new \DateTimeImmutable($ymd))->format('N');
+
+            return $n >= 1 && $n <= 7 ? $n : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @param array<string,mixed> $schedule */
+    public static function isExamDateOpen(string $ymd, array $schedule): bool
+    {
+        $n = self::dateWeekdayN($ymd);
+        if ($n === null) {
+            return false;
+        }
+        $day = self::weekdayConfig($schedule, $n);
+
+        return $day !== null && !empty($day['enabled']);
+    }
+
+    /**
+     * Slots disponibles para una fecha concreta.
+     *
+     * @param array<string,mixed> $schedule
+     * @return list<string>
+     */
+    public static function examTimeSlotsForDate(string $ymd, array $schedule): array
+    {
+        $n = self::dateWeekdayN($ymd);
+        if ($n === null) {
+            return [];
+        }
+        $day = self::weekdayConfig($schedule, $n);
+        if ($day === null || empty($day['enabled'])) {
+            return [];
+        }
+        $schedule = self::normalizeExamSchedule($schedule);
+        if (($day['kind'] ?? 'range') === 'fixed') {
+            return array_values($day['times'] ?? []);
+        }
+
+        return self::examTimeSlots([
+            'time_start' => $day['time_start'] ?? $schedule['time_start'],
+            'time_end' => $day['time_end'] ?? $schedule['time_end'],
+            'slot_minutes' => $schedule['slot_minutes'],
+        ]);
+    }
+
+    /** @return list<string> HH:MM slots inclusive of start through end */
     public static function examTimeSlots(array $schedule): array
     {
         $schedule = array_merge(self::defaultExamSchedule(), $schedule);
-        $start = $schedule['time_start'];
-        $end = $schedule['time_end'];
-        $step = max(15, (int) $schedule['slot_minutes']);
+        $start = (string) ($schedule['time_start'] ?? '09:00');
+        $end = (string) ($schedule['time_end'] ?? '18:00');
+        $step = max(5, (int) ($schedule['slot_minutes'] ?? 30));
         $slots = [];
         try {
             $cur = new \DateTimeImmutable('1970-01-01 ' . $start);
@@ -736,12 +907,12 @@ final class CatalogRepository
             return ['09:00', '09:30', '10:00'];
         }
         if ($cur > $limit) {
-            return [$start];
+            return [substr($start, 0, 5)];
         }
         while ($cur <= $limit) {
             $slots[] = $cur->format('H:i');
             $cur = $cur->modify('+' . $step . ' minutes');
-            if (count($slots) > 48) {
+            if (count($slots) > 96) {
                 break;
             }
         }
@@ -749,16 +920,50 @@ final class CatalogRepository
         return $slots;
     }
 
-    public static function isExamTimeWithinRange(string $time, array $schedule): bool
+    /**
+     * ¿La hora está dentro del horario regular de esa fecha?
+     *
+     * @param array<string,mixed> $schedule
+     */
+    public static function isExamTimeWithinRange(string $time, array $schedule, ?string $ymd = null): bool
     {
         $time = substr(trim($time), 0, 5);
         if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
             return false;
         }
+        if ($ymd !== null && $ymd !== '') {
+            $slots = self::examTimeSlotsForDate($ymd, $schedule);
+
+            return in_array($time, $slots, true);
+        }
+        // Legacy (sin fecha): usa rango global
+        $schedule = self::normalizeExamSchedule($schedule);
         $start = substr((string) ($schedule['time_start'] ?? '09:00'), 0, 5);
         $end = substr((string) ($schedule['time_end'] ?? '18:00'), 0, 5);
 
         return $time >= $start && $time <= $end;
+    }
+
+    /** Texto corto de horarios para la UI. @param array<string,mixed> $schedule */
+    public static function examScheduleSummary(array $schedule): string
+    {
+        $schedule = self::normalizeExamSchedule($schedule);
+        $labels = self::weekdayLabels();
+        $parts = [];
+        foreach ($labels as $n => $label) {
+            $day = $schedule['weekdays'][(string) $n] ?? null;
+            if (!is_array($day) || empty($day['enabled'])) {
+                continue;
+            }
+            if (($day['kind'] ?? '') === 'fixed') {
+                $times = $day['times'] ?? [];
+                $parts[] = $label . ': ' . ($times !== [] ? implode(', ', $times) : '—');
+            } else {
+                $parts[] = $label . ': ' . ($day['time_start'] ?? '') . '–' . ($day['time_end'] ?? '');
+            }
+        }
+
+        return $parts !== [] ? implode(' · ', $parts) : 'Sin días habilitados';
     }
 
     /** @return array<string, string> field => off|optional|required */

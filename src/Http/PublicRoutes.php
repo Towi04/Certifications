@@ -183,10 +183,17 @@ final class PublicRoutes
                     $sex = '';
                 }
 
+                if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date') && $examDate !== '') {
+                    if (!CatalogRepository::isExamDateOpen($examDate, $schedule) && empty($schedule['extraordinary_enabled'])) {
+                        throw new \RuntimeException('Ese día no hay horario de aplicación para esta certificación.');
+                    }
+                }
+
                 if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
+                    $dateOpen = $examDate === '' || CatalogRepository::isExamDateOpen($examDate, $schedule);
                     if ($examTimeRaw === '__extraordinary__') {
                         if (empty($schedule['extraordinary_enabled'])) {
-                            throw new \RuntimeException('Esta certificación no admite horario fuera de rango.');
+                            throw new \RuntimeException('Esta certificación no admite aplicación extraordinaria.');
                         }
                         if (!isset($_POST['accept_extraordinary'])) {
                             throw new \RuntimeException('Debes aceptar el costo de aplicación extraordinaria.');
@@ -194,7 +201,7 @@ final class PublicRoutes
                         if ($examTimeExtra === '' || !preg_match('/^\d{2}:\d{2}$/', $examTimeExtra)) {
                             throw new \RuntimeException('Indica la hora fuera de horario.');
                         }
-                        if (CatalogRepository::isExamTimeWithinRange($examTimeExtra, $schedule)) {
+                        if ($dateOpen && $examDate !== '' && CatalogRepository::isExamTimeWithinRange($examTimeExtra, $schedule, $examDate)) {
                             throw new \RuntimeException('Esa hora está dentro del horario regular; elige una opción de la lista.');
                         }
                         $extraordinary = true;
@@ -202,11 +209,22 @@ final class PublicRoutes
                         $examTime = $examTimeExtra;
                     } else {
                         $examTime = substr($examTimeRaw, 0, 5);
-                        if ($examTime !== '' && !CatalogRepository::isExamTimeWithinRange($examTime, $schedule)) {
-                            if (!empty($schedule['extraordinary_enabled'])) {
-                                throw new \RuntimeException('Para horarios fuera de rango elige “Fuera de horario”.');
+                        if ($examTime !== '') {
+                            if ($examDate === '') {
+                                throw new \RuntimeException('Indica la fecha de examen para validar el horario.');
                             }
-                            throw new \RuntimeException('La hora debe estar entre ' . $schedule['time_start'] . ' y ' . $schedule['time_end'] . '.');
+                            if (!$dateOpen) {
+                                if (!empty($schedule['extraordinary_enabled'])) {
+                                    throw new \RuntimeException('Ese día no tiene horario regular; elige “Fuera de horario / día”.');
+                                }
+                                throw new \RuntimeException('Ese día no hay aplicaciones para esta certificación.');
+                            }
+                            if (!CatalogRepository::isExamTimeWithinRange($examTime, $schedule, $examDate)) {
+                                if (!empty($schedule['extraordinary_enabled'])) {
+                                    throw new \RuntimeException('Para horarios fuera de rango elige “Fuera de horario / día”.');
+                                }
+                                throw new \RuntimeException('La hora no está disponible en el horario de ese día.');
+                            }
                         }
                     }
                 }

@@ -222,16 +222,18 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 <?php endforeach; ?>
             </div>
 
-            <h3 class="reg-subtitle">Horario de examen</h3>
-            <p class="muted">Aplica cuando el campo “Hora preferida de examen” no está en “No pedir”.</p>
+            <h3 class="reg-subtitle">Horario de examen por día</h3>
+            <p class="muted">
+                Define rango o horas fijas según el día (ej. UKS entre semana vs sábado, TOEFL solo sábados).
+                Aplica cuando “Hora preferida de examen” no está en “No pedir”.
+            </p>
+            <div class="actions" style="margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
+                <button type="button" class="btn btn-ghost" data-schedule-preset="uks">Preset UKS</button>
+                <button type="button" class="btn btn-ghost" data-schedule-preset="itep">Preset iTEP (igual todos los días)</button>
+                <button type="button" class="btn btn-ghost" data-schedule-preset="toefl">Preset TOEFL (sábados fijos)</button>
+            </div>
             <div class="reg-fields-grid">
-                <label class="reg-field-row">Desde
-                    <input type="time" name="exam_time_start" value="<?= e($schedule['time_start']) ?>">
-                </label>
-                <label class="reg-field-row">Hasta
-                    <input type="time" name="exam_time_end" value="<?= e($schedule['time_end']) ?>">
-                </label>
-                <label class="reg-field-row">Intervalo de opciones
+                <label class="reg-field-row">Intervalo (modo rango)
                     <select name="exam_slot_minutes">
                         <?php foreach ([15 => '15 min', 30 => '30 min', 60 => '60 min'] as $m => $lab): ?>
                             <option value="<?= $m ?>" <?= (int)$schedule['slot_minutes'] === $m ? 'selected' : '' ?>><?= e($lab) ?></option>
@@ -240,7 +242,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                 </label>
                 <label class="check reg-field-row">
                     <input type="checkbox" name="exam_extraordinary_enabled" value="1" <?= !empty($schedule['extraordinary_enabled']) ? 'checked' : '' ?>>
-                    Permitir fuera de horario (costo extra)
+                    Permitir aplicación extraordinaria (fuera de horario / día)
                 </label>
                 <label class="reg-field-row">Costo aplicación extraordinaria (MXN)
                     <input type="number" step="0.01" min="0" name="exam_extraordinary_fee"
@@ -250,6 +252,73 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                     <textarea name="exam_extraordinary_warning" rows="2"><?= e($schedule['extraordinary_warning']) ?></textarea>
                 </label>
             </div>
+            <?php
+            $weekdayLabels = \App\Catalog\CatalogRepository::weekdayLabels();
+            $weekdays = is_array($schedule['weekdays'] ?? null) ? $schedule['weekdays'] : [];
+            ?>
+            <div class="table-wrap" style="margin-top:0.75rem">
+                <table class="data-table" id="examWeekdayTable">
+                    <thead>
+                        <tr>
+                            <th>Día</th>
+                            <th>Abierto</th>
+                            <th>Tipo</th>
+                            <th>Desde / Hasta (rango)</th>
+                            <th>Horas fijas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($weekdayLabels as $n => $label): ?>
+                        <?php
+                        $day = $weekdays[(string) $n] ?? [
+                            'enabled' => false,
+                            'kind' => 'range',
+                            'time_start' => $schedule['time_start'] ?? '09:00',
+                            'time_end' => $schedule['time_end'] ?? '18:00',
+                            'times' => [],
+                        ];
+                        $kind = ($day['kind'] ?? 'range') === 'fixed' ? 'fixed' : 'range';
+                        $timesStr = implode(', ', $day['times'] ?? []);
+                        ?>
+                        <tr data-weekday-row="<?= (int)$n ?>">
+                            <td><strong><?= e($label) ?></strong></td>
+                            <td>
+                                <label class="check">
+                                    <input type="checkbox" name="exam_weekday[<?= (int)$n ?>][enabled]" value="1"
+                                           <?= !empty($day['enabled']) ? 'checked' : '' ?> data-day-enabled>
+                                </label>
+                            </td>
+                            <td>
+                                <select name="exam_weekday[<?= (int)$n ?>][kind]" data-day-kind>
+                                    <option value="range" <?= $kind === 'range' ? 'selected' : '' ?>>Rango</option>
+                                    <option value="fixed" <?= $kind === 'fixed' ? 'selected' : '' ?>>Horas fijas</option>
+                                </select>
+                            </td>
+                            <td>
+                                <div class="inline-times" data-range-fields>
+                                    <input type="time" name="exam_weekday[<?= (int)$n ?>][time_start]"
+                                           value="<?= e((string)($day['time_start'] ?? '09:00')) ?>">
+                                    <span>–</span>
+                                    <input type="time" name="exam_weekday[<?= (int)$n ?>][time_end]"
+                                           value="<?= e((string)($day['time_end'] ?? '18:00')) ?>">
+                                </div>
+                            </td>
+                            <td>
+                                <input type="text" name="exam_weekday[<?= (int)$n ?>][times]" data-fixed-fields
+                                       value="<?= e($timesStr) ?>"
+                                       placeholder="11:00, 13:00" <?= $kind === 'fixed' ? '' : '' ?>>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <input type="hidden" name="exam_time_start" value="<?= e($schedule['time_start'] ?? '09:00') ?>">
+            <input type="hidden" name="exam_time_end" value="<?= e($schedule['time_end'] ?? '18:00') ?>">
+            <p class="muted" style="margin-top:0.5rem">
+                En horas fijas escribe HH:MM separadas por coma. Presets: UKS lun–vie 10:00–17:30 y sáb 08:00–12:00 sin extraordinarias;
+                iTEP mismo rango todos los días; TOEFL solo sábado 11:00 y 13:00 con extraordinarias.
+            </p>
 
             <h3 class="reg-subtitle">Campos personalizados</h3>
             <p class="muted">Agrega campos nuevos o elimínalos si ya no aplican. No afecta los campos base (esos se ocultan con “No pedir”).</p>
@@ -555,6 +624,67 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         btn.setAttribute('aria-pressed', 'true');
         btn.classList.add('is-active');
         btn.title = 'Ver código HTML';
+      }
+    });
+  });
+
+  const weekdayTable = document.getElementById('examWeekdayTable');
+  const syncDayRow = (row) => {
+    const kind = row.querySelector('[data-day-kind]')?.value || 'range';
+    const range = row.querySelector('[data-range-fields]');
+    const fixed = row.querySelector('[data-fixed-fields]');
+    if (range) range.style.opacity = kind === 'range' ? '1' : '0.35';
+    if (fixed) fixed.style.opacity = kind === 'fixed' ? '1' : '0.35';
+  };
+  weekdayTable?.querySelectorAll('[data-weekday-row]').forEach((row) => {
+    row.querySelector('[data-day-kind]')?.addEventListener('change', () => syncDayRow(row));
+    syncDayRow(row);
+  });
+  const setDay = (n, cfg) => {
+    const row = weekdayTable?.querySelector(`[data-weekday-row="${n}"]`);
+    if (!row) return;
+    const en = row.querySelector('[data-day-enabled]');
+    const kind = row.querySelector('[data-day-kind]');
+    const start = row.querySelector('input[name$="[time_start]"]');
+    const end = row.querySelector('input[name$="[time_end]"]');
+    const times = row.querySelector('[data-fixed-fields]');
+    if (en) en.checked = !!cfg.enabled;
+    if (kind) kind.value = cfg.kind || 'range';
+    if (start && cfg.time_start) start.value = cfg.time_start;
+    if (end && cfg.time_end) end.value = cfg.time_end;
+    if (times) times.value = cfg.times || '';
+    syncDayRow(row);
+  };
+  const setExtra = (enabled, fee, warn) => {
+    const cb = document.querySelector('input[name="exam_extraordinary_enabled"]');
+    const feeEl = document.querySelector('input[name="exam_extraordinary_fee"]');
+    const warnEl = document.querySelector('textarea[name="exam_extraordinary_warning"]');
+    if (cb) cb.checked = !!enabled;
+    if (feeEl && fee !== undefined) feeEl.value = String(fee);
+    if (warnEl && warn) warnEl.value = warn;
+  };
+  document.querySelectorAll('[data-schedule-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const preset = btn.getAttribute('data-schedule-preset');
+      if (preset === 'uks') {
+        for (let d = 1; d <= 5; d++) {
+          setDay(d, { enabled: true, kind: 'range', time_start: '10:00', time_end: '17:30', times: '' });
+        }
+        setDay(6, { enabled: true, kind: 'range', time_start: '08:00', time_end: '12:00', times: '' });
+        setDay(7, { enabled: false, kind: 'range', times: '' });
+        setExtra(false, 0, 'Esta certificación no admite aplicaciones extraordinarias.');
+      } else if (preset === 'itep') {
+        for (let d = 1; d <= 7; d++) {
+          setDay(d, { enabled: true, kind: 'range', time_start: '09:00', time_end: '18:00', times: '' });
+        }
+        setExtra(false, 0, 'Esta certificación no admite aplicaciones extraordinarias.');
+      } else if (preset === 'toefl') {
+        for (let d = 1; d <= 5; d++) {
+          setDay(d, { enabled: false, kind: 'range', times: '' });
+        }
+        setDay(6, { enabled: true, kind: 'fixed', times: '11:00, 13:00' });
+        setDay(7, { enabled: false, kind: 'range', times: '' });
+        setExtra(true, 0, 'Si necesitas otro día u hora, elige aplicación extraordinaria (puede tener costo extra).');
       }
     });
   });
