@@ -84,6 +84,179 @@ final class CaseMailService
     }
 
     /**
+     * Sube comprobante (opcional), regenera exportación si aplica y envía plantilla de solicitud al proveedor.
+     *
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int}|null $paymentFile
+     * @return array{export: ?array{relative: string, absolute: string, filename: string, mime: string}, mailed: bool, to: ?string, template: ?string}
+     */
+    public function sendProviderRequest(int $caseId, ?array $paymentFile, ?int $userId, bool $regenerateExport = true): array
+    {
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+
+        if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
+            $fields = ['payment_proof_path' => $path];
+            if (empty($case['payment_confirmed_at'])) {
+                $fields['payment_confirmed_at'] = date('Y-m-d H:i:s');
+            }
+            $this->repo->updateCertificationCase($caseId, $fields);
+            $case['payment_proof_path'] = $path;
+        }
+
+        $export = null;
+        $format = (string) ($case['export_format'] ?? 'none');
+        if ($regenerateExport && $format !== '' && $format !== ProviderExportGenerator::FORMAT_NONE) {
+            // Recargar caso por si cambiaron fechas
+            $case = $this->repo->certificationCaseDetailed($caseId) ?? $case;
+            $export = $this->exports->generate($format, $case);
+            $this->repo->addCaseAttachment($caseId, 'export', $export['filename'], $export['relative'], $userId);
+            $this->repo->updateCertificationCase($caseId, [
+                'provider_export_path' => $export['relative'],
+            ]);
+        }
+
+        $templateCode = trim((string) ($case['provider_request_template'] ?? ''));
+        if ($templateCode === '') {
+            throw new \RuntimeException(
+                'Este protocolo no tiene “Plantilla solicitud a empresa”. Configúrala en Admin → Protocolos.'
+            );
+        }
+
+        $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
+        $this->repo->updateCertificationCase($caseId, [
+            'provider_request_sent_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return [
+            'export' => $export,
+            'mailed' => true,
+            'to' => $result['to'],
+            'template' => $templateCode,
+        ];
+    }
+
+    /**
+     * Guarda nueva fecha/hora de reagenda y notifica al proveedor.
+     *
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int}|null $paymentFile
+     * @return array{mailed: bool, to: ?string, template: ?string}
+     */
+    public function rescheduleAndNotifyProvider(
+        int $caseId,
+        string $newDate,
+        string $newTime,
+        ?string $reason,
+        ?array $paymentFile,
+        ?int $userId,
+        bool $notifyProvider = true
+    ): array {
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+        $newDate = trim($newDate);
+        $newTime = substr(trim($newTime), 0, 5);
+        if ($newDate === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $newDate)) {
+            throw new \RuntimeException('Indica la nueva fecha de examen (AAAA-MM-DD).');
+        }
+        if ($newTime === '' || !preg_match('/^\d{2}:\d{2}$/', $newTime)) {
+            throw new \RuntimeException('Indica la nueva hora (HH:MM).');
+        }
+
+        $fields = [
+            'reschedule_date' => $newDate,
+            'reschedule_time' => $newTime,
+        ];
+        $notes = trim((string) ($case['notes'] ?? ''));
+        $reason = trim((string) ($reason ?? ''));
+        if ($reason !== '') {
+            $stamp = date('Y-m-d H:i') . ' Reagenda: ' . $reason;
+            $fields['notes'] = $notes !== '' ? ($notes . "\n" . $stamp) : $stamp;
+        }
+        $this->repo->updateCertificationCase($caseId, $fields);
+
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                $caseId,
+                ['reagenda', 'reagendar', 'reprogram'],
+                $userId,
+                'Reagenda a ' . $newDate . ' ' . $newTime
+            );
+        } catch (\Throwable) {
+        }
+
+        if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante (reagenda)', $path, $userId);
+            $this->repo->updateCertificationCase($caseId, ['payment_proof_path' => $path]);
+        }
+
+        if (!$notifyProvider) {
+            return ['mailed' => false, 'to' => null, 'template' => null];
+        }
+
+        $this->ensureRescheduleMailTemplate();
+        $case = $this->repo->certificationCaseDetailed($caseId) ?? $case;
+        $templateCode = 'reagenda_solicitud';
+        if (!$this->repo->mailTemplateByCode($templateCode)) {
+            $templateCode = trim((string) ($case['provider_request_template'] ?? ''));
+        }
+        if ($templateCode === '') {
+            throw new \RuntimeException(
+                'No hay plantilla de reagenda ni de solicitud al proveedor. Configura el protocolo o crea “reagenda_solicitud”.'
+            );
+        }
+
+        // Regenerar exportación con nueva fecha para el adjunto
+        $format = (string) ($case['export_format'] ?? 'none');
+        if ($format !== '' && $format !== ProviderExportGenerator::FORMAT_NONE) {
+            $export = $this->exports->generate($format, $case);
+            $this->repo->addCaseAttachment($caseId, 'export', $export['filename'], $export['relative'], $userId);
+            $this->repo->updateCertificationCase($caseId, [
+                'provider_export_path' => $export['relative'],
+            ]);
+        }
+
+        $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
+
+        return ['mailed' => true, 'to' => $result['to'], 'template' => $templateCode];
+    }
+
+    public function ensureRescheduleMailTemplate(): void
+    {
+        if ($this->repo->mailTemplateByCode('reagenda_solicitud')) {
+            return;
+        }
+        try {
+            $this->repo->saveMailTemplate([
+                'code' => 'reagenda_solicitud',
+                'name' => 'Reagenda — Solicitud al proveedor',
+                'audience' => 'provider',
+                'to_mode' => 'provider',
+                'to_fixed' => '',
+                'cc_mode' => 'none',
+                'cc_fixed' => '',
+                'subject' => 'Reagenda {{Certificación}} — {{Nombre Completo}} — {{Fecha}}',
+                'body_html' => '<p>¡Hola!</p>'
+                    . '<p>Solicito <strong>reagendar</strong> el examen:</p>'
+                    . '<p>Certificación: <strong>{{Certificación}}</strong><br>'
+                    . 'Alumno: <strong>{{Nombre Completo}}</strong><br>'
+                    . 'Nueva fecha: <strong>{{Fecha}}</strong><br>'
+                    . 'Nueva hora: <strong>{{Hora}}</strong></p>'
+                    . '<p>Adjunto exportación y comprobante cuando aplique.</p>'
+                    . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+                'attach_export' => 1,
+                'is_active' => 1,
+            ]);
+        } catch (\Throwable) {
+        }
+    }
+
+    /**
      * Solo regenera el archivo de exportación del caso.
      *
      * @return array{relative: string, absolute: string, filename: string, mime: string}

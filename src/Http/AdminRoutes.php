@@ -1167,6 +1167,62 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/cases/send-provider-request', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->sendProviderRequest(
+                    $caseId,
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null,
+                    $user ? (int) $user['id'] : null,
+                    !isset($_POST['skip_export'])
+                );
+                $msg = 'Solicitud al proveedor enviada con plantilla “' . ($result['template'] ?? '') . '”';
+                if (!empty($result['to'])) {
+                    $msg .= ' a ' . $result['to'];
+                }
+                $msg .= '.';
+                if (!empty($result['export']['filename'])) {
+                    $msg .= ' Exportación: ' . $result['export']['filename'] . '.';
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/reschedule', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->rescheduleAndNotifyProvider(
+                    $caseId,
+                    trim((string) ($_POST['reschedule_date'] ?? '')),
+                    trim((string) ($_POST['reschedule_time'] ?? '')),
+                    trim((string) ($_POST['reschedule_reason'] ?? '')) ?: null,
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null,
+                    $user ? (int) $user['id'] : null,
+                    !isset($_POST['skip_notify'])
+                );
+                if (!empty($result['mailed'])) {
+                    flash('info', 'Reagenda guardada y correo enviado a ' . ($result['to'] ?? '')
+                        . ' (plantilla ' . ($result['template'] ?? '') . ').');
+                } else {
+                    flash('info', 'Reagenda guardada sin notificar al proveedor.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
         $router->post('/admin/cases/send-mail', static function () use ($repo): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
@@ -1174,6 +1230,21 @@ final class AdminRoutes
             $user = Auth::user();
             try {
                 $svc = new \App\Mail\CaseMailService($repo());
+                if (isset($_FILES['payment_proof'])
+                    && (int) ($_FILES['payment_proof']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+                ) {
+                    $path = \App\Support\Uploader::store($_FILES['payment_proof'], 'cases/' . $caseId);
+                    $repo()->addCaseAttachment(
+                        $caseId,
+                        'payment',
+                        'Comprobante de pago',
+                        $path,
+                        $user ? (int) $user['id'] : null
+                    );
+                    $repo()->updateCertificationCase($caseId, [
+                        'payment_proof_path' => $path,
+                    ]);
+                }
                 $result = $svc->sendTemplate($caseId, $code, $user ? (int) $user['id'] : null);
                 flash('info', 'Correo enviado a ' . $result['to'] . ' (' . $result['subject'] . ').');
             } catch (\Throwable $e) {

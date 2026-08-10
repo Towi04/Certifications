@@ -8,6 +8,12 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
 ?>
 <section class="note">
     <h2><?= e($title) ?></h2>
+    <p class="muted">
+        Las plantillas de <strong>solicitud al proveedor</strong> (p. ej. <code>uks_solicitud</code>) se activan
+        desde <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>.
+        Luego, en el <strong>caso</strong>, usas “Confirmar pago y solicitar” o “Enviar solicitud al proveedor”
+        (ahí subes el comprobante).
+    </p>
     <form method="post" action="/admin/mail-templates/save" class="stack form-grid">
         <?php if ($item): ?><input type="hidden" name="id" value="<?= (int)$item['id'] ?>"><?php endif; ?>
         <label>Código
@@ -44,14 +50,31 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
         </label>
         <label>CC fijo<input type="email" name="cc_fixed" value="<?= e($item['cc_fixed'] ?? '') ?>"></label>
         <label class="field-wide">Asunto<input name="subject" required value="<?= e($item['subject'] ?? '') ?>"></label>
-        <label class="field-wide">Cuerpo HTML
+        <div class="field-wide html-field" data-html-field>
+            <div class="html-field-head">
+                <span class="html-field-title">Cuerpo HTML</span>
+                <button type="button" class="icon-btn html-preview-toggle" title="Vista previa / código"
+                        aria-label="Alternar vista previa HTML" aria-pressed="false">&lt;/&gt;</button>
+            </div>
             <textarea name="body_html" rows="14" class="html-editor" required><?= e($item['body_html'] ?? '') ?></textarea>
+            <div class="html-preview prose" hidden></div>
+            <small class="muted">Pulsa <code>&lt;/&gt;</code> para ver el correo renderizado (sin etiquetas HTML).</small>
+        </div>
+        <label class="check field-wide">
+            <input type="checkbox" name="attach_export" <?= !empty($item['attach_export']) ? 'checked' : '' ?>>
+            Adjuntar archivo de exportación del proveedor (CSV/Excel del alumno)
         </label>
-        <label class="check"><input type="checkbox" name="attach_export" <?= !empty($item['attach_export']) ? 'checked' : '' ?>> Adjuntar exportación del proveedor</label>
+        <p class="muted field-wide" style="margin-top:-0.5rem">
+            No es el PDF del reglamento. Es la plantilla/archivo que genera el PDV para registrar al alumno
+            ante UKS, TOEFL, etc. (según el <strong>formato de exportación</strong> del protocolo).
+            Actívalo en plantillas de solicitud (<code>uks_solicitud</code>, <code>toefl_solicitud</code>, <code>reagenda_solicitud</code>).
+            El <strong>comprobante de pago</strong> se adjunta aparte cuando la audiencia es “Proveedor” y hay comprobante en el caso.
+        </p>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || !empty($item['is_active']) ? 'checked' : '' ?>> Activa</label>
         <div class="actions">
             <button class="btn" type="submit">Guardar</button>
             <a class="btn btn-ghost" href="/admin/mail-templates">Volver</a>
+            <a class="btn btn-ghost" href="/admin/protocols">Ir a Protocolos</a>
         </div>
     </form>
     <?php if ($item): ?>
@@ -64,7 +87,7 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
 </section>
 <section class="note">
     <h3>Tokens disponibles</h3>
-    <p class="muted">Úsalos como <code>{{Nombre}}</code> o <code>&lt;&lt;Nombre&gt;&gt;</code> en asunto y cuerpo.</p>
+    <p class="muted">Úsalos como <code>{{Nombre}}</code> o <code>&lt;&lt;Nombre&gt;&gt;</code> en asunto y cuerpo. En reagendas, <code>{{Fecha}}</code>/<code>{{Hora}}</code> usan la nueva fecha si existe.</p>
     <div class="table-wrap">
         <table class="data-table">
             <thead><tr><th>Token</th><th>Significado</th></tr></thead>
@@ -89,5 +112,30 @@ $ccMode = (string)($item['cc_mode'] ?? 'none');
   };
   mode?.addEventListener('change', sync);
   sync();
+
+  document.querySelectorAll('[data-html-field]').forEach((wrap) => {
+    const btn = wrap.querySelector('.html-preview-toggle');
+    const ta = wrap.querySelector('textarea.html-editor');
+    const preview = wrap.querySelector('.html-preview');
+    if (!btn || !ta || !preview) return;
+    btn.addEventListener('click', () => {
+      const showing = btn.getAttribute('aria-pressed') === 'true';
+      if (showing) {
+        preview.hidden = true;
+        preview.innerHTML = '';
+        ta.hidden = false;
+        btn.setAttribute('aria-pressed', 'false');
+        btn.classList.remove('is-active');
+        btn.title = 'Vista previa';
+      } else {
+        preview.innerHTML = ta.value.trim() !== '' ? ta.value : '<p class="muted"><em>(Vacío)</em></p>';
+        ta.hidden = true;
+        preview.hidden = false;
+        btn.setAttribute('aria-pressed', 'true');
+        btn.classList.add('is-active');
+        btn.title = 'Ver código HTML';
+      }
+    });
+  });
 })();
 </script>

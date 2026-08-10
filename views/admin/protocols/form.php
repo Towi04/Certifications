@@ -56,9 +56,13 @@ foreach ($steps as $s) {
                 <option value="">— ninguna —</option>
                 <?php foreach (($mail_templates ?? []) as $tpl): ?>
                     <?php if (($tpl['audience'] ?? '') !== 'provider' && ($tpl['to_mode'] ?? '') !== 'provider') continue; ?>
-                    <option value="<?= e($tpl['code']) ?>" <?= ($item['provider_request_template'] ?? '') === $tpl['code'] ? 'selected' : '' ?>><?= e($tpl['name']) ?></option>
+                    <option value="<?= e($tpl['code']) ?>" <?= ($item['provider_request_template'] ?? '') === $tpl['code'] ? 'selected' : '' ?>><?= e($tpl['name']) ?> (<?= e($tpl['code']) ?>)</option>
                 <?php endforeach; ?>
             </select>
+            <small class="muted">
+                Es el correo que se envía al proveedor al confirmar pago / solicitar examen
+                (con exportación CSV/Excel y comprobante si existen). Ej. <code>uks_solicitud</code>.
+            </small>
         </label>
         <label>Plantilla datos de acceso (alumno)
             <select name="student_access_template">
@@ -67,6 +71,7 @@ foreach ($steps as $s) {
                     <option value="<?= e($tpl['code']) ?>" <?= ($item['student_access_template'] ?? '') === $tpl['code'] ? 'selected' : '' ?>><?= e($tpl['name']) ?></option>
                 <?php endforeach; ?>
             </select>
+            <small class="muted">Se envía manualmente desde el caso cuando ya tienes folio/clave (o Moodle usa <code>moodle_acceso</code>).</small>
         </label>
         <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>
         <div class="actions"><button class="btn" type="submit">Guardar protocolo</button><a class="btn btn-ghost" href="/admin/protocols">Volver</a></div>

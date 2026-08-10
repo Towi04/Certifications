@@ -55,7 +55,7 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <label>Nacionalidad<input name="student_nationality" value="<?= e($item['student_nationality'] ?? 'MEX') ?>"></label>
         <label>Fecha examen<input type="date" name="exam_date" value="<?= e($item['exam_date'] ?? '') ?>"></label>
         <label>Hora examen<input name="exam_time" value="<?= e($item['exam_time'] ?? '') ?>" placeholder="11:00"></label>
-        <label>Reagenda fecha<input type="date" name="reschedule_date" value="<?= e($item['reschedule_date'] ?? '') ?>"></label>
+        <label>Reagenda fecha<input type="date" name="reschedule_date" value="<?= e($item['reschedule_date'] ?? '') ?>"><small class="muted">Solo guarda; para avisar al proveedor usa la sección “Reagenda” abajo.</small></label>
         <label>Reagenda hora<input name="reschedule_time" value="<?= e($item['reschedule_time'] ?? '') ?>"></label>
         <label>Notas<textarea name="notes" rows="2"><?= e($item['notes'] ?? '') ?></textarea></label>
         <div class="actions"><button class="btn" type="submit">Guardar datos</button></div>
@@ -167,14 +167,29 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 </section>
 
 <section class="note">
-    <h3>Pago → generar plantilla → correo al proveedor</h3>
+    <h3>Pago → exportación → correo al proveedor</h3>
     <p class="muted">
-        Al confirmar el pago el sistema genera el archivo del proveedor
-        (UKS CSV, TOEFL Excel o Linguaskill Excel) y, si el protocolo tiene plantilla de solicitud, envía el correo adjuntando el archivo y el comprobante.
+        La plantilla que se manda al proveedor se configura en
+        <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>
+        (ej. <code>uks_solicitud</code>), no en la certificación.
+        El check “Adjuntar exportación…” en la plantilla adjunta el CSV/Excel del registro del alumno
+        (no el PDF del reglamento). El comprobante de pago se adjunta aparte si la audiencia es “Proveedor”.
+    </p>
+    <p class="muted">
+        Plantilla del protocolo:
+        <?php if (!empty($item['provider_request_template'])): ?>
+            <code><?= e((string)$item['provider_request_template']) ?></code>
+        <?php else: ?>
+            <em>sin configurar</em> — asóciala en el protocolo para poder solicitar al proveedor.
+        <?php endif; ?>
+        · Formato exportación: <code><?= e((string)($item['export_format'] ?? 'none')) ?></code>
     </p>
     <p class="muted">
         Pago confirmado:
         <?= !empty($item['payment_confirmed_at']) ? e($item['payment_confirmed_at']) : 'aún no' ?>
+        <?php if (!empty($item['payment_proof_path'])): ?>
+            · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
+        <?php endif; ?>
         <?php if (!empty($item['provider_request_sent_at'])): ?>
             · Solicitud enviada: <?= e($item['provider_request_sent_at']) ?>
         <?php endif; ?>
@@ -184,6 +199,18 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <label>Comprobante de pago (PDF/imagen)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
         <button class="btn" type="submit">Confirmar pago y solicitar al proveedor</button>
     </form>
+    <?php if (!empty($item['provider_request_template'])): ?>
+        <form method="post" action="/admin/cases/send-provider-request" enctype="multipart/form-data" class="stack" style="margin-top:1rem">
+            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+            <p class="muted">Reenvía solo la plantilla del protocolo (con exportación + comprobante). Útil si ya confirmaste pago y quieres volver a pedir el registro.</p>
+            <label>Comprobante (opcional; reemplaza el actual)
+                <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp">
+            </label>
+            <div class="actions">
+                <button class="btn" type="submit">Enviar solicitud al proveedor</button>
+            </div>
+        </form>
+    <?php endif; ?>
     <div class="actions" style="margin-top:1rem">
         <?php if (!empty($item['provider_export_path'])): ?>
             <a class="btn btn-ghost" href="/admin/cases/download-export?id=<?= (int)$item['id'] ?>">Descargar exportación</a>
@@ -195,6 +222,29 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             </form>
         <?php endif; ?>
     </div>
+</section>
+
+<section class="note">
+    <h3>Reagenda examen → notificar proveedor</h3>
+    <p class="muted">
+        Guarda la nueva fecha/hora y envía la plantilla <code>reagenda_solicitud</code>
+        (se crea sola si no existe; si falla, usa la plantilla de solicitud del protocolo).
+        Puedes adjuntar el comprobante que tú pagas al proveedor.
+        El alumno también puede pedir reagenda desde su panel.
+    </p>
+    <?php if (!empty($item['reschedule_date'])): ?>
+        <p class="muted">Reagenda actual: <strong><?= e($item['reschedule_date']) ?></strong>
+            <?php if (!empty($item['reschedule_time'])): ?> · <?= e($item['reschedule_time']) ?><?php endif; ?></p>
+    <?php endif; ?>
+    <form method="post" action="/admin/cases/reschedule" enctype="multipart/form-data" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Nueva fecha<input type="date" name="reschedule_date" required value="<?= e($item['reschedule_date'] ?? $item['exam_date'] ?? '') ?>"></label>
+        <label>Nueva hora<input type="time" name="reschedule_time" required value="<?= e(substr((string)($item['reschedule_time'] ?? $item['exam_time'] ?? '11:00'), 0, 5)) ?>"></label>
+        <label class="field-wide">Motivo / nota<input name="reschedule_reason" placeholder="Ej. conflicto de agenda del alumno"></label>
+        <label class="field-wide">Comprobante (opcional)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+        <label class="check field-wide"><input type="checkbox" name="skip_notify" value="1"> Solo guardar fecha, no enviar correo</label>
+        <div class="actions"><button class="btn" type="submit">Guardar reagenda y avisar al proveedor</button></div>
+    </form>
 </section>
 
 <section class="note">
@@ -234,7 +284,8 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 
 <section class="note">
     <h3>Enviar plantilla de correo</h3>
-    <form method="post" action="/admin/cases/send-mail" class="stack form-grid">
+    <p class="muted">Envío manual de cualquier plantilla. Si eliges una de proveedor y subes comprobante, se adjunta al correo.</p>
+    <form method="post" action="/admin/cases/send-mail" enctype="multipart/form-data" class="stack form-grid">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <label>Plantilla
             <select name="template_code" required>
@@ -243,6 +294,9 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
                     <option value="<?= e($tpl['code']) ?>"><?= e($tpl['name']) ?> (<?= e($tpl['code']) ?>)</option>
                 <?php endforeach; ?>
             </select>
+        </label>
+        <label class="field-wide">Comprobante de pago (opcional)
+            <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp">
         </label>
         <div class="actions"><button class="btn" type="submit">Enviar ahora</button></div>
     </form>
