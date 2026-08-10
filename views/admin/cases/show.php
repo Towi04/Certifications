@@ -110,7 +110,8 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
             <label class="check"><input type="checkbox" name="force_new" value="1"> Forzar nueva CLABE</label>
         <?php endif; ?>
     </form>
-    <p class="muted">Webhook: <code>POST <?= e(rtrim((string)(\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/')) ?>/webhooks/openpay</code></p>
+    <p class="muted">Webhook: <code>POST <?= e(rtrim((string)(\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/')) ?>/webhooks/openpay</code>
+        · <a href="/admin/openpay">configurar</a></p>
 </section>
 
 <section class="note">
