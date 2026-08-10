@@ -1766,6 +1766,58 @@ final class CatalogRepository
         return $this->pdo->query($sql)->fetchAll();
     }
 
+    /**
+     * Cursos con sus vínculos a certificaciones (para el panel admin).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function coursesWithCertificationLinks(bool $onlyActive = false): array
+    {
+        $courses = $this->courses($onlyActive);
+        if ($courses === []) {
+            return [];
+        }
+
+        $links = $this->pdo->query(
+            'SELECT cc.course_id, cc.certification_id, cc.relation_type, cc.bundle_price, cc.notes,
+                    c.name AS certification_name, c.code AS certification_code, p.name AS provider_name
+             FROM certification_courses cc
+             JOIN certifications c ON c.id = cc.certification_id
+             JOIN providers p ON p.id = c.provider_id
+             ORDER BY c.name'
+        )->fetchAll();
+
+        $byCourse = [];
+        foreach ($links as $link) {
+            $cid = (int) $link['course_id'];
+            $byCourse[$cid][] = $link;
+        }
+
+        foreach ($courses as &$course) {
+            $id = (int) $course['id'];
+            $course['cert_links'] = $byCourse[$id] ?? [];
+            $course['is_linked'] = $course['cert_links'] !== [];
+        }
+        unset($course);
+
+        return $courses;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function courseCertificationLinks(int $courseId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT cc.*, c.name AS certification_name, c.code AS certification_code, p.name AS provider_name
+             FROM certification_courses cc
+             JOIN certifications c ON c.id = cc.certification_id
+             JOIN providers p ON p.id = c.provider_id
+             WHERE cc.course_id = ?
+             ORDER BY c.name'
+        );
+        $stmt->execute([$courseId]);
+        return $stmt->fetchAll();
+    }
+
     public function course(int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM courses WHERE id = ?');
@@ -2328,8 +2380,13 @@ final class CatalogRepository
         if (!in_array($relationType, $allowed, true)) {
             $relationType = 'included';
         }
-        if ($relationType !== 'bundle_discount') {
+        // Incluido (gratis) y bundle no exigen precio de venta aparte;
+        // vendido por separado sí guarda precio en bundle_price.
+        // Bundle con descuento también puede llevar precio de paquete.
+        if ($relationType === 'included') {
             $bundlePrice = null;
+        } elseif ($relationType === 'sold_separate' && ($bundlePrice === null || $bundlePrice < 0)) {
+            throw new \InvalidArgumentException('Indica el precio del curso cuando se vende por separado.');
         }
         $stmt = $this->pdo->prepare(
             'INSERT INTO certification_courses (certification_id, course_id, relation_type, bundle_price, notes)

@@ -1221,10 +1221,59 @@ final class AdminRoutes
             Auth::requireAdmin();
             view('admin/courses/index', [
                 'title' => 'Cursos',
-                'items' => $repo()->courses(),
+                'items' => $repo()->coursesWithCertificationLinks(),
+                'certifications' => $repo()->certifications(),
+                'relationTypes' => CatalogRepository::courseRelationTypes(),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/admin/courses/attach-certification', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $courseId = (int) ($_POST['course_id'] ?? 0);
+            $certificationId = (int) ($_POST['certification_id'] ?? 0);
+            $relationType = (string) ($_POST['relation_type'] ?? 'included');
+            $priceRaw = trim((string) ($_POST['bundle_price'] ?? ''));
+            if ($courseId < 1 || $certificationId < 1) {
+                flash('error', 'Selecciona la certificación a vincular.');
+                header('Location: /admin/courses');
+                exit;
+            }
+            try {
+                $needsPrice = $relationType === 'sold_separate';
+                $price = null;
+                if ($needsPrice) {
+                    if ($priceRaw === '' || !is_numeric($priceRaw)) {
+                        throw new \InvalidArgumentException('Indica el precio del curso (vendido por separado).');
+                    }
+                    $price = (float) $priceRaw;
+                } elseif ($relationType === 'bundle_discount' && $priceRaw !== '' && is_numeric($priceRaw)) {
+                    $price = (float) $priceRaw;
+                }
+                $repo()->attachCertificationCourse(
+                    $certificationId,
+                    $courseId,
+                    $relationType,
+                    $price,
+                    trim((string) ($_POST['notes'] ?? '')) ?: null
+                );
+                flash('info', 'Curso vinculado a la certificación.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/courses');
+            exit;
+        });
+
+        $router->post('/admin/courses/detach-certification', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $courseId = (int) ($_POST['course_id'] ?? 0);
+            $certificationId = (int) ($_POST['certification_id'] ?? 0);
+            $repo()->detachCertificationCourse($certificationId, $courseId);
+            flash('info', 'Vínculo con la certificación eliminado.');
+            header('Location: /admin/courses');
+            exit;
         });
 
         $router->get('/admin/courses/create', static function () use ($repo): void {
@@ -1859,11 +1908,15 @@ final class AdminRoutes
                 exit;
             }
             try {
+                $price = null;
+                if ($relationType === 'sold_separate' || $relationType === 'bundle_discount') {
+                    $price = $bundlePrice !== '' && is_numeric($bundlePrice) ? (float) $bundlePrice : null;
+                }
                 $repo()->attachCertificationCourse(
                     $certificationId,
                     $courseId,
                     $relationType,
-                    ($relationType === 'bundle_discount' && $bundlePrice !== '') ? (float) $bundlePrice : null,
+                    $price,
                     trim((string) ($_POST['notes'] ?? '')) ?: null
                 );
                 flash('info', 'Curso vinculado.');
