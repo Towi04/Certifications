@@ -405,6 +405,8 @@ final class PublicRoutes
                 'regulation' => $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
                 'requires_regulation' => !empty($item['requires_regulation_signature']),
                 'cenni_docs' => $repo()->certificationDocumentsByStage((int) ($item['certification_id'] ?? 0), 'cenni'),
+                'moodle_enrolments' => $repo()->caseMoodleEnrolments($id),
+                'course_prorrogas' => $repo()->courseProrrogasForCase($id),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
@@ -620,6 +622,87 @@ final class PublicRoutes
                 flash('error', $e->getMessage());
             }
             header('Location: /alumno/caso?id=' . $caseId . '#pago');
+            exit;
+        });
+
+        $router->post('/alumno/caso/prorroga/start', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $enrolmentId = (int) ($_POST['enrolment_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            try {
+                $prorroga = (new \App\Services\CourseProrrogaService($repo()))->startProrroga($caseId, $enrolmentId);
+                flash('info', 'Prórroga iniciada por $' . number_format((float) ($prorroga['amount'] ?? 0), 2) . ' MXN (+6 meses). Elige SPEI o sube comprobante.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#moodle');
+            exit;
+        });
+
+        $router->post('/alumno/caso/prorroga/request-spei', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $prorrogaId = (int) ($_POST['prorroga_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $prorroga = $repo()->courseProrroga($prorrogaId);
+            if (!$prorroga || (int) ($prorroga['case_id'] ?? 0) !== $caseId) {
+                flash('error', 'Prórroga no encontrada.');
+                header('Location: /alumno/caso?id=' . $caseId . '#moodle');
+                exit;
+            }
+            try {
+                $fields = (new \App\Services\CourseProrrogaService($repo()))->ensureSpeiCharge($prorrogaId, isset($_POST['force_new']));
+                flash('info', 'CLABE SPEI de prórroga lista: ' . ($fields['openpay_clabe'] ?? '') . '.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#moodle');
+            exit;
+        });
+
+        $router->post('/alumno/caso/prorroga/upload-proof', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $prorrogaId = (int) ($_POST['prorroga_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $prorroga = $repo()->courseProrroga($prorrogaId);
+            if (!$prorroga || (int) ($prorroga['case_id'] ?? 0) !== $caseId) {
+                flash('error', 'Prórroga no encontrada.');
+                header('Location: /alumno/caso?id=' . $caseId . '#moodle');
+                exit;
+            }
+            try {
+                (new \App\Services\CourseProrrogaService($repo()))->uploadProof(
+                    $prorrogaId,
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null,
+                    (string) ($_POST['payment_method'] ?? 'transfer'),
+                    trim((string) ($_POST['payment_note'] ?? '')) ?: null,
+                    (int) $user['id']
+                );
+                flash('info', 'Comprobante de prórroga recibido. Doceo confirmará el pago para extender tu acceso 6 meses.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#moodle');
             exit;
         });
 

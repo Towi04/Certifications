@@ -1070,6 +1070,7 @@ final class AdminRoutes
             view('admin/pendientes', [
                 'title' => 'Pendientes operativos',
                 'items' => $repo()->opsBoardCases($filter, 300),
+                'pending_prorrogas' => $repo()->pendingCourseProrrogas(50),
                 'filter' => $filter,
                 'filters' => \App\Catalog\CatalogRepository::caseAttentionFilters(),
                 'info' => flash('info'),
@@ -1156,6 +1157,8 @@ final class AdminRoutes
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
                 'cenni_processes' => \App\Payments\OpenPayPaymentService::cenniProcesses(),
+                'moodle_enrolments' => $repo()->caseMoodleEnrolments($id),
+                'course_prorrogas' => $repo()->courseProrrogasForCase($id),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'info' => flash('info'),
@@ -1496,6 +1499,7 @@ final class AdminRoutes
 
         $router->get('/admin/courses', static function () use ($repo): void {
             Auth::requireAdmin();
+            $repo()->ensureCourseAccessTables();
             view('admin/courses/index', [
                 'title' => 'Cursos',
                 'items' => $repo()->coursesWithCertificationLinks(),
@@ -1600,6 +1604,10 @@ final class AdminRoutes
                     'platform_type' => (string) ($_POST['platform_type'] ?? 'moodle'),
                     'external_url' => trim((string) ($_POST['external_url'] ?? '')) ?: null,
                     'moodle_course_id' => $moodleId !== '' ? (int) $moodleId : null,
+                    'access_months' => (int) ($_POST['access_months'] ?? 6) ?: 6,
+                    'prorroga_price' => trim((string) ($_POST['prorroga_price'] ?? '')) !== ''
+                        ? (float) $_POST['prorroga_price']
+                        : null,
                     'access_notes' => trim((string) ($_POST['access_notes'] ?? '')) ?: null,
                     'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
@@ -2881,6 +2889,59 @@ final class AdminRoutes
                 flash('error', $e->getMessage());
             }
             header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/prorrogas/confirm', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $prorrogaId = (int) ($_POST['prorroga_id'] ?? 0);
+            $user = Auth::user();
+            $redirect = trim((string) ($_POST['redirect'] ?? ''));
+            try {
+                $prorroga = $repo()->courseProrroga($prorrogaId);
+                if (!$prorroga) {
+                    throw new \RuntimeException('Prórroga no encontrada.');
+                }
+                $method = trim((string) ($_POST['payment_method'] ?? $prorroga['payment_method'] ?? 'transfer'));
+                if (!in_array($method, ['cash', 'transfer', 'openpay', 'other'], true)) {
+                    $method = 'transfer';
+                }
+                $result = (new \App\Services\CourseProrrogaService($repo()))->confirmPaid(
+                    $prorrogaId,
+                    $method,
+                    $user ? (int) $user['id'] : null
+                );
+                flash(
+                    'info',
+                    'Prórroga confirmada. Acceso Moodle hasta ' . ($result['access_ends_at'] ?? '') . '.'
+                );
+                $caseId = (int) ($prorroga['case_id'] ?? 0);
+                if ($redirect !== '' && str_starts_with($redirect, '/admin/')) {
+                    header('Location: ' . $redirect);
+                } else {
+                    header('Location: /admin/cases/view?id=' . $caseId);
+                }
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: ' . ($redirect !== '' && str_starts_with($redirect, '/admin/') ? $redirect : '/admin/pendientes'));
+                exit;
+            }
+        });
+
+        $router->post('/admin/moodle/expire-enrolments', static function () use ($repo): void {
+            Auth::requireAdmin();
+            try {
+                $result = (new \App\Integrations\MoodleEnrolService($repo()))->suspendExpiredEnrolments(300);
+                $msg = 'Matrículas vencidas suspendidas: ' . ($result['suspended'] ?? 0) . '.';
+                if (!empty($result['errors'])) {
+                    $msg .= ' ' . implode(' ', array_slice($result['errors'], 0, 3));
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/courses');
             exit;
         });
 

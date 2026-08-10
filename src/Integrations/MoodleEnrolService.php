@@ -11,9 +11,13 @@ use App\Mail\CaseMailService;
 /**
  * Tras el pago: crea usuario Moodle si no existe y matricula en cursos
  * ligados a la certificación (platform_type=moodle + moodle_course_id).
+ * El acceso se limita a N meses (default 6); la prórroga extiende otros 6.
  */
 final class MoodleEnrolService
 {
+    public const DEFAULT_ACCESS_MONTHS = 6;
+    public const PRORROGA_MONTHS = 6;
+
     public function __construct(
         private readonly CatalogRepository $repo,
         private readonly MoodleClient $moodle = new MoodleClient(),
@@ -33,7 +37,7 @@ final class MoodleEnrolService
      *   moodle_user_id?: int,
      *   username?: string,
      *   created_user?: bool,
-     *   enrolled?: list<array{course_id:int,moodle_course_id:int,name:string}>,
+     *   enrolled?: list<array{course_id:int,moodle_course_id:int,name:string,access_ends_at?:string}>,
      *   access_mail?: bool,
      *   error?: string
      * }
@@ -43,6 +47,8 @@ final class MoodleEnrolService
         if (!Env::isFilled('MOODLE_URL') || !Env::isFilled('MOODLE_TOKEN')) {
             return ['skipped' => true, 'reason' => 'moodle_not_configured'];
         }
+
+        $this->repo->ensureCourseAccessTables();
 
         $case = $this->repo->certificationCaseDetailed($caseId);
         if (!$case) {
@@ -87,7 +93,6 @@ final class MoodleEnrolService
         } else {
             $username = $this->suggestUsername($email, $caseId);
             $password = $this->generatePassword();
-            // Evitar colisión de username
             if ($this->moodle->findUserByUsername($username)) {
                 $username = $username . $caseId;
             }
@@ -104,17 +109,60 @@ final class MoodleEnrolService
             $created = true;
         }
 
+        $now = new \DateTimeImmutable('now');
         $enrolled = [];
         foreach ($courses as $course) {
             $moodleCourseId = (int) ($course['moodle_course_id'] ?? 0);
-            if ($moodleCourseId < 1) {
+            $courseId = (int) ($course['id'] ?? 0);
+            if ($moodleCourseId < 1 || $courseId < 1) {
                 continue;
             }
-            $this->moodle->enrolUser($moodleUserId, $moodleCourseId);
+
+            $existing = $this->repo->caseMoodleEnrolmentByCaseCourse($caseId, $courseId);
+            $months = max(1, (int) ($course['access_months'] ?? self::DEFAULT_ACCESS_MONTHS));
+            if ($months < 1) {
+                $months = self::DEFAULT_ACCESS_MONTHS;
+            }
+
+            // Si ya hay ventana vigente, no acortar; solo asegurar matrícula activa.
+            if ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()
+                && ($existing['status'] ?? '') === 'active') {
+                $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
+                $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
+            } elseif ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()) {
+                // Había fecha futura pero estaba suspendido → reactivar hasta esa fecha
+                $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
+                $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
+            } else {
+                $startsAt = $now;
+                $endsAt = $now->modify('+' . $months . ' months');
+            }
+
+            $this->moodle->enrolUser(
+                $moodleUserId,
+                $moodleCourseId,
+                5,
+                $startsAt->getTimestamp(),
+                $endsAt->getTimestamp(),
+                0
+            );
+
+            $rowId = $this->repo->upsertCaseMoodleEnrolment([
+                'case_id' => $caseId,
+                'course_id' => $courseId,
+                'moodle_user_id' => $moodleUserId,
+                'moodle_course_id' => $moodleCourseId,
+                'access_starts_at' => $startsAt->format('Y-m-d H:i:s'),
+                'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
+                'status' => 'active',
+            ]);
+
             $enrolled[] = [
-                'course_id' => (int) $course['id'],
+                'course_id' => $courseId,
                 'moodle_course_id' => $moodleCourseId,
                 'name' => (string) ($course['name'] ?? ''),
+                'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
+                'enrolment_id' => $rowId,
             ];
         }
 
@@ -127,8 +175,8 @@ final class MoodleEnrolService
         $this->repo->updateCertificationCase($caseId, $fields);
 
         $note = $created
-            ? 'Usuario Moodle creado (' . $username . ') y matriculado en ' . count($enrolled) . ' curso(s).'
-            : 'Usuario Moodle existente (' . $username . ') matriculado en ' . count($enrolled) . ' curso(s).';
+            ? 'Usuario Moodle creado (' . $username . ') y matriculado en ' . count($enrolled) . ' curso(s) (acceso 6 meses).'
+            : 'Usuario Moodle existente (' . $username . ') matriculado en ' . count($enrolled) . ' curso(s) (acceso limitado).';
         try {
             $this->repo->markCaseStepDoneByKeywords(
                 $caseId,
@@ -159,6 +207,114 @@ final class MoodleEnrolService
         ];
     }
 
+    /**
+     * Extiende el acceso Moodle de una matrícula (+ meses, default 6).
+     *
+     * @return array{enrolment_id:int,access_ends_at:string}
+     */
+    public function extendEnrolment(int $enrolmentId, int $months = self::PRORROGA_MONTHS, ?int $actorUserId = null): array
+    {
+        if (!Env::isFilled('MOODLE_URL') || !Env::isFilled('MOODLE_TOKEN')) {
+            throw new \RuntimeException('Moodle no está configurado.');
+        }
+        $this->repo->ensureCourseAccessTables();
+        $enrol = $this->repo->caseMoodleEnrolment($enrolmentId);
+        if (!$enrol) {
+            throw new \RuntimeException('Matrícula Moodle no encontrada.');
+        }
+        $months = max(1, $months);
+        $now = new \DateTimeImmutable('now');
+        $currentEnd = !empty($enrol['access_ends_at'])
+            ? new \DateTimeImmutable((string) $enrol['access_ends_at'])
+            : $now;
+        $base = $currentEnd > $now ? $currentEnd : $now;
+        $newEnd = $base->modify('+' . $months . ' months');
+        $startsAt = !empty($enrol['access_starts_at'])
+            ? new \DateTimeImmutable((string) $enrol['access_starts_at'])
+            : $now;
+
+        $moodleUserId = (int) ($enrol['moodle_user_id'] ?? 0);
+        $moodleCourseId = (int) ($enrol['moodle_course_id'] ?? 0);
+        if ($moodleUserId < 1 || $moodleCourseId < 1) {
+            throw new \RuntimeException('La matrícula no tiene IDs Moodle.');
+        }
+
+        $this->moodle->enrolUser(
+            $moodleUserId,
+            $moodleCourseId,
+            5,
+            $startsAt->getTimestamp(),
+            $newEnd->getTimestamp(),
+            0
+        );
+
+        $this->repo->updateCaseMoodleEnrolment($enrolmentId, [
+            'access_ends_at' => $newEnd->format('Y-m-d H:i:s'),
+            'status' => 'active',
+            'last_synced_at' => date('Y-m-d H:i:s'),
+            'moodle_user_id' => $moodleUserId,
+            'moodle_course_id' => $moodleCourseId,
+        ]);
+
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                (int) $enrol['case_id'],
+                ['prorroga', 'prórroga', 'moodle', 'acceso'],
+                $actorUserId,
+                'Prórroga Moodle +' . $months . ' meses hasta ' . $newEnd->format('Y-m-d')
+            );
+        } catch (\Throwable) {
+        }
+
+        return [
+            'enrolment_id' => $enrolmentId,
+            'access_ends_at' => $newEnd->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * Suspende en Moodle las matrículas vencidas y marca status=expired.
+     *
+     * @return array{suspended:int,errors:list<string>}
+     */
+    public function suspendExpiredEnrolments(int $limit = 200): array
+    {
+        $this->repo->ensureCourseAccessTables();
+        $rows = $this->repo->expiredActiveMoodleEnrolments($limit);
+        $suspended = 0;
+        $errors = [];
+        if (!Env::isFilled('MOODLE_URL') || !Env::isFilled('MOODLE_TOKEN')) {
+            foreach ($rows as $row) {
+                $this->repo->updateCaseMoodleEnrolment((int) $row['id'], [
+                    'status' => 'expired',
+                    'last_synced_at' => date('Y-m-d H:i:s'),
+                ]);
+                $suspended++;
+            }
+
+            return ['suspended' => $suspended, 'errors' => ['moodle_not_configured_db_only']];
+        }
+
+        foreach ($rows as $row) {
+            try {
+                $uid = (int) ($row['moodle_user_id'] ?? 0);
+                $cid = (int) ($row['moodle_course_id'] ?? 0);
+                if ($uid > 0 && $cid > 0) {
+                    $this->moodle->setEnrolmentSuspended($uid, $cid, 1);
+                }
+                $this->repo->updateCaseMoodleEnrolment((int) $row['id'], [
+                    'status' => 'expired',
+                    'last_synced_at' => date('Y-m-d H:i:s'),
+                ]);
+                $suspended++;
+            } catch (\Throwable $e) {
+                $errors[] = '#' . ($row['id'] ?? '?') . ': ' . $e->getMessage();
+            }
+        }
+
+        return ['suspended' => $suspended, 'errors' => $errors];
+    }
+
     private function suggestUsername(string $email, int $caseId): string
     {
         $local = strtolower((string) strstr($email, '@', true));
@@ -175,7 +331,6 @@ final class MoodleEnrolService
 
     private function generatePassword(): string
     {
-        // Moodle exige complejidad: mayúscula, minúscula, número y símbolo.
         $base = bin2hex(random_bytes(4));
 
         return 'Doceo!' . $base . '9';

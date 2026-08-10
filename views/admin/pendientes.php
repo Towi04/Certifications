@@ -76,3 +76,59 @@ $filters = $filters ?? \App\Catalog\CatalogRepository::caseAttentionFilters();
         </table>
     </div>
 </section>
+
+<?php
+$pending_prorrogas = $pending_prorrogas ?? [];
+if ($pending_prorrogas):
+?>
+<section class="note">
+    <h3>Prórrogas Moodle pendientes</h3>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+            <tr>
+                <th>Prórroga</th>
+                <th>Alumno</th>
+                <th>Curso</th>
+                <th>Monto</th>
+                <th>Estatus</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($pending_prorrogas as $pr): ?>
+                <tr>
+                    <td>#<?= (int)$pr['id'] ?></td>
+                    <td>
+                        <?= e(trim(($pr['student_name'] ?? '') . '')) ?><br>
+                        <span class="muted"><?= e($pr['student_email'] ?? '') ?></span>
+                    </td>
+                    <td><?= e($pr['course_name'] ?? '') ?><br><span class="muted"><?= e($pr['certification_name'] ?? '') ?></span></td>
+                    <td>$<?= e(number_format((float)($pr['amount'] ?? 0), 2)) ?></td>
+                    <td>
+                        <?= e($pr['status'] ?? '') ?>
+                        <?php if (!empty($pr['payment_proof_path'])): ?>
+                            · <a href="/media?f=<?= e(rawurlencode((string)$pr['payment_proof_path'])) ?>" target="_blank" rel="noopener">comprobante</a>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="actions">
+                            <a class="btn btn-ghost" href="/admin/cases/view?id=<?= (int)($pr['case_id'] ?? 0) ?>">Caso</a>
+                            <?php if (($pr['status'] ?? '') === 'proof_uploaded'): ?>
+                                <form method="post" action="/admin/prorrogas/confirm"
+                                      onsubmit="return confirm('¿Confirmar y extender Moodle 6 meses?');">
+                                    <input type="hidden" name="prorroga_id" value="<?= (int)$pr['id'] ?>">
+                                    <input type="hidden" name="payment_method" value="<?= e($pr['payment_method'] ?? 'transfer') ?>">
+                                    <input type="hidden" name="redirect" value="/admin/pendientes">
+                                    <button class="btn" type="submit">Confirmar</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+<?php endif; ?>

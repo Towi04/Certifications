@@ -158,6 +158,75 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 </section>
 
 <section class="note">
+    <h3>Acceso Moodle (6 meses) y prórrogas</h3>
+    <?php
+    $moodle_enrolments = $moodle_enrolments ?? [];
+    $course_prorrogas = $course_prorrogas ?? [];
+    ?>
+    <?php if ($moodle_enrolments): ?>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                <tr>
+                    <th>Curso</th>
+                    <th>Vigencia</th>
+                    <th>Estatus</th>
+                    <th>Prórroga</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($moodle_enrolments as $enrol): ?>
+                    <tr>
+                        <td><?= e($enrol['course_name'] ?? '') ?></td>
+                        <td><?= e($enrol['access_starts_at'] ?? '') ?> → <?= e($enrol['access_ends_at'] ?? '') ?></td>
+                        <td><?= e($enrol['status'] ?? '') ?></td>
+                        <td>
+                            <?php if ($enrol['prorroga_price'] !== null && $enrol['prorroga_price'] !== ''): ?>
+                                <?= e(\App\Support\Str::money((float)$enrol['prorroga_price'])) ?> / +6 meses
+                            <?php else: ?>
+                                <span class="muted">Sin precio</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php else: ?>
+        <p class="muted">Aún no hay matrículas Moodle registradas para este caso.</p>
+    <?php endif; ?>
+
+    <?php
+    $pendingProrrogas = array_values(array_filter(
+        $course_prorrogas,
+        static fn (array $p): bool => in_array(($p['status'] ?? ''), ['pending', 'proof_uploaded'], true)
+    ));
+    ?>
+    <?php if ($pendingProrrogas): ?>
+        <h4>Prórrogas por confirmar</h4>
+        <?php foreach ($pendingProrrogas as $pr): ?>
+            <div class="note" style="margin:0.6rem 0">
+                <p>
+                    #<?= (int)$pr['id'] ?> · <?= e($pr['course_name'] ?? '') ?>
+                    · $<?= e(number_format((float)($pr['amount'] ?? 0), 2)) ?>
+                    · <?= e($pr['status'] ?? '') ?>
+                    <?= !empty($pr['payment_method']) ? ' · ' . e($pr['payment_method']) : '' ?>
+                    <?php if (!empty($pr['payment_proof_path'])): ?>
+                        · <a href="/media?f=<?= e(rawurlencode((string)$pr['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
+                    <?php endif; ?>
+                </p>
+                <form method="post" action="/admin/prorrogas/confirm" class="actions"
+                      onsubmit="return confirm('¿Confirmar prórroga y extender Moodle 6 meses?');">
+                    <input type="hidden" name="prorroga_id" value="<?= (int)$pr['id'] ?>">
+                    <input type="hidden" name="payment_method" value="<?= e($pr['payment_method'] ?? 'transfer') ?>">
+                    <button class="btn" type="submit">Confirmar prórroga</button>
+                </form>
+            </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</section>
+
+<section class="note">
     <h3>Resultados del examen</h3>
     <?php
     $outcome = (string) ($item['exam_outcome'] ?? 'pending');
