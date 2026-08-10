@@ -82,19 +82,19 @@ final class CaseMailService
         } catch (\Throwable) {
         }
 
-        $moodle = null;
+        $fulfill = null;
         try {
-            $enrol = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this);
-            $moodle = $enrol->ensureAccessForCase($caseId, $userId);
+            $fulfill = (new \App\Services\ExamFulfillmentService($this->repo, $this))->fulfillAfterPayment($caseId, $userId);
         } catch (\Throwable $e) {
-            error_log('[PDV] Moodle enrol (mark payment) case #' . $caseId . ': ' . $e->getMessage());
-            $moodle = ['error' => $e->getMessage()];
+            error_log('[PDV] Fulfill (mark payment) case #' . $caseId . ': ' . $e->getMessage());
+            $fulfill = ['moodle' => ['error' => $e->getMessage()]];
         }
 
         return [
             'payment_confirmed_at' => $now,
             'payment_method' => $method,
-            'moodle' => $moodle,
+            'moodle' => $fulfill['moodle'] ?? null,
+            'fulfill' => $fulfill,
         ];
     }
 
@@ -166,13 +166,12 @@ final class CaseMailService
             $mailSkip = 'El protocolo no tiene “Plantilla solicitud a empresa”. Configúrala en Admin → Protocolos.';
         }
 
-        $moodle = null;
+        $fulfill = null;
         try {
-            $enrol = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this);
-            $moodle = $enrol->ensureAccessForCase($caseId, $userId);
+            $fulfill = (new \App\Services\ExamFulfillmentService($this->repo, $this))->fulfillAfterPayment($caseId, $userId);
         } catch (\Throwable $e) {
-            error_log('[PDV] Moodle enrol (confirm payment) case #' . $caseId . ': ' . $e->getMessage());
-            $moodle = ['error' => $e->getMessage()];
+            error_log('[PDV] Fulfill (confirm payment) case #' . $caseId . ': ' . $e->getMessage());
+            $fulfill = ['moodle' => ['error' => $e->getMessage()]];
         }
 
         return [
@@ -181,7 +180,8 @@ final class CaseMailService
             'to' => $to,
             'template' => $templateCode !== '' ? $templateCode : null,
             'mail_skip' => $mailSkip,
-            'moodle' => $moodle,
+            'moodle' => $fulfill['moodle'] ?? null,
+            'fulfill' => $fulfill,
         ];
     }
 
@@ -514,7 +514,14 @@ final class CaseMailService
             'TOKEN' => $token,
             'CC' => (string) ($case['cc_email'] ?? ''),
             'iTEP Results' => (string) ($case['results_url'] ?? ''),
-            'Canceled' => (string) ($case['cancel_reason'] ?? ''),
+            'Score URL' => (string) ($case['score_url'] ?? ''),
+            'Certificate URL' => (string) ($case['certificate_url'] ?? ''),
+            'Resultados Line' => self::linkLine('Resultados', (string) ($case['results_url'] ?? '')),
+            'Score Line' => self::linkLine('Score result', (string) ($case['score_url'] ?? '')),
+            'Certificate Line' => self::linkLine('Certificate', (string) ($case['certificate_url'] ?? '')),
+            'Canceled' => trim((string) ($case['invalidation_reason'] ?? '')) !== ''
+                ? (string) $case['invalidation_reason']
+                : (string) ($case['cancel_reason'] ?? ''),
             'user' => (string) ($case['moodle_user'] ?? ''),
             'password' => (string) ($case['moodle_password'] ?? ''),
             'Contacto Doceo' => (string) (Env::get('DOCEO_CONTACT_EMAIL', 'info@institutodoceo.com') ?? 'info@institutodoceo.com'),
@@ -668,6 +675,112 @@ final class CaseMailService
         return ['status' => $status, 'mailed' => $mailed];
     }
 
+    private static function linkLine(string $label, string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+        $safeLabel = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
+
+        return '<strong>' . $safeLabel . ':</strong> <a href="' . $safeUrl . '" target="_blank" rel="noopener">'
+            . $safeUrl . '</a><br>';
+    }
+
+    /**
+     * Publica enlaces de resultados y notifica al alumno (plantilla itep_resultados u otra).
+     *
+     * @return array{mailed:bool,template:?string,to:?string}
+     */
+    public function deliverExamResults(
+        int $caseId,
+        string $resultsUrl,
+        string $scoreUrl,
+        string $certificateUrl,
+        bool $notify,
+        ?int $userId,
+        string $templateCode = 'itep_resultados'
+    ): array {
+        $this->repo->ensureInventoryAndResultColumns();
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+        $fields = [
+            'results_url' => trim($resultsUrl) ?: null,
+            'score_url' => trim($scoreUrl) ?: null,
+            'certificate_url' => trim($certificateUrl) ?: null,
+            'exam_outcome' => 'delivered',
+            'invalidation_reason' => null,
+        ];
+        $this->repo->updateCertificationCase($caseId, $fields);
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                $caseId,
+                ['resultado', 'score', 'certificado', 'certificate'],
+                $userId,
+                'Resultados publicados'
+            );
+        } catch (\Throwable) {
+        }
+
+        $mailed = false;
+        $to = null;
+        $tpl = trim($templateCode) !== '' ? trim($templateCode) : 'itep_resultados';
+        if ($notify) {
+            $sent = $this->sendTemplate($caseId, $tpl, $userId);
+            $mailed = true;
+            $to = $sent['to'] ?? null;
+        }
+
+        return ['mailed' => $mailed, 'template' => $notify ? $tpl : null, 'to' => $to];
+    }
+
+    /**
+     * Marca el examen como invalidado y notifica al alumno.
+     *
+     * @return array{mailed:bool,template:?string,to:?string}
+     */
+    public function invalidateExam(
+        int $caseId,
+        string $reason,
+        bool $notify,
+        ?int $userId,
+        string $templateCode = 'itep_invalidado'
+    ): array {
+        $this->repo->ensureInventoryAndResultColumns();
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \InvalidArgumentException('Indica el motivo de invalidación.');
+        }
+        $this->repo->updateCertificationCase($caseId, [
+            'exam_outcome' => 'invalidated',
+            'invalidation_reason' => $reason,
+            'cancel_reason' => $reason,
+        ]);
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                $caseId,
+                ['invalid', 'resultado', 'examen'],
+                $userId,
+                'Examen invalidado: ' . $reason
+            );
+        } catch (\Throwable) {
+        }
+
+        $mailed = false;
+        $to = null;
+        $tpl = trim($templateCode) !== '' ? trim($templateCode) : 'itep_invalidado';
+        if ($notify) {
+            $sent = $this->sendTemplate($caseId, $tpl, $userId);
+            $mailed = true;
+            $to = $sent['to'] ?? null;
+        }
+
+        return ['mailed' => $mailed, 'template' => $notify ? $tpl : null, 'to' => $to];
+    }
+
     /** @return array<string, string> Clave token => descripción para el editor admin */
     public static function tokenHelp(): array
     {
@@ -688,8 +801,13 @@ final class CaseMailService
             'Zoom' => 'URL de Zoom',
             'TOKEN' => 'URL de guía / prep',
             'CC' => 'Correo en copia (TR)',
-            'iTEP Results' => 'URL de resultados',
-            'Canceled' => 'Motivo de cancelación',
+            'iTEP Results' => 'URL de resultados del examen',
+            'Score URL' => 'URL del Score result',
+            'Certificate URL' => 'URL del Certificate',
+            'Resultados Line' => 'Línea HTML con link a resultados',
+            'Score Line' => 'Línea HTML con link a Score',
+            'Certificate Line' => 'Línea HTML con link a Certificate',
+            'Canceled' => 'Motivo de invalidación / cancelación',
             'user' => 'Usuario Moodle',
             'password' => 'Contraseña Moodle',
             'Contacto Doceo' => 'Correo de contacto Doceo',

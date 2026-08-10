@@ -427,6 +427,23 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                         <?php endforeach; ?>
                     </select>
                 </label>
+                <?php
+                $documents = $documents ?? [];
+                $cenniDocId = (int) ($cenni_instruction_doc_id ?? 0);
+                ?>
+                <label class="field-wide">PDF instrucciones solicitud CENNI
+                    <span class="muted" style="font-weight:400;display:block;margin:0.2rem 0 0.35rem">
+                        Documento del catálogo (Admin → Documentos) que el alumno descarga para llenar la solicitud.
+                    </span>
+                    <select name="cenni_instruction_document_id">
+                        <option value="">— ninguno —</option>
+                        <?php foreach ($documents as $doc): ?>
+                            <option value="<?= (int)$doc['id'] ?>" <?= $cenniDocId === (int)$doc['id'] ? 'selected' : '' ?>>
+                                <?= e(($doc['title'] ?? '') . ' v' . ($doc['version'] ?? '')) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
             </div>
         </div>
 

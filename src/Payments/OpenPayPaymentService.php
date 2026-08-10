@@ -199,18 +199,28 @@ final class OpenPayPaymentService
 
             $moodleNote = null;
             try {
-                $moodle = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this->mailer());
-                $moodleResult = $moodle->ensureAccessForCase($caseId, null);
-                if (empty($moodleResult['skipped'])) {
+                $fulfill = (new \App\Services\ExamFulfillmentService($this->repo, $this->mailer()))->fulfillAfterPayment($caseId, null);
+                $moodleResult = $fulfill['moodle'] ?? [];
+                if (is_array($moodleResult) && empty($moodleResult['skipped']) && empty($moodleResult['error'])) {
                     $moodleNote = !empty($moodleResult['created_user'])
                         ? 'moodle_created:' . ($moodleResult['username'] ?? '')
                         : 'moodle_enrolled:' . ($moodleResult['username'] ?? '');
-                } elseif (($moodleResult['reason'] ?? '') !== 'no_moodle_courses') {
+                } elseif (is_array($moodleResult) && !empty($moodleResult['error'])) {
+                    $moodleNote = 'moodle_error:' . $moodleResult['error'];
+                } elseif (is_array($moodleResult) && ($moodleResult['reason'] ?? '') !== 'no_moodle_courses') {
                     $moodleNote = 'moodle_skip:' . ($moodleResult['reason'] ?? '');
                 }
+                if (!empty($fulfill['inventory']['assigned'])) {
+                    $moodleNote = ($moodleNote ? $moodleNote . '|' : '') . 'inventory_assigned';
+                } elseif (!empty($fulfill['inventory']['error'])) {
+                    $moodleNote = ($moodleNote ? $moodleNote . '|' : '') . 'inventory_error:' . $fulfill['inventory']['error'];
+                }
+                if (!empty($fulfill['access_mail']['sent'])) {
+                    $moodleNote = ($moodleNote ? $moodleNote . '|' : '') . 'access_mail_sent';
+                }
             } catch (\Throwable $moodleErr) {
-                $moodleNote = 'moodle_error:' . $moodleErr->getMessage();
-                error_log('[PDV] Moodle enrol case #' . $caseId . ': ' . $moodleErr->getMessage());
+                $moodleNote = 'fulfill_error:' . $moodleErr->getMessage();
+                error_log('[PDV] Fulfill case #' . $caseId . ': ' . $moodleErr->getMessage());
             }
 
             try {

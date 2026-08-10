@@ -127,7 +127,6 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>"></label>
         <label>Moodle user<input name="moodle_user" value="<?= e($item['moodle_user'] ?? '') ?>"></label>
         <label>Moodle password<input name="moodle_password" value="<?= e($item['moodle_password'] ?? '') ?>"></label>
-        <label>URL resultados<input name="results_url" value="<?= e($item['results_url'] ?? '') ?>"></label>
         <label>Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
         <div class="actions">
             <button class="btn" type="submit">Guardar credenciales</button>
@@ -138,7 +137,72 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <button class="btn btn-ghost" type="submit">Sincronizar Moodle (crear usuario + enrol)</button>
     </form>
-    <p class="muted">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente si la certificación tiene cursos Moodle vinculados.</p>
+    <form method="post" action="/admin/cases/fulfill" class="actions" style="margin-top:0.5rem"
+          onsubmit="return confirm('¿Ejecutar fulfillment: Moodle + asignar código de inventario + correo de acceso?');">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <button class="btn btn-ghost" type="submit">Asignar código / reenviar acceso (iTEP)</button>
+    </form>
+    <?php if (!empty($item['uses_inventory'])): ?>
+        <p class="muted">
+            Protocolo con inventario.
+            <?php if (!empty($item['inventory_code_id'])): ?>
+                Código asignado #<?= (int)$item['inventory_code_id'] ?>
+                (folio <code><?= e($item['folio_id'] ?? '') ?></code>).
+            <?php else: ?>
+                Aún sin código — carga stock en <a href="/admin/inventory">Inventario</a> y usa el botón de arriba.
+            <?php endif; ?>
+        </p>
+    <?php else: ?>
+        <p class="muted">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente Moodle si hay cursos vinculados.</p>
+    <?php endif; ?>
+</section>
+
+<section class="note">
+    <h3>Resultados del examen</h3>
+    <?php
+    $outcome = (string) ($item['exam_outcome'] ?? 'pending');
+    $outcomeLabel = match ($outcome) {
+        'delivered' => 'Entregados',
+        'invalidated' => 'Invalidado',
+        default => 'Pendiente',
+    };
+    ?>
+    <p>Estatus: <strong><?= e($outcomeLabel) ?></strong>
+        <?php if ($outcome === 'invalidated' && !empty($item['invalidation_reason'])): ?>
+            · Motivo: <?= e($item['invalidation_reason']) ?>
+        <?php endif; ?>
+    </p>
+    <form method="post" action="/admin/cases/exam-results" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <input type="hidden" name="action" value="deliver">
+        <label>URL resultados<input name="results_url" value="<?= e($item['results_url'] ?? '') ?>" placeholder="https://…"></label>
+        <label>URL Score result<input name="score_url" value="<?= e($item['score_url'] ?? '') ?>" placeholder="https://…"></label>
+        <label>URL Certificate<input name="certificate_url" value="<?= e($item['certificate_url'] ?? '') ?>" placeholder="https://…"></label>
+        <label>Plantilla
+            <select name="template_code">
+                <option value="itep_resultados">itep_resultados</option>
+                <?php foreach (($mail_templates ?? []) as $tpl): ?>
+                    <?php if (($tpl['audience'] ?? '') === 'student' && ($tpl['code'] ?? '') !== 'itep_resultados'): ?>
+                        <option value="<?= e($tpl['code']) ?>"><?= e($tpl['code']) ?></option>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label class="check field-wide"><input type="checkbox" name="notify_student" value="1" checked> Notificar al alumno por correo</label>
+        <div class="actions"><button class="btn" type="submit">Guardar resultados y notificar</button></div>
+    </form>
+    <hr>
+    <form method="post" action="/admin/cases/exam-results" class="stack form-grid"
+          onsubmit="return confirm('¿Marcar el examen como invalidado?');">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <input type="hidden" name="action" value="invalidate">
+        <label class="field-wide">Motivo de invalidación
+            <textarea name="invalidation_reason" rows="3" required placeholder="Describe por qué se invalidó el examen"><?= e($item['invalidation_reason'] ?? '') ?></textarea>
+        </label>
+        <input type="hidden" name="template_code" value="itep_invalidado">
+        <label class="check field-wide"><input type="checkbox" name="notify_student" value="1" checked> Notificar al alumno</label>
+        <div class="actions"><button class="btn btn-ghost" type="submit">Invalidar examen</button></div>
+    </form>
 </section>
 
 <section class="note">
