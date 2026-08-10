@@ -25,6 +25,8 @@
     <a href="/admin/agreements">Convenios anuales</a>
     <a href="/admin/partners">Partners</a>
     <a href="/admin/users">Usuarios</a>
+    <a href="/admin/mail-templates">Correos</a>
+    <a href="/admin/reglamentos-firmados">Firmas</a>
     <a href="/admin/openpay">OpenPay</a>
 </nav>
 

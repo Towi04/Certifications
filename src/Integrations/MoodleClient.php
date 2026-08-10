@@ -28,7 +28,7 @@ final class MoodleClient
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => http_build_query($payload),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_TIMEOUT => 45,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
 
@@ -65,5 +65,101 @@ final class MoodleClient
     {
         $result = $this->call('core_course_get_courses');
         return array_values($result);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function getUsersByField(string $field, array $values): array
+    {
+        $params = ['field' => $field];
+        foreach (array_values($values) as $i => $value) {
+            $params['values[' . $i . ']'] = (string) $value;
+        }
+        $result = $this->call('core_user_get_users_by_field', $params);
+
+        return array_values(is_array($result) ? $result : []);
+    }
+
+    public function findUserByEmail(string $email): ?array
+    {
+        $email = strtolower(trim($email));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return null;
+        }
+        $users = $this->getUsersByField('email', [$email]);
+        foreach ($users as $user) {
+            if (is_array($user) && !empty($user['id'])) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
+    public function findUserByUsername(string $username): ?array
+    {
+        $username = strtolower(trim($username));
+        if ($username === '') {
+            return null;
+        }
+        $users = $this->getUsersByField('username', [$username]);
+        foreach ($users as $user) {
+            if (is_array($user) && !empty($user['id'])) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{id:int,username:string,password:?string,created:bool}
+     */
+    public function createUser(array $data): array
+    {
+        $username = strtolower(trim((string) ($data['username'] ?? '')));
+        $password = (string) ($data['password'] ?? '');
+        $firstname = trim((string) ($data['firstname'] ?? 'Alumno'));
+        $lastname = trim((string) ($data['lastname'] ?? 'Doceo'));
+        $email = strtolower(trim((string) ($data['email'] ?? '')));
+
+        if ($username === '' || $email === '' || $password === '') {
+            throw new \InvalidArgumentException('username, email y password son obligatorios para crear usuario Moodle.');
+        }
+
+        $result = $this->call('core_user_create_users', [
+            'users[0][username]' => $username,
+            'users[0][password]' => $password,
+            'users[0][firstname]' => mb_substr($firstname !== '' ? $firstname : 'Alumno', 0, 100),
+            'users[0][lastname]' => mb_substr($lastname !== '' ? $lastname : 'Doceo', 0, 100),
+            'users[0][email]' => $email,
+            'users[0][auth]' => 'manual',
+            'users[0][lang]' => 'es',
+            'users[0][mailformat]' => 1,
+        ]);
+
+        $created = is_array($result[0] ?? null) ? $result[0] : null;
+        if (!$created || empty($created['id'])) {
+            throw new \RuntimeException('Moodle no devolvió el ID del usuario creado.');
+        }
+
+        return [
+            'id' => (int) $created['id'],
+            'username' => (string) ($created['username'] ?? $username),
+            'password' => $password,
+            'created' => true,
+        ];
+    }
+
+    public function enrolUser(int $userId, int $courseId, int $roleId = 5): void
+    {
+        if ($userId < 1 || $courseId < 1) {
+            throw new \InvalidArgumentException('userId y courseId Moodle inválidos.');
+        }
+        $this->call('enrol_manual_enrol_users', [
+            'enrolments[0][roleid]' => $roleId,
+            'enrolments[0][userid]' => $userId,
+            'enrolments[0][courseid]' => $courseId,
+            'enrolments[0][suspend]' => 0,
+        ]);
     }
 }

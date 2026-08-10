@@ -72,8 +72,9 @@ Si ves “archivo demasiado grande (código 1)”, el hosting limita `upload_max
 
 ## 4. Moodle
 
-- Servicio externo con función `core_course_get_courses` (ya verificada).
-- Más adelante (enrol): añadir `core_user_create_users`, `core_user_get_users_by_field`, `enrol_manual_enrol_users`.
+- Servicio externo con funciones: `core_course_get_courses`, `core_user_get_users_by_field`, `core_user_create_users`, `enrol_manual_enrol_users`.
+- Tras el pago, el PDV crea/matricula usuarios en cursos Moodle ligados a la certificación (ver `docs/setup-moodle.md`).
+- Plantilla de correo: `sql/migration_mail_moodle_acceso.sql` (`moodle_acceso`).
 - Cuando el panel de salud esté en verde, **elimina** `test_moodle.php` del servidor.
 
 ## 5. OpenPay (sandbox)

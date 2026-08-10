@@ -102,6 +102,22 @@ $menus = [
         'icon' => 'list',
     ],
     [
+        'href' => '/admin/mail-templates',
+        'title' => 'Correos',
+        'desc' => 'Plantillas a alumnos y proveedores',
+        'count' => null,
+        'tone' => 'green',
+        'icon' => 'file',
+    ],
+    [
+        'href' => '/admin/reglamentos-firmados',
+        'title' => 'Firmas reglamento',
+        'desc' => 'Evidencia de aceptación del alumno',
+        'count' => null,
+        'tone' => 'indigo',
+        'icon' => 'file',
+    ],
+    [
         'href' => '/admin/openpay',
         'title' => 'OpenPay',
         'desc' => 'Webhook SPEI y eventos de pago',
