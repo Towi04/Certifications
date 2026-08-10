@@ -76,31 +76,41 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
     ?>
     <?php if (!empty($item['regulation_signed_at'])): ?>
         <p>
-            <span class="pill pill-ok">Firmado</span>
+            <span class="pill pill-ok">Firmado digitalmente</span>
             el <?= e((string)$item['regulation_signed_at']) ?>
             por <strong><?= e((string)($item['regulation_signer_name'] ?? '')) ?></strong>
+            <?php if (!empty($item['regulation_signature_mode'])): ?>
+                <span class="muted">(<?= e($item['regulation_signature_mode'] === 'draw' ? 'dibujo' : 'nombre escrito') ?>)</span>
+            <?php endif; ?>
         </p>
         <?php if ($regulation_doc): ?>
             <p>
-                Documento:
+                Reglamento original:
                 <strong><?= e((string)($regulation_doc['title'] ?? 'Reglamento')) ?></strong>
                 <?php if (!empty($regulation_doc['version'])): ?>
                     <span class="muted">v<?= e((string)$regulation_doc['version']) ?></span>
                 <?php endif; ?>
                 <?php if (!empty($regulation_doc['file_path'])): ?>
-                    · <a href="/media?f=<?= e(rawurlencode((string)$regulation_doc['file_path'])) ?>" target="_blank" rel="noopener">ver PDF firmado/aceptado</a>
+                    · <a href="/media?f=<?= e(rawurlencode((string)$regulation_doc['file_path'])) ?>" target="_blank" rel="noopener">ver PDF original</a>
                 <?php endif; ?>
             </p>
         <?php endif; ?>
-        <?php if ($sigAtt): ?>
-            <p>
-                Constancia de firma:
-                <a href="/media?f=<?= e(rawurlencode((string)$sigAtt['file_path'])) ?>" target="_blank" rel="noopener">
-                    <?= e((string)($sigAtt['label'] ?? 'ver constancia')) ?>
+        <p class="actions">
+            <?php if (!empty($item['regulation_signed_pdf_path'])): ?>
+                <a class="btn" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>" target="_blank" rel="noopener">
+                    Descargar PDF firmado (enviar al proveedor)
                 </a>
-            </p>
-        <?php endif; ?>
-        <p class="muted">Úsala si el alumno dice que no se le informó: hay registro de lectura/aceptación con nombre, fecha e IP.</p>
+            <?php endif; ?>
+            <?php if (!empty($item['regulation_signature_path'])): ?>
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signature_path'])) ?>" target="_blank" rel="noopener">Imagen de firma</a>
+            <?php endif; ?>
+            <?php if ($sigAtt): ?>
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$sigAtt['file_path'])) ?>" target="_blank" rel="noopener">
+                    Constancia HTML
+                </a>
+            <?php endif; ?>
+        </p>
+        <p class="muted">El PDF firmado es la evidencia que puedes adjuntar al correo del proveedor.</p>
     <?php else: ?>
         <p class="muted">El alumno aún no ha firmado el reglamento de esta certificación.</p>
     <?php endif; ?>
