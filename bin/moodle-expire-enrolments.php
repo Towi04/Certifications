@@ -10,7 +10,7 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__);
-require $root . '/vendor/autoload.php';
+require $root . '/src/bootstrap.php';
 
 use App\Catalog\CatalogRepository;
 use App\Integrations\MoodleEnrolService;
