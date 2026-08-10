@@ -970,9 +970,10 @@ final class CatalogRepository
             $stmt = $this->pdo->prepare(
                 'INSERT INTO certification_cases
                  (certification_id, protocol_id, student_user_id, partner_id, student_email, student_name,
-                  student_last_name_p, student_last_name_m, student_phone, exam_date, exam_time,
+                  student_last_name_p, student_last_name_m, student_phone, student_curp, student_birth_date,
+                  student_sex, student_nationality, exam_date, exam_time,
                   cc_email, cenni_status, status, current_step_id, notes)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $stmt->execute([
                 $certId,
@@ -984,6 +985,10 @@ final class CatalogRepository
                 $data['student_last_name_p'] ?? null,
                 $data['student_last_name_m'] ?? null,
                 $data['student_phone'] ?? null,
+                $data['student_curp'] ?? null,
+                $data['student_birth_date'] ?? null,
+                $data['student_sex'] ?? null,
+                $data['student_nationality'] ?? null,
                 $data['exam_date'] ?? null,
                 $data['exam_time'] ?? null,
                 $data['cc_email'] ?? null,
@@ -1108,6 +1113,144 @@ final class CatalogRepository
         }
     }
 
+    /**
+     * Marca como hecho el primer paso cuyo título coincida (aunque no sea current)
+     * y recalcula el paso current.
+     *
+     * @param list<string> $keywords
+     */
+    public function markCaseStepDoneByKeywords(int $caseId, array $keywords, ?int $completedBy = null, ?string $notes = null): bool
+    {
+        $steps = $this->certificationCaseSteps($caseId);
+        $target = null;
+        foreach ($steps as $step) {
+            if (in_array(($step['status'] ?? ''), ['done', 'skipped'], true)) {
+                continue;
+            }
+            $title = mb_strtolower((string) ($step['title'] ?? ''));
+            foreach ($keywords as $kw) {
+                $kw = mb_strtolower(trim($kw));
+                if ($kw !== '' && str_contains($title, $kw)) {
+                    $target = $step;
+                    break 2;
+                }
+            }
+        }
+        if (!$target) {
+            return false;
+        }
+
+        $this->pdo->prepare(
+            'UPDATE certification_case_steps
+             SET status = ?, completed_at = NOW(), completed_by = ?, notes = COALESCE(?, notes)
+             WHERE id = ? AND case_id = ?'
+        )->execute(['done', $completedBy, $notes, (int) $target['id'], $caseId]);
+
+        $this->recomputeCaseCurrentStep($caseId);
+        return true;
+    }
+
+    public function recomputeCaseCurrentStep(int $caseId): void
+    {
+        // Limpia currents huérfanos
+        $this->pdo->prepare(
+            "UPDATE certification_case_steps SET status = 'pending'
+             WHERE case_id = ? AND status = 'current'"
+        )->execute([$caseId]);
+
+        $next = $this->pdo->prepare(
+            "SELECT id, protocol_step_id FROM certification_case_steps
+             WHERE case_id = ? AND status = 'pending'
+             ORDER BY sort_order ASC, id ASC LIMIT 1"
+        );
+        $next->execute([$caseId]);
+        $row = $next->fetch();
+        if ($row) {
+            $this->pdo->prepare(
+                "UPDATE certification_case_steps SET status = 'current' WHERE id = ?"
+            )->execute([(int) $row['id']]);
+            $this->pdo->prepare(
+                'UPDATE certification_cases SET current_step_id = ?, status = ?, updated_at = NOW() WHERE id = ?'
+            )->execute([(int) $row['protocol_step_id'], 'in_progress', $caseId]);
+        } else {
+            $this->pdo->prepare(
+                'UPDATE certification_cases SET status = ?, current_step_id = NULL, updated_at = NOW() WHERE id = ?'
+            )->execute(['completed', $caseId]);
+        }
+    }
+
+    /**
+     * Completa el paso current si su título coincide con alguna palabra clave.
+     *
+     * @param list<string> $keywords
+     */
+    public function completeCurrentStepMatching(int $caseId, array $keywords, ?int $completedBy = null, ?string $notes = null): bool
+    {
+        return $this->markCaseStepDoneByKeywords($caseId, $keywords, $completedBy, $notes);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function regulationDocumentForCertification(int $certificationId): ?array
+    {
+        $this->ensureCertificationDocsTable();
+        $stmt = $this->pdo->prepare(
+            "SELECT d.*
+             FROM certification_docs cd
+             INNER JOIN documents d ON d.id = cd.document_id
+             WHERE cd.certification_id = ? AND cd.stage = 'purchase'
+               AND d.is_active = 1 AND d.doc_type = 'regulation'
+             ORDER BY cd.id DESC
+             LIMIT 1"
+        );
+        $stmt->execute([$certificationId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function signCaseRegulation(int $caseId, string $signerName, ?int $documentId, ?int $userId): void
+    {
+        $this->ensureRegulationSignatureColumns();
+        $signerName = trim($signerName);
+        if ($signerName === '') {
+            throw new \RuntimeException('Escribe tu nombre completo para firmar el reglamento.');
+        }
+        $this->updateCertificationCase($caseId, [
+            'regulation_document_id' => $documentId,
+            'regulation_signed_at' => date('Y-m-d H:i:s'),
+            'regulation_signer_name' => $signerName,
+        ]);
+        $this->completeCurrentStepMatching(
+            $caseId,
+            ['reglamento', 'firmar'],
+            $userId,
+            'Reglamento firmado por el alumno: ' . $signerName
+        );
+    }
+
+    private function ensureRegulationSignatureColumns(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $cols = [
+            'regulation_document_id' => 'BIGINT UNSIGNED NULL',
+            'regulation_signed_at' => 'DATETIME NULL',
+            'regulation_signer_name' => 'VARCHAR(190) NULL',
+        ];
+        foreach ($cols as $name => $def) {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['certification_cases', $name]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec('ALTER TABLE certification_cases ADD COLUMN ' . $name . ' ' . $def);
+            }
+        }
+        $done = true;
+    }
+
     public function saveProtocol(array $data, ?int $id = null): int
     {
         $fields = [
@@ -1148,7 +1291,7 @@ final class CatalogRepository
                     cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
                     cert.cenni_fee, cert.cenni_process,
                     pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
-                    pr.student_access_template, pr.provider_id,
+                    pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     prov.code AS provider_code, prov.name AS provider_name,
                     prov.contact_email AS provider_contact_email,
                     pu.email AS partner_email, p.organization AS partner_organization
@@ -1227,6 +1370,7 @@ final class CatalogRepository
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
             'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
             'openpay_pdf_url', 'cenni_status', 'cenni_folio', 'cenni_notes', 'cenni_status_updated_at',
+            'regulation_document_id', 'regulation_signed_at', 'regulation_signer_name',
         ];
         $sets = [];
         $params = [];

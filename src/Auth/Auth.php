@@ -165,19 +165,22 @@ final class Auth
 
     public static function register(string $email, string $name, string $password): int
     {
-        return self::registerStudent([
+        $result = self::registerStudent([
             'email' => $email,
             'name' => $name,
             'password' => $password,
         ]);
+
+        return $result['id'];
     }
 
     /**
      * Alta de alumno (compra pública o registro).
      *
-     * @param array{email:string,password:string,name?:string,first_name?:string,last_name?:string,phone?:string} $data
+     * @param array{email:string,password?:string,name?:string,first_name?:string,last_name?:string,phone?:string,auto_password?:bool} $data
+     * @return array{id:int,plain_password:?string}
      */
-    public static function registerStudent(array $data): int
+    public static function registerStudent(array $data): array
     {
         $normalizedEmail = self::normalizeIdentifier((string) ($data['email'] ?? ''));
         if ($normalizedEmail === '' || !filter_var($normalizedEmail, FILTER_VALIDATE_EMAIL)) {
@@ -194,8 +197,14 @@ final class Auth
             throw new \RuntimeException('Nombre inválido.');
         }
 
+        $auto = !empty($data['auto_password']);
+        $plainPassword = null;
         $password = (string) ($data['password'] ?? '');
-        if (strlen($password) < 8) {
+        if ($auto || $password === '') {
+            $plainPassword = self::generateTemporaryPassword();
+            $password = $plainPassword;
+            $auto = true;
+        } elseif (strlen($password) < 8) {
             throw new \RuntimeException('La contraseña debe tener al menos 8 caracteres.');
         }
 
@@ -210,11 +219,13 @@ final class Auth
         }
 
         $phone = trim((string) ($data['phone'] ?? '')) ?: null;
+        // En compra pública dejamos entrar al caso (firma/pago) sin forzar cambio inmediato.
+        $mustChange = (!empty($data['force_password_change'])) ? 1 : 0;
 
         $pdo = Connection::get();
         $stmt = $pdo->prepare(
-            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, email_verified_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())'
+            'INSERT INTO users (email, phone, username, password_hash, name, first_name, last_name, role, is_active, must_change_password, email_verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NOW())'
         );
         $stmt->execute([
             $normalizedEmail,
@@ -225,9 +236,59 @@ final class Auth
             $first !== '' ? $first : null,
             $last !== '' ? $last : null,
             'student',
+            $mustChange,
         ]);
 
-        return (int) $pdo->lastInsertId();
+        return [
+            'id' => (int) $pdo->lastInsertId(),
+            'plain_password' => $plainPassword,
+        ];
+    }
+
+    public static function generateTemporaryPassword(int $length = 10): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+        $max = strlen($alphabet) - 1;
+        $out = '';
+        for ($i = 0; $i < $length; $i++) {
+            $out .= $alphabet[random_int(0, $max)];
+        }
+
+        return $out;
+    }
+
+    /** Envía correo de bienvenida con acceso temporal tras adquirir. */
+    public static function sendPurchaseAccountEmail(int $userId, string $plainPassword, string $certificationName, int $caseId): void
+    {
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare('SELECT email, username, name, first_name, last_name FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            return;
+        }
+        $appUrl = rtrim((string) (\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
+        $display = trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))) ?: (string) ($user['name'] ?? '');
+        $subject = 'Tu cuenta Doceo · ' . $certificationName;
+        $body = "Hola {$display},\n\n";
+        $body .= "Registramos tu solicitud de {$certificationName}.\n\n";
+        $body .= "Creamos tu acceso para dar seguimiento a tu examen:\n";
+        $body .= '- Correo: ' . $user['email'] . "\n";
+        $body .= '- Contraseña temporal: ' . $plainPassword . "\n";
+        $body .= '- Enlace: ' . $appUrl . "/login\n";
+        $body .= '- Tu caso: ' . $appUrl . '/alumno/caso?id=' . $caseId . "\n\n";
+        $body .= "Importante:\n";
+        $body .= "1) Firma el reglamento (si aplica) y realiza el pago SPEI desde tu caso.\n";
+        $body .= "2) Un día antes del examen te enviaremos el código de acceso, o puedes entrar a tu cuenta para ver si ya está asignado.\n";
+        $body .= "3) Después del examen podrás consultar el estado de tu certificado y el trámite CENNI en la misma cuenta.\n\n";
+        $body .= "Te recomendamos cambiar la contraseña al entrar (Perfil).\n\n";
+        $body .= "Instituto DOCEO\n";
+
+        try {
+            (new \App\Integrations\Mailer())->send((string) $user['email'], $subject, $body);
+        } catch (\Throwable $e) {
+            error_log('[PDV] Mail cuenta compra: ' . $e->getMessage());
+        }
     }
 
     /** Inicia sesión de un usuario ya existente por id (tras registro). */

@@ -168,6 +168,11 @@ final class OpenPayPaymentService
             ]);
 
             try {
+                $this->repo->markCaseStepDoneByKeywords($caseId, ['realiza el pago', 'pago del examen', 'el alumno realiza'], null, 'Pago confirmado por OpenPay');
+            } catch (\Throwable) {
+            }
+
+            try {
                 $this->mailer()->sendTemplate($caseId, 'pago_confirmado', null);
             } catch (\Throwable $mailErr) {
                 // Pago ya confirmado; el reenvío puede hacerse manual.

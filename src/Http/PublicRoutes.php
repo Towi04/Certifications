@@ -48,29 +48,32 @@ final class PublicRoutes
                 exit;
             }
 
-            // Si ya está logueado como alumno, ir directo a confirmar
             if (Auth::check()) {
                 $role = Auth::user()['role'] ?? '';
-                if ($role === 'student' || Auth::isStaffRole($role)) {
-                    view('store/acquire_confirm', [
-                        'title' => 'Adquirir · ' . $item['name'],
-                        'item' => $item,
-                        'user' => Auth::user(),
-                        'error' => flash('error'),
-                        'info' => flash('info'),
-                    ]);
-                    return;
-                }
                 if ($role === 'partner') {
                     flash('info', 'Como Teacher Referral, registra alumnos desde tu panel. La compra pública es para alumnos.');
                     header('Location: /partner/certificacion?slug=' . rawurlencode($slug));
                     exit;
+                }
+                if ($role === 'student' || Auth::isStaffRole($role)) {
+                    view('store/acquire', [
+                        'title' => 'Adquirir · ' . $item['name'],
+                        'item' => $item,
+                        'user' => Auth::user(),
+                        'logged_in' => true,
+                        'error' => flash('error'),
+                        'info' => flash('info'),
+                        'old' => flash('old') ?? [],
+                    ]);
+                    return;
                 }
             }
 
             view('store/acquire', [
                 'title' => 'Adquirir · ' . $item['name'],
                 'item' => $item,
+                'user' => null,
+                'logged_in' => false,
                 'error' => flash('error'),
                 'info' => flash('info'),
                 'old' => flash('old') ?? [],
@@ -87,6 +90,21 @@ final class PublicRoutes
             }
 
             $mode = (string) ($_POST['mode'] ?? 'register');
+            $oldPayload = static function () use ($mode): array {
+                return [
+                    'first_name' => (string) ($_POST['first_name'] ?? ''),
+                    'last_name_p' => (string) ($_POST['last_name_p'] ?? ''),
+                    'last_name_m' => (string) ($_POST['last_name_m'] ?? ''),
+                    'email' => (string) ($_POST['email'] ?? ''),
+                    'phone' => (string) ($_POST['phone'] ?? ''),
+                    'curp' => (string) ($_POST['curp'] ?? ''),
+                    'birth_date' => (string) ($_POST['birth_date'] ?? ''),
+                    'sex' => (string) ($_POST['sex'] ?? ''),
+                    'nationality' => (string) ($_POST['nationality'] ?? 'MEX'),
+                    'exam_date' => (string) ($_POST['exam_date'] ?? ''),
+                    'show_login' => $mode === 'login' ? '1' : '',
+                ];
+            };
 
             try {
                 if ($mode === 'login') {
@@ -99,43 +117,61 @@ final class PublicRoutes
                     if ($role === 'partner') {
                         throw new \RuntimeException('Las cuentas Teacher Referral no usan la compra pública.');
                     }
-                } elseif ($mode === 'confirm') {
+                    flash('info', 'Sesión iniciada. Completa tus datos de candidato para continuar.');
+                    header('Location: /adquirir?slug=' . rawurlencode($slug));
+                    exit;
+                }
+
+                $first = trim((string) ($_POST['first_name'] ?? ''));
+                $lastP = trim((string) ($_POST['last_name_p'] ?? ''));
+                $lastM = trim((string) ($_POST['last_name_m'] ?? ''));
+                $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+                $phone = trim((string) ($_POST['phone'] ?? ''));
+                $curp = strtoupper(trim((string) ($_POST['curp'] ?? '')));
+                $birthDate = trim((string) ($_POST['birth_date'] ?? ''));
+                $sex = strtoupper(trim((string) ($_POST['sex'] ?? '')));
+                $nationality = strtoupper(trim((string) ($_POST['nationality'] ?? 'MEX'))) ?: 'MEX';
+                $examDate = trim((string) ($_POST['exam_date'] ?? ''));
+
+                if ($first === '' || $lastP === '') {
+                    throw new \RuntimeException('Nombre(s) y apellido paterno son obligatorios (aparecerán en tu certificado).');
+                }
+                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw new \RuntimeException('Correo inválido.');
+                }
+                if ($examDate === '') {
+                    throw new \RuntimeException('Elige la fecha preferida de examen.');
+                }
+                if ($sex !== '' && !in_array($sex, ['F', 'M'], true)) {
+                    $sex = '';
+                }
+
+                $plainPassword = null;
+                if ($mode === 'confirm') {
                     Auth::requireLogin();
+                    $role = Auth::user()['role'] ?? '';
+                    if ($role === 'partner') {
+                        throw new \RuntimeException('Las cuentas Teacher Referral no usan la compra pública.');
+                    }
                 } else {
-                    // register
                     if (Auth::check()) {
                         throw new \RuntimeException('Ya tienes sesión iniciada.');
                     }
-                    $first = trim((string) ($_POST['first_name'] ?? ''));
-                    $last = trim((string) ($_POST['last_name'] ?? ''));
-                    $email = strtolower(trim((string) ($_POST['email'] ?? '')));
-                    $phone = trim((string) ($_POST['phone'] ?? ''));
-                    $password = (string) ($_POST['password'] ?? '');
-                    $password2 = (string) ($_POST['password_confirm'] ?? '');
-
-                    if ($first === '' || $last === '') {
-                        throw new \RuntimeException('Nombre y apellido son obligatorios.');
-                    }
-                    if ($password !== $password2) {
-                        throw new \RuntimeException('Las contraseñas no coinciden.');
-                    }
-
-                    // Si el correo ya existe, orientar a login
                     if (Auth::findUserByEmail($email)) {
                         flash('error', 'Ya tienes cuenta con ese correo. Inicia sesión para adquirir.');
-                        flash('old', ['email' => $email, 'show_login' => '1']);
+                        flash('old', $oldPayload() + ['show_login' => '1']);
                         header('Location: /adquirir?slug=' . rawurlencode($slug));
                         exit;
                     }
-
-                    $userId = Auth::registerStudent([
+                    $created = Auth::registerStudent([
                         'email' => $email,
                         'first_name' => $first,
-                        'last_name' => $last,
+                        'last_name' => trim($lastP . ' ' . $lastM),
                         'phone' => $phone,
-                        'password' => $password,
+                        'auto_password' => true,
                     ]);
-                    Auth::loginById($userId);
+                    $plainPassword = $created['plain_password'];
+                    Auth::loginById($created['id']);
                 }
 
                 $user = Auth::user();
@@ -144,43 +180,57 @@ final class PublicRoutes
                 }
 
                 if (empty($item['protocol_id'])) {
-                    flash('info', 'Cuenta lista. Esta certificación aún no tiene protocolo de seguimiento; el equipo te contactará.');
+                    flash('info', 'Registro recibido. Esta certificación aún no tiene protocolo; el equipo te contactará.');
                     header('Location: /alumno');
                     exit;
                 }
 
+                $fullName = trim($first . ' ' . $lastP . ' ' . $lastM);
                 $caseId = $repo()->openCertificationCase([
                     'certification_id' => (int) $item['id'],
                     'student_user_id' => (int) $user['id'],
-                    'student_email' => (string) $user['email'],
-                    'student_name' => trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')))
-                        ?: (string) $user['name'],
-                    'student_phone' => (string) ($user['phone'] ?? ''),
-                    'notes' => 'Adquisición pública desde vitrina',
+                    'student_email' => $email !== '' ? $email : (string) $user['email'],
+                    'student_name' => $first,
+                    'student_last_name_p' => $lastP,
+                    'student_last_name_m' => $lastM !== '' ? $lastM : null,
+                    'student_phone' => $phone !== '' ? $phone : null,
+                    'student_curp' => $curp !== '' ? $curp : null,
+                    'student_birth_date' => $birthDate !== '' ? $birthDate : null,
+                    'student_sex' => $sex !== '' ? $sex : null,
+                    'student_nationality' => $nationality,
+                    'exam_date' => $examDate,
+                    'notes' => 'Adquisición pública · datos para certificado: ' . $fullName,
                 ]);
+
+                // El formulario de adquisición cubre el registro del candidato.
+                $repo()->markCaseStepDoneByKeywords($caseId, ['registro', 'candidato'], (int) $user['id'], 'Datos capturados en adquisición');
 
                 $payNote = '';
                 try {
                     $pay = new \App\Payments\OpenPayPaymentService($repo());
                     $pay->ensureSpeiCharge($caseId, false, true);
-                    $payNote = ' Te enviamos la CLABE SPEI para pagar.';
+                    $repo()->markCaseStepDoneByKeywords($caseId, ['openpay genera', 'genera el link', 'link de pago'], (int) $user['id'], 'CLABE generada automáticamente');
+                    $payNote = ' Ya tienes tu ficha SPEI para pagar.';
                 } catch (\Throwable $payErr) {
                     error_log('[PDV] OpenPay al adquirir caso #' . $caseId . ': ' . $payErr->getMessage());
                     $payNote = ' El equipo generará tu liga/CLABE de pago en breve.';
                 }
 
-                flash('info', 'Listo. Ya puedes dar seguimiento a tu certificación.' . $payNote);
+                if ($plainPassword) {
+                    Auth::sendPurchaseAccountEmail(
+                        (int) $user['id'],
+                        $plainPassword,
+                        (string) $item['name'],
+                        $caseId
+                    );
+                }
+
+                flash('info', 'Registro listo. Firma el reglamento (si aplica) y realiza tu pago.' . $payNote . ' Te enviamos un correo con el acceso a tu cuenta.');
                 header('Location: /alumno/caso?id=' . $caseId);
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                flash('old', [
-                    'first_name' => (string) ($_POST['first_name'] ?? ''),
-                    'last_name' => (string) ($_POST['last_name'] ?? ''),
-                    'email' => (string) ($_POST['email'] ?? ''),
-                    'phone' => (string) ($_POST['phone'] ?? ''),
-                    'show_login' => $mode === 'login' ? '1' : '',
-                ]);
+                flash('old', $oldPayload());
                 header('Location: /adquirir?slug=' . rawurlencode($slug));
                 exit;
             }
@@ -218,6 +268,8 @@ final class PublicRoutes
                 'item' => $item,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
+                'regulation' => $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
+                'requires_regulation' => !empty($item['requires_regulation_signature']),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
@@ -225,6 +277,43 @@ final class PublicRoutes
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/alumno/caso/sign-regulation', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            try {
+                if (!empty($item['regulation_signed_at'])) {
+                    throw new \RuntimeException('El reglamento ya fue firmado.');
+                }
+                $doc = $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0));
+                if (!$doc && !empty($item['requires_regulation_signature'])) {
+                    throw new \RuntimeException('Aún no hay reglamento asignado a esta certificación. Contacta a Instituto Doceo.');
+                }
+                $accept = isset($_POST['accept_regulation']);
+                if (!$accept) {
+                    throw new \RuntimeException('Debes aceptar el reglamento para continuar.');
+                }
+                $signer = trim((string) ($_POST['signer_name'] ?? ''));
+                $repo()->signCaseRegulation(
+                    $caseId,
+                    $signer,
+                    $doc ? (int) $doc['id'] : null,
+                    (int) $user['id']
+                );
+                flash('info', 'Reglamento firmado. Continúa con tu pago SPEI.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId);
+            exit;
         });
 
         $router->post('/alumno/caso/upload-cenni', static function () use ($repo): void {

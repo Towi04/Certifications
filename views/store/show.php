@@ -84,25 +84,13 @@ $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_po
         <?php endif; ?>
 
         <?php if ($protocolSteps): ?>
-            <h2>Cómo se aplica</h2>
-            <ol class="protocol-timeline">
-                <?php
-                $lastPhase = null;
-                foreach ($protocolSteps as $step):
-                    $phase = (string) ($step['phase'] ?? '');
-                    if ($phase !== $lastPhase):
-                        $lastPhase = $phase;
-                ?>
-                    <li class="protocol-phase-label"><?= e($phaseLabels[$phase] ?? $phase) ?></li>
-                <?php endif; ?>
-                    <li class="protocol-step">
-                        <div class="protocol-step-head">
-                            <span class="protocol-step-num"><?= (int)$step['sort_order'] ?></span>
-                            <strong><?= e($step['title']) ?></strong>
-                            <span class="pill"><?= e($respLabels[$step['responsible']] ?? $step['responsible']) ?></span>
-                        </div>
-                    </li>
-                <?php endforeach; ?>
+            <h2>Cómo funciona</h2>
+            <ol class="howto-list">
+                <li>Capturas tus datos (así aparecerán en tu certificado).</li>
+                <li>Firmas el reglamento del examen (si aplica).</li>
+                <li>Realizas el pago SPEI con tu ficha OpenPay.</li>
+                <li>Un día antes recibes tu código de acceso (también visible en tu cuenta).</li>
+                <li>Después del examen das seguimiento a tu certificado y CENNI desde tu cuenta.</li>
             </ol>
         <?php endif; ?>
     </div>
@@ -110,7 +98,7 @@ $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_po
     <aside class="product-side note">
         <a class="btn" style="width:100%;text-align:center" href="/adquirir?slug=<?= e(rawurlencode($item['slug'])) ?>">Adquirir</a>
         <p class="muted" style="margin-top:0.75rem">
-            No necesitas cuenta previa. Al adquirir creas tu acceso de alumno para dar seguimiento.
+            Al adquirir capturas tus datos de candidato. Creamos tu acceso automáticamente y te enviamos el correo.
         </p>
         <?php if ($samples): ?>
             <h3>Visuales</h3>
