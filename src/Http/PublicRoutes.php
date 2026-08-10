@@ -446,7 +446,7 @@ final class PublicRoutes
                     $mode,
                     $sigData !== '' ? $sigData : null
                 );
-                flash('info', 'Reglamento firmado digitalmente. Ya puedes descargar el PDF de evidencia y continuar con tu pago SPEI.');
+                flash('info', 'Reglamento firmado digitalmente. Descarga el PDF de evidencia (no el reglamento en blanco) y continúa con tu pago.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }

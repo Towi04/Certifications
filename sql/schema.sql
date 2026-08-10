@@ -436,6 +436,7 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   moodle_password VARCHAR(120) NULL,
   payment_proof_path VARCHAR(255) NULL,
   payment_confirmed_at DATETIME NULL,
+  payment_method VARCHAR(32) NULL COMMENT 'cash|transfer|openpay|other',
   provider_export_path VARCHAR(255) NULL,
   provider_request_sent_at DATETIME NULL,
   cancel_reason TEXT NULL,

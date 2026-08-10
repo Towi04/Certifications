@@ -177,6 +177,52 @@ $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['expo
 </section>
 
 <section class="note">
+    <h3>Estado de pago</h3>
+    <?php
+    $payMethod = trim((string) ($item['payment_method'] ?? ''));
+    $payMethodLabel = match ($payMethod) {
+        'cash' => 'Efectivo',
+        'transfer' => 'Transferencia',
+        'openpay' => 'OpenPay SPEI',
+        'other' => 'Otro',
+        default => $payMethod !== '' ? $payMethod : '',
+    };
+    ?>
+    <?php if ($opPaid): ?>
+        <p class="alert alert-ok">
+            Pago confirmado
+            <?= $payMethodLabel !== '' ? ' · ' . e($payMethodLabel) : '' ?>
+            <?= !empty($item['payment_confirmed_at']) ? ' · ' . e((string)$item['payment_confirmed_at']) : '' ?>
+            <?php if (!empty($item['payment_proof_path'])): ?>
+                · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
+            <?php endif; ?>
+        </p>
+    <?php else: ?>
+        <p class="alert alert-warn">
+            Alumno <strong>pendiente de pago</strong>.
+            Si pagó en efectivo o transferencia (sin OpenPay), márcalo aquí para que pueda continuar.
+        </p>
+    <?php endif; ?>
+    <form method="post" action="/admin/cases/mark-payment" enctype="multipart/form-data" class="stack form-grid">
+        <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <label>Método
+            <select name="payment_method" required>
+                <option value="cash">Efectivo</option>
+                <option value="transfer" selected>Transferencia bancaria</option>
+                <option value="openpay">OpenPay (manual)</option>
+                <option value="other">Otro</option>
+            </select>
+        </label>
+        <label>Nota interna<input name="payment_note" placeholder="Ej. transferencia BBVA ref. 1234"></label>
+        <label class="field-wide">Comprobante (opcional)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+        <div class="actions">
+            <button class="btn" type="submit"><?= $opPaid ? 'Actualizar / reconfirmar pago' : 'Marcar pago recibido' ?></button>
+        </div>
+    </form>
+    <p class="muted">Esto solo confirma el pago para el alumno. No envía correo al proveedor ni genera la exportación.</p>
+</section>
+
+<section class="note">
     <h3>Pago → exportación → correo al proveedor</h3>
     <p class="muted">
         La plantilla que se manda al proveedor se configura en

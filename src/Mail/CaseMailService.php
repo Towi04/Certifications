@@ -20,6 +20,85 @@ final class CaseMailService
     }
 
     /**
+     * Marca pago recibido sin OpenPay (efectivo / transferencia / otro).
+     * No envía solicitud al proveedor; eso queda en “Confirmar pago y solicitar” o “Enviar solicitud”.
+     *
+     * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int}|null $paymentFile
+     * @return array{payment_confirmed_at: string, payment_method: string, moodle: ?array}
+     */
+    public function markPaymentReceived(
+        int $caseId,
+        string $method,
+        ?array $paymentFile,
+        ?string $note,
+        ?int $userId
+    ): array {
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+
+        $allowed = ['cash', 'transfer', 'openpay', 'other'];
+        $method = strtolower(trim($method));
+        if (!in_array($method, $allowed, true)) {
+            $method = 'other';
+        }
+
+        $this->repo->ensurePaymentMethodColumn();
+        $now = date('Y-m-d H:i:s');
+        $fields = [
+            'payment_confirmed_at' => $now,
+            'payment_method' => $method,
+        ];
+
+        if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $path = Uploader::store($paymentFile, 'cases/' . $caseId);
+            $labels = [
+                'cash' => 'Comprobante pago efectivo',
+                'transfer' => 'Comprobante transferencia',
+                'openpay' => 'Comprobante OpenPay',
+                'other' => 'Comprobante de pago',
+            ];
+            $this->repo->addCaseAttachment($caseId, 'payment', $labels[$method] ?? 'Comprobante de pago', $path, $userId);
+            $fields['payment_proof_path'] = $path;
+        }
+
+        $note = trim((string) ($note ?? ''));
+        if ($note !== '') {
+            $stamp = $now . ' Pago manual (' . $method . '): ' . $note;
+            $prev = trim((string) ($case['notes'] ?? ''));
+            $fields['notes'] = $prev !== '' ? ($prev . "\n" . $stamp) : $stamp;
+        }
+
+        $this->repo->updateCertificationCase($caseId, $fields);
+
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                $caseId,
+                ['pago', 'payment', 'spei', 'abono'],
+                $userId,
+                'Pago marcado manualmente: ' . $method
+            );
+        } catch (\Throwable) {
+        }
+
+        $moodle = null;
+        try {
+            $enrol = new \App\Integrations\MoodleEnrolService($this->repo, new \App\Integrations\MoodleClient(), $this);
+            $moodle = $enrol->ensureAccessForCase($caseId, $userId);
+        } catch (\Throwable $e) {
+            error_log('[PDV] Moodle enrol (mark payment) case #' . $caseId . ': ' . $e->getMessage());
+            $moodle = ['error' => $e->getMessage()];
+        }
+
+        return [
+            'payment_confirmed_at' => $now,
+            'payment_method' => $method,
+            'moodle' => $moodle,
+        ];
+    }
+
+    /**
      * Confirma pago (opcional subir comprobante), genera exportación y envía solicitud al proveedor.
      *
      * @param array{name?:string,type?:string,tmp_name?:string,error?:int,size?:int}|null $paymentFile
@@ -46,6 +125,14 @@ final class CaseMailService
                 'payment_confirmed_at' => date('Y-m-d H:i:s'),
             ]);
             $case['payment_confirmed_at'] = date('Y-m-d H:i:s');
+        }
+
+        try {
+            $this->repo->ensurePaymentMethodColumn();
+            if (empty($case['payment_method'])) {
+                $this->repo->updateCertificationCase($caseId, ['payment_method' => 'other']);
+            }
+        } catch (\Throwable) {
         }
 
         $format = (string) ($case['export_format'] ?? 'none');

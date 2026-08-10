@@ -1112,6 +1112,43 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/cases/mark-payment', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->markPaymentReceived(
+                    $caseId,
+                    trim((string) ($_POST['payment_method'] ?? 'other')),
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null,
+                    trim((string) ($_POST['payment_note'] ?? '')) ?: null,
+                    $user ? (int) $user['id'] : null
+                );
+                $labels = [
+                    'cash' => 'efectivo',
+                    'transfer' => 'transferencia',
+                    'openpay' => 'OpenPay',
+                    'other' => 'otro',
+                ];
+                $label = $labels[$result['payment_method']] ?? $result['payment_method'];
+                $msg = 'Pago marcado como recibido (' . $label . ') el ' . $result['payment_confirmed_at']
+                    . '. El alumno ya puede continuar. Esto no envía correo al proveedor.';
+                $moodle = $result['moodle'] ?? null;
+                if (is_array($moodle) && empty($moodle['skipped']) && empty($moodle['error'])) {
+                    $msg .= ' Moodle: ' . (!empty($moodle['created_user']) ? 'usuario creado' : 'usuario existente')
+                        . ' · ' . count($moodle['enrolled'] ?? []) . ' curso(s).';
+                } elseif (is_array($moodle) && !empty($moodle['error'])) {
+                    $msg .= ' Moodle: ' . $moodle['error'];
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
         $router->post('/admin/cases/openpay-spei', static function () use ($repo): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);

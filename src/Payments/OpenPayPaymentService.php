@@ -181,10 +181,15 @@ final class OpenPayPaymentService
             }
 
             $now = date('Y-m-d H:i:s');
+            try {
+                $this->repo->ensurePaymentMethodColumn();
+            } catch (\Throwable) {
+            }
             $this->repo->updateCertificationCase($caseId, [
                 'openpay_status' => 'completed',
                 'openpay_paid_at' => $now,
                 'payment_confirmed_at' => $now,
+                'payment_method' => 'openpay',
             ]);
 
             try {

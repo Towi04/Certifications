@@ -17,15 +17,71 @@ $fullName = trim(
     . (string) ($item['student_last_name_p'] ?? '') . ' '
     . (string) ($item['student_last_name_m'] ?? '')
 );
+$paymentMethod = trim((string) ($item['payment_method'] ?? ''));
+$paymentMethodLabel = match ($paymentMethod) {
+    'cash' => 'Efectivo',
+    'transfer' => 'Transferencia bancaria',
+    'openpay' => 'OpenPay SPEI',
+    'other' => 'Otro',
+    default => '',
+};
 
-// Progreso simple para el alumno (no el protocolo completo)
-$checklist = [
-    ['key' => 'datos', 'label' => 'Datos del candidato', 'done' => true],
-    ['key' => 'reglamento', 'label' => 'Firma del reglamento', 'done' => !$needsSign],
-    ['key' => 'pago', 'label' => 'Pago SPEI', 'done' => $paid],
-    ['key' => 'examen', 'label' => 'Acceso al examen', 'done' => $hasAccess],
-    ['key' => 'cenni', 'label' => 'Seguimiento certificado / CENNI', 'done' => $cenniStatus === 'issued'],
+// Timeline del alumno (flujo visual, no el protocolo interno completo)
+$timeline = [
+    [
+        'key' => 'datos',
+        'label' => 'Registro',
+        'hint' => 'Datos del candidato listos',
+        'done' => true,
+    ],
+    [
+        'key' => 'reglamento',
+        'label' => 'Firma del reglamento',
+        'hint' => $signed
+            ? ('Firmado' . (!empty($item['regulation_signed_at']) ? ' · ' . $item['regulation_signed_at'] : ''))
+            : 'Dibuja o escribe tu firma digital',
+        'done' => $signed || !$needsSign,
+    ],
+    [
+        'key' => 'pago',
+        'label' => 'Pago',
+        'hint' => $paid
+            ? ('Confirmado' . ($paymentMethodLabel !== '' ? ' · ' . $paymentMethodLabel : '')
+                . (!empty($item['payment_confirmed_at']) ? ' · ' . $item['payment_confirmed_at'] : ''))
+            : 'Pendiente de pago (SPEI, efectivo o transferencia)',
+        'done' => $paid,
+    ],
+    [
+        'key' => 'examen',
+        'label' => 'Acceso al examen',
+        'hint' => $hasAccess ? 'Credenciales listas' : 'Se publican cerca de tu fecha',
+        'done' => $hasAccess,
+    ],
+    [
+        'key' => 'cenni',
+        'label' => 'Certificado / CENNI',
+        'hint' => $cenni_statuses[$cenniStatus] ?? $cenniStatus,
+        'done' => $cenniStatus === 'issued',
+    ],
 ];
+
+$currentKey = 'datos';
+foreach ($timeline as $row) {
+    if (!$row['done']) {
+        $currentKey = $row['key'];
+        break;
+    }
+    $currentKey = $row['key'];
+}
+if ($needsSign) {
+    $currentKey = 'reglamento';
+} elseif (!$paid) {
+    $currentKey = 'pago';
+} elseif (!$hasAccess) {
+    $currentKey = 'examen';
+} elseif ($cenniStatus !== 'issued') {
+    $currentKey = 'cenni';
+}
 ?>
 <section class="page-head">
     <div>
@@ -35,6 +91,14 @@ $checklist = [
             <?php if (!empty($item['exam_time'])): ?> · Hora: <?= e($item['exam_time']) ?><?php endif; ?>
             <?php if (!empty($item['exam_extraordinary'])): ?> · <span class="pill">Aplicación extraordinaria</span><?php endif; ?>
         </p>
+        <?php if ($signed && !$paid): ?>
+            <p class="alert alert-warn" style="margin-top:0.75rem">
+                Tu caso está <strong>pendiente de pago</strong>.
+                Puedes pagar por SPEI OpenPay o, si pagaste en efectivo/transferencia, el equipo Doceo lo marcará recibido para que continues.
+            </p>
+        <?php elseif ($paid): ?>
+            <p class="alert alert-ok" style="margin-top:0.75rem">Pago confirmado<?= $paymentMethodLabel !== '' ? ' (' . e($paymentMethodLabel) . ')' : '' ?>.</p>
+        <?php endif; ?>
     </div>
     <a class="btn btn-ghost" href="/alumno">Mis certificaciones</a>
 </section>
@@ -44,59 +108,91 @@ $checklist = [
 
 <section class="note student-progress">
     <h2>Tu avance</h2>
-    <ol class="student-checklist">
-        <?php foreach ($checklist as $i => $row): ?>
-            <li class="<?= $row['done'] ? 'is-done' : 'is-todo' ?>">
-                <span class="student-check-num"><?= $i + 1 ?></span>
-                <span><?= e($row['label']) ?></span>
-                <span class="pill"><?= $row['done'] ? 'Listo' : 'Pendiente' ?></span>
+    <ol class="student-timeline">
+        <?php
+        $reachedCurrent = false;
+        foreach ($timeline as $i => $row):
+            $isCurrent = !$reachedCurrent && $row['key'] === $currentKey;
+            if ($isCurrent) {
+                $reachedCurrent = true;
+            }
+            $state = $row['done'] ? 'is-done' : ($isCurrent ? 'is-current' : 'is-todo');
+            ?>
+            <li class="student-timeline-item <?= $state ?>">
+                <div class="student-timeline-rail" aria-hidden="true">
+                    <span class="student-timeline-dot"><?= $row['done'] ? '✓' : ($i + 1) ?></span>
+                </div>
+                <div class="student-timeline-body">
+                    <div class="student-timeline-head">
+                        <strong><?= e($row['label']) ?></strong>
+                        <span class="pill"><?= $row['done'] ? 'Listo' : ($isCurrent ? 'En curso' : 'Pendiente') ?></span>
+                    </div>
+                    <p class="muted student-timeline-hint"><?= e((string) $row['hint']) ?></p>
+                </div>
             </li>
         <?php endforeach; ?>
     </ol>
 </section>
 
 <?php if ($needsSign): ?>
-<section class="note student-stage" id="reglamento">
-    <h2>1. Firma el reglamento</h2>
-    <p>Lee el reglamento y fírmalo en pantalla (dibujo o nombre escrito). Se genera un PDF de evidencia para el proveedor — no necesitas imprimir ni escanear.</p>
+<section class="note student-stage student-stage-active" id="reglamento">
+    <h2>Firma el reglamento</h2>
+    <p>Lee el PDF del reglamento y fírmalo aquí. El sistema genera un <strong>PDF de evidencia firmado</strong> (distinto del reglamento en blanco) para el proveedor.</p>
     <?php if ($regulation && !empty($regulation['file_path'])): ?>
-        <p>
+        <p class="actions">
             <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$regulation['file_path'])) ?>" target="_blank" rel="noopener">
-                Abrir reglamento (PDF)<?= !empty($regulation['version']) ? ' · v' . e((string)$regulation['version']) : '' ?>
+                Abrir reglamento original (PDF)<?= !empty($regulation['version']) ? ' · v' . e((string)$regulation['version']) : '' ?>
             </a>
         </p>
     <?php else: ?>
         <p class="muted">El reglamento aún no está cargado. Si el botón de firma no aparece disponible, contacta a Instituto Doceo.</p>
     <?php endif; ?>
-    <form method="post" action="/alumno/caso/sign-regulation" class="stack form-grid" id="signRegulationForm">
+
+    <form method="post" action="/alumno/caso/sign-regulation" class="stack" id="signRegulationForm">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
         <input type="hidden" name="signature_data" id="signatureData" value="">
-        <label class="check field-wide">
+
+        <label class="check">
             <input type="checkbox" name="accept_regulation" value="1" required>
             He leído el reglamento y acepto sus términos.
         </label>
-        <label class="field-wide">Nombre completo para la firma
+
+        <label>Nombre completo para la firma
             <input name="signer_name" id="signerName" required value="<?= e($fullName) ?>"
                    placeholder="Debe coincidir con tu identificación">
         </label>
-        <fieldset class="field-wide signature-modes">
-            <legend>Cómo firmar</legend>
-            <label class="check"><input type="radio" name="signature_mode" value="draw" checked> Dibujar mi firma</label>
-            <label class="check"><input type="radio" name="signature_mode" value="type"> Firmar con mi nombre escrito</label>
-        </fieldset>
-        <div class="field-wide signature-pad-wrap" id="drawPadWrap">
-            <p class="muted">Dibuja tu firma con el dedo o el mouse dentro del recuadro.</p>
-            <canvas id="signaturePad" width="640" height="200" aria-label="Área para dibujar la firma"></canvas>
+
+        <div class="signature-mode-tabs" role="radiogroup" aria-label="Cómo firmar">
+            <label class="signature-mode-tab">
+                <input type="radio" name="signature_mode" value="draw" checked>
+                <span>Dibujar mi firma</span>
+            </label>
+            <label class="signature-mode-tab">
+                <input type="radio" name="signature_mode" value="type">
+                <span>Nombre escrito</span>
+            </label>
+        </div>
+
+        <div class="signature-pad-wrap" id="drawPadWrap">
+            <p class="muted">Dibuja tu firma con el dedo o el mouse dentro del recuadro blanco.</p>
+            <div class="signature-pad-frame">
+                <canvas id="signaturePad" width="640" height="200" aria-label="Área para dibujar la firma"></canvas>
+                <span class="signature-pad-hint" id="signaturePadHint">Firma aquí</span>
+            </div>
             <div class="actions" style="margin-top:0.5rem">
                 <button type="button" class="btn btn-ghost" id="clearSignature">Borrar firma</button>
             </div>
         </div>
-        <div class="field-wide" id="typePadWrap" hidden>
+
+        <div id="typePadWrap" hidden>
             <p class="muted">Se usará tu nombre tipográfico como firma en el PDF de evidencia.</p>
             <p class="signature-type-preview" id="typePreview"><?= e($fullName !== '' ? $fullName : 'Tu nombre') ?></p>
         </div>
+
         <div class="actions">
-            <button class="btn" type="submit" id="signSubmit" <?= ($regulation || !$requires_regulation) ? '' : 'disabled' ?>>Firmar reglamento digitalmente</button>
+            <button class="btn" type="submit" id="signSubmit" <?= ($regulation || !$requires_regulation) ? '' : 'disabled' ?>>
+                Firmar y generar PDF de evidencia
+            </button>
         </div>
     </form>
 </section>
@@ -109,33 +205,46 @@ $checklist = [
   var typeWrap = document.getElementById('typePadWrap');
   var typePreview = document.getElementById('typePreview');
   var nameInput = document.getElementById('signerName');
+  var hint = document.getElementById('signaturePadHint');
   if (!canvas || !form) return;
+
   var ctx = canvas.getContext('2d');
   var drawing = false;
   var hasInk = false;
+
   function resize() {
     var ratio = Math.max(window.devicePixelRatio || 1, 1);
-    var cssW = canvas.clientWidth || 640;
+    var frame = canvas.parentElement;
+    var cssW = Math.max((frame && frame.clientWidth) || canvas.clientWidth || 640, 280);
     var cssH = 200;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
     canvas.width = Math.floor(cssW * ratio);
     canvas.height = Math.floor(cssH * ratio);
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#1a1a1a';
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, cssW, cssH);
     hasInk = false;
+    if (hint) hint.hidden = false;
   }
-  resize();
-  window.addEventListener('resize', resize);
+
   function pos(e) {
     var r = canvas.getBoundingClientRect();
     var t = e.touches && e.touches[0] ? e.touches[0] : e;
     return { x: t.clientX - r.left, y: t.clientY - r.top };
   }
-  function start(e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+  function start(e) {
+    e.preventDefault();
+    drawing = true;
+    var p = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    if (hint) hint.hidden = true;
+  }
   function move(e) {
     if (!drawing) return;
     e.preventDefault();
@@ -145,6 +254,7 @@ $checklist = [
     hasInk = true;
   }
   function end() { drawing = false; }
+
   canvas.addEventListener('mousedown', start);
   canvas.addEventListener('mousemove', move);
   window.addEventListener('mouseup', end);
@@ -152,6 +262,8 @@ $checklist = [
   canvas.addEventListener('touchmove', move, { passive: false });
   canvas.addEventListener('touchend', end);
   document.getElementById('clearSignature')?.addEventListener('click', resize);
+  window.addEventListener('resize', resize);
+
   function mode() {
     var checked = form.querySelector('input[name="signature_mode"]:checked');
     return checked ? checked.value : 'draw';
@@ -160,6 +272,13 @@ $checklist = [
     var m = mode();
     if (drawWrap) drawWrap.hidden = m !== 'draw';
     if (typeWrap) typeWrap.hidden = m !== 'type';
+    form.querySelectorAll('.signature-mode-tab').forEach(function (tab) {
+      var input = tab.querySelector('input');
+      tab.classList.toggle('is-active', !!(input && input.checked));
+    });
+    if (m === 'draw') {
+      requestAnimationFrame(resize);
+    }
   }
   form.querySelectorAll('input[name="signature_mode"]').forEach(function (el) {
     el.addEventListener('change', syncMode);
@@ -168,13 +287,15 @@ $checklist = [
     if (typePreview) typePreview.textContent = nameInput.value.trim() || 'Tu nombre';
   });
   syncMode();
+  resize();
+
   form.addEventListener('submit', function (e) {
     var m = mode();
     dataInput.value = '';
     if (m === 'draw') {
       if (!hasInk) {
         e.preventDefault();
-        alert('Dibuja tu firma en el recuadro o elige “Firmar con mi nombre escrito”.');
+        alert('Dibuja tu firma en el recuadro o elige “Nombre escrito”.');
         return;
       }
       dataInput.value = canvas.toDataURL('image/png');
@@ -183,53 +304,69 @@ $checklist = [
 })();
 </script>
 <?php elseif ($signed): ?>
-<section class="note">
+<section class="note student-stage" id="reglamento-ok">
     <p class="alert alert-ok">
         Reglamento firmado digitalmente<?= !empty($item['regulation_signed_at']) ? ' el ' . e($item['regulation_signed_at']) : '' ?>
-        por <?= e($item['regulation_signer_name'] ?? '') ?>.
+        por <?= e($item['regulation_signer_name'] ?? '') ?>
+        <?= !empty($item['regulation_signature_mode']) ? ' · modo ' . e((string)$item['regulation_signature_mode']) : '' ?>.
     </p>
     <?php if (!empty($item['regulation_signed_pdf_path'])): ?>
         <p class="actions">
-            <a class="btn" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>" target="_blank" rel="noopener">
+            <a class="btn" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>&download=1&name=reglamento-firmado-caso-<?= (int)$item['id'] ?>" target="_blank" rel="noopener">
                 Descargar PDF firmado (evidencia)
             </a>
             <?php if (!empty($item['regulation_signature_path'])): ?>
                 <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signature_path'])) ?>" target="_blank" rel="noopener">Ver imagen de firma</a>
             <?php endif; ?>
+            <?php if ($regulation && !empty($regulation['file_path'])): ?>
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$regulation['file_path'])) ?>" target="_blank" rel="noopener">Reglamento original</a>
+            <?php endif; ?>
         </p>
+        <p class="muted">El PDF firmado es la constancia con tu firma. El “reglamento original” sigue siendo el documento en blanco para lectura.</p>
+    <?php else: ?>
+        <p class="alert alert-warn">La firma quedó registrada, pero no hay PDF de evidencia. Contacta a Doceo para regenerarlo.</p>
     <?php endif; ?>
 </section>
 <?php endif; ?>
 
 <?php if (!$needsSign): ?>
-<section class="note student-stage" id="pago">
-    <h2><?= $paid ? 'Pago' : '2. Realiza tu pago SPEI' ?></h2>
+<section class="note student-stage <?= !$paid ? 'student-stage-active' : '' ?>" id="pago">
+    <h2><?= $paid ? 'Pago' : 'Pendiente de pago' ?></h2>
     <?php if ($paid): ?>
-        <p class="alert alert-ok">Pago confirmado<?= !empty($item['openpay_paid_at']) ? ' el ' . e($item['openpay_paid_at']) : (!empty($item['payment_confirmed_at']) ? ' el ' . e($item['payment_confirmed_at']) : '') ?>.</p>
-    <?php elseif (!empty($item['openpay_clabe'])): ?>
-        <p>Usa estos datos para transferir. OpenPay confirmará el pago automáticamente.</p>
-        <ul>
-            <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
-            <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? 'BBVA Bancomer') ?></li>
-            <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
-            <li><strong>Convenio / referencia:</strong> <?= e($item['openpay_reference'] ?? $item['openpay_agreement'] ?? '') ?></li>
-            <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?> MXN</li>
-        </ul>
-        <p class="actions">
-            <a class="btn" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ver ficha SPEI Doceo</a>
-            <?php if (!empty($item['openpay_pdf_url'])): ?>
-                <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
-            <?php endif; ?>
+        <p class="alert alert-ok">
+            Pago confirmado
+            <?= $paymentMethodLabel !== '' ? ' · ' . e($paymentMethodLabel) : '' ?>
+            <?= !empty($item['openpay_paid_at']) ? ' el ' . e($item['openpay_paid_at']) : (!empty($item['payment_confirmed_at']) ? ' el ' . e($item['payment_confirmed_at']) : '') ?>.
         </p>
     <?php else: ?>
-        <p class="muted">Aún no hay CLABE generada. El equipo Doceo la habilitará en breve.</p>
+        <p class="alert alert-warn">
+            Aún no aparece tu pago. Si usas OpenPay SPEI se confirma solo; si pagaste en <strong>efectivo</strong> o <strong>transferencia</strong>, avisa a Doceo para que lo marquen recibido desde admin.
+        </p>
+        <?php if (!empty($item['openpay_clabe'])): ?>
+            <p>Datos SPEI OpenPay:</p>
+            <ul>
+                <li><strong>Beneficiario:</strong> <?= e(\App\Config\Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO') ?></li>
+                <li><strong>Banco:</strong> <?= e($item['openpay_bank'] ?? 'BBVA Bancomer') ?></li>
+                <li><strong>CLABE:</strong> <code><?= e($item['openpay_clabe']) ?></code></li>
+                <li><strong>Convenio / referencia:</strong> <?= e($item['openpay_reference'] ?? $item['openpay_agreement'] ?? '') ?></li>
+                <li><strong>Monto:</strong> $<?= e(number_format((float)($item['openpay_amount'] ?? 0), 2)) ?> MXN</li>
+            </ul>
+            <p class="actions">
+                <a class="btn" href="/pago/spei?id=<?= (int)$item['id'] ?>">Ver ficha SPEI Doceo</a>
+                <?php if (!empty($item['openpay_pdf_url'])): ?>
+                    <a class="btn btn-ghost" href="<?= e($item['openpay_pdf_url']) ?>" target="_blank" rel="noopener">PDF OpenPay</a>
+                <?php endif; ?>
+            </p>
+        <?php else: ?>
+            <p class="muted">No hay CLABE OpenPay en este caso. Puedes pagar en efectivo o transferencia y Doceo confirmará el pago manualmente.</p>
+        <?php endif; ?>
     <?php endif; ?>
 </section>
 <?php endif; ?>
 
 <?php if ($paid): ?>
-<section class="note student-stage" id="examen">
-    <h2>3. Acceso a tu examen</h2>
+<section class="note student-stage <?= !$hasAccess ? 'student-stage-active' : '' ?>" id="examen">
+    <h2>Acceso a tu examen</h2>
     <?php if ($hasAccess): ?>
         <ul>
             <?php if (!empty($item['folio_id'])): ?><li><strong>ID / Folio:</strong> <code><?= e($item['folio_id']) ?></code></li><?php endif; ?>
@@ -258,7 +395,7 @@ $checklist = [
     <h2>Solicitar reagenda</h2>
     <p class="muted">
         Si necesitas cambiar la fecha u hora, indícala aquí. Se notificará automáticamente al proveedor
-        (y al equipo Doceo verá la solicitud en tu caso).
+        (y el equipo Doceo verá la solicitud en tu caso).
     </p>
     <form method="post" action="/alumno/caso/reschedule" class="stack form-grid">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
@@ -270,7 +407,7 @@ $checklist = [
 </section>
 
 <section class="note student-stage" id="cenni">
-    <h2>4. Certificado y trámite CENNI</h2>
+    <h2>Certificado y trámite CENNI</h2>
     <?php if ($cenniProcess === 'uks_external'): ?>
         <p>
             Después de presentar el ELET recibirás tu constancia y un enlace/QR para subir INE, CURP y solicitud

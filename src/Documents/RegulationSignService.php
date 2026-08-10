@@ -142,11 +142,12 @@ final class RegulationSignService
             . (string) ($case['student_last_name_m'] ?? '')
         );
         $lines = [
-            'INSTITUTO DOCEO — Constancia de firma digital',
+            'INSTITUTO DOCEO — PDF FIRMADO / EVIDENCIA DE FIRMA',
             'BE DIFFERENT, BE BETTER!',
             '',
-            'Documento de evidencia para el proveedor certificador.',
+            'ESTE ARCHIVO ES LA CONSTANCIA FIRMADA (no el reglamento en blanco).',
             'El alumno firmo digitalmente el reglamento sin imprimir ni escanear.',
+            'Adjunta este PDF al proveedor junto con la solicitud de registro.',
             '',
             'Caso PDV: #' . $caseId,
             'Certificacion: ' . (string) ($case['certification_name'] ?? '') . ' (' . (string) ($case['certification_code'] ?? '') . ')',
@@ -155,9 +156,9 @@ final class RegulationSignService
             'Correo: ' . (string) ($case['student_email'] ?? ''),
             'CURP: ' . (string) ($case['student_curp'] ?? '—'),
             '',
-            'Reglamento: ' . (string) ($doc['title'] ?? 'Reglamento del examen'),
+            'Reglamento firmado: ' . (string) ($doc['title'] ?? 'Reglamento del examen'),
             'Codigo doc: ' . (string) ($doc['code'] ?? '—') . '  Version: ' . (string) ($doc['version'] ?? '—'),
-            'Archivo original: ' . (string) ($doc['file_path'] ?? '—'),
+            'Archivo original (lectura): ' . (string) ($doc['file_path'] ?? '—'),
             '',
             'Declaracion:',
             'Declaro haber leido el reglamento completo y aceptar sus terminos',
