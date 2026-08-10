@@ -1811,6 +1811,24 @@ final class AdminRoutes
                     ];
                 }
             }
+            $weekdaysPost = $_POST['exam_weekday'] ?? [];
+            if (!is_array($weekdaysPost)) {
+                $weekdaysPost = [];
+            }
+            $weekdays = [];
+            foreach (CatalogRepository::weekdayLabels() as $n => $_) {
+                $row = is_array($weekdaysPost[(string) $n] ?? null)
+                    ? $weekdaysPost[(string) $n]
+                    : (is_array($weekdaysPost[$n] ?? null) ? $weekdaysPost[$n] : []);
+                $timesRaw = (string) ($row['times'] ?? '');
+                $weekdays[(string) $n] = [
+                    'enabled' => !empty($row['enabled']),
+                    'kind' => (string) ($row['kind'] ?? 'range'),
+                    'time_start' => trim((string) ($row['time_start'] ?? '09:00')),
+                    'time_end' => trim((string) ($row['time_end'] ?? '18:00')),
+                    'times' => $timesRaw,
+                ];
+            }
             $schedule = [
                 'time_start' => trim((string) ($_POST['exam_time_start'] ?? '09:00')),
                 'time_end' => trim((string) ($_POST['exam_time_end'] ?? '18:00')),
@@ -1818,6 +1836,7 @@ final class AdminRoutes
                 'extraordinary_enabled' => isset($_POST['exam_extraordinary_enabled']) ? 1 : 0,
                 'extraordinary_fee' => (float) ($_POST['exam_extraordinary_fee'] ?? 0),
                 'extraordinary_warning' => trim((string) ($_POST['exam_extraordinary_warning'] ?? '')),
+                'weekdays' => $weekdays,
             ];
             $registrationFields = CatalogRepository::encodeRegistrationConfig([
                 'modes' => $rawRegFields,
