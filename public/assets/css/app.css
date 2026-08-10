@@ -239,6 +239,7 @@ input:focus {
 .alert { padding: 0.85rem 1rem; border-radius: 12px; margin: 1rem 0 0; text-align: left; }
 .alert-error { background: #f8e4e4; color: var(--bad); }
 .alert-ok { background: #e8f6ee; color: var(--ok); }
+.alert-warn { background: #fff6d6; color: #6a5a12; border: 1px solid rgba(245, 223, 37, 0.55); }
 
 .page-head {
   display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
@@ -1796,9 +1797,154 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   font-size: 0.78rem;
   font-weight: 700;
 }
+.student-timeline {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.student-timeline-item {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: 0.85rem;
+  position: relative;
+  padding-bottom: 1.15rem;
+}
+.student-timeline-item:last-child { padding-bottom: 0; }
+.student-timeline-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.student-timeline-rail::before {
+  content: "";
+  position: absolute;
+  top: 1.7rem;
+  bottom: -0.15rem;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(49, 82, 133, 0.45), rgba(49, 82, 133, 0.12));
+}
+.student-timeline-item:last-child .student-timeline-rail::before { display: none; }
+.student-timeline-item.is-done .student-timeline-rail::before {
+  background: linear-gradient(180deg, rgba(31, 122, 76, 0.55), rgba(31, 122, 76, 0.18));
+}
+.student-timeline-dot {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 999px;
+  border: 2px solid var(--blue);
+  background: #fff;
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.student-timeline-item.is-done .student-timeline-dot {
+  background: #1f7a4c;
+  border-color: #1f7a4c;
+  color: #fff;
+}
+.student-timeline-item.is-current .student-timeline-dot {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(49, 82, 133, 0.16);
+}
+.student-timeline-body {
+  padding: 0.15rem 0 0.25rem;
+}
+.student-timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+}
+.student-timeline-hint {
+  margin: 0.25rem 0 0;
+}
+.student-timeline-item.is-todo {
+  opacity: 0.72;
+}
+.student-timeline-item.is-current .student-timeline-body {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(49, 82, 133, 0.28);
+  border-radius: 12px;
+  background: rgba(49, 82, 133, 0.06);
+}
+.student-stage-active {
+  border-left: 4px solid var(--blue);
+}
 .student-stage h2 { margin-top: 0; }
 .note.is-dim { opacity: 0.72; }
 .acquire-grid { display: grid; gap: 1rem; }
+
+.signature-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.35rem 0 0.75rem;
+}
+.signature-mode-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.85rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.85);
+  cursor: pointer;
+  font-weight: 600;
+}
+.signature-mode-tab input {
+  width: auto;
+  margin: 0;
+}
+.signature-mode-tab.is-active {
+  border-color: var(--blue);
+  background: rgba(49, 82, 133, 0.08);
+  color: var(--blue-deep);
+}
+.signature-pad-frame {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  border: 2px dashed rgba(49, 82, 133, 0.45);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.signature-pad-frame canvas,
+.signature-pad-wrap canvas {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: 200px;
+  touch-action: none;
+  cursor: crosshair;
+  background: #fff;
+}
+.signature-pad-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: rgba(49, 82, 133, 0.35);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.signature-pad-hint[hidden] { display: none !important; }
 
 .reg-fields-grid {
   display: grid;
@@ -1856,17 +2002,6 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   font-weight: 700;
   margin-bottom: 0.35rem;
   width: 100%;
-}
-.signature-pad-wrap canvas {
-  display: block;
-  width: 100%;
-  max-width: 640px;
-  height: 200px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  touch-action: none;
-  cursor: crosshair;
 }
 .signature-type-preview {
   font-family: "Segoe Script", "Brush Script MT", cursive, serif;

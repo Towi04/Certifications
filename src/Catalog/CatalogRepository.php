@@ -1743,6 +1743,28 @@ final class CatalogRepository
         $done = true;
     }
 
+    public function ensurePaymentMethodColumn(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['certification_cases', 'payment_method']);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $this->pdo->exec(
+                "ALTER TABLE certification_cases
+                 ADD COLUMN payment_method VARCHAR(32) NULL
+                 COMMENT 'cash|transfer|openpay|other'
+                 AFTER payment_confirmed_at"
+            );
+        }
+        $done = true;
+    }
+
     public function saveProtocol(array $data, ?int $id = null): int
     {
         $fields = [
@@ -1939,6 +1961,7 @@ final class CatalogRepository
             'exam_extraordinary', 'exam_extraordinary_fee', 'registration_extra_json',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
+            'payment_method',
             'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
             'cc_email', 'notes', 'status', 'partner_id',
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
