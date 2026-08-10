@@ -10,7 +10,11 @@ $regFields = $regConfig['modes'];
 $regCatalog = \App\Catalog\CatalogRepository::registrationFieldCatalog();
 $regCustom = $regConfig['custom'];
 $schedule = $regConfig['schedule'];
-$timeSlots = \App\Catalog\CatalogRepository::examTimeSlots($schedule);
+$scheduleSummary = \App\Catalog\CatalogRepository::examScheduleSummary($schedule);
+$initialDate = (string) (($old['exam_date'] ?? '') ?: '');
+$timeSlots = $initialDate !== ''
+    ? \App\Catalog\CatalogRepository::examTimeSlotsForDate($initialDate, $schedule)
+    : [];
 $isOn = static fn (string $key): bool => \App\Catalog\CatalogRepository::registrationFieldEnabled($regFields, $key);
 $isReq = static fn (string $key): bool => \App\Catalog\CatalogRepository::registrationFieldRequired($regFields, $key);
 
@@ -154,24 +158,25 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
 
         <?php if ($isOn('exam_date')): ?>
             <label><?= e($regCatalog['exam_date']['label']) ?>
-                <input type="date" name="exam_date" <?= $isReq('exam_date') ? 'required' : '' ?>
+                <input type="date" name="exam_date" id="examDateInput" <?= $isReq('exam_date') ? 'required' : '' ?>
                        value="<?= e($val('exam_date')) ?>">
             </label>
         <?php endif; ?>
 
         <?php if ($isOn('exam_time')): ?>
             <label class="field-wide"><?= e($regCatalog['exam_time']['label']) ?>
-                <span class="muted" style="font-weight:500;display:block;margin:0.15rem 0 0.35rem">
-                    Horario regular: <?= e($schedule['time_start']) ?> – <?= e($schedule['time_end']) ?>
+                <span class="muted" style="font-weight:500;display:block;margin:0.15rem 0 0.35rem" id="examScheduleHint">
+                    <?= e($scheduleSummary) ?>
                 </span>
+                <p class="muted" id="examDayHint" style="margin:0 0 0.35rem"></p>
                 <select name="exam_time" id="examTimeSelect" <?= $isReq('exam_time') ? 'required' : '' ?>>
-                    <option value="">— Elige hora —</option>
+                    <option value="">— Primero elige la fecha —</option>
                     <?php foreach ($timeSlots as $slot): ?>
                         <option value="<?= e($slot) ?>" <?= $val('exam_time') === $slot ? 'selected' : '' ?>><?= e($slot) ?></option>
                     <?php endforeach; ?>
                     <?php if (!empty($schedule['extraordinary_enabled'])): ?>
                         <option value="__extraordinary__" <?= $val('exam_time_mode') === 'extraordinary' ? 'selected' : '' ?>>
-                            Fuera de horario<?= $extraFee > 0 ? ' (+' . e(\App\Support\Str::money($extraFee, 'MXN')) . ')' : '' ?>
+                            Fuera de horario / día<?= $extraFee > 0 ? ' (+' . e(\App\Support\Str::money($extraFee, 'MXN')) . ')' : '' ?>
                         </option>
                     <?php endif; ?>
                 </select>
@@ -182,7 +187,7 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
                     <?php if ($extraFee > 0): ?>
                         <p class="muted">Se sumará <strong><?= e(\App\Support\Str::money($extraFee, 'MXN')) ?></strong> al cobro SPEI (certificación + aplicación extraordinaria).</p>
                     <?php endif; ?>
-                    <label>Hora fuera de rango
+                    <label>Hora fuera de horario
                         <input type="time" name="exam_time_extraordinary" id="examTimeExtra"
                                value="<?= e($val('exam_time_extraordinary')) ?>">
                     </label>
@@ -191,7 +196,18 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
                         Entiendo el costo extra y quiero presentar fuera de horario
                     </label>
                 </div>
+            <?php else: ?>
+                <p class="muted field-wide" id="noExtraHint">Esta certificación no admite aplicaciones extraordinarias.</p>
             <?php endif; ?>
+            <script type="application/json" id="examScheduleJson"><?= json_encode([
+                'slot_minutes' => (int) ($schedule['slot_minutes'] ?? 30),
+                'extraordinary_enabled' => !empty($schedule['extraordinary_enabled']),
+                'extraordinary_fee' => (float) ($schedule['extraordinary_fee'] ?? 0),
+                'weekdays' => $schedule['weekdays'] ?? new \stdClass(),
+                'labels' => \App\Catalog\CatalogRepository::weekdayLabels(),
+                'selected' => $val('exam_time'),
+                'selected_extra' => $val('exam_time_mode') === 'extraordinary',
+            ], JSON_UNESCAPED_UNICODE) ?></script>
         <?php endif; ?>
 
         <?php foreach ($regCustom as $cf): ?>
@@ -222,13 +238,90 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
   var sel = document.getElementById('examTimeSelect');
   var box = document.getElementById('extraordinaryBox');
   var extra = document.getElementById('examTimeExtra');
-  if (!sel || !box) return;
-  function sync() {
+  var dateInput = document.getElementById('examDateInput');
+  var dayHint = document.getElementById('examDayHint');
+  var cfgEl = document.getElementById('examScheduleJson');
+  var cfg = null;
+  try { cfg = cfgEl ? JSON.parse(cfgEl.textContent || '{}') : null; } catch (e) { cfg = null; }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function weekdayN(ymd) {
+    if (!ymd) return null;
+    var p = ymd.split('-');
+    if (p.length !== 3) return null;
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    // JS: 0=Sun..6=Sat → ISO 1=Mon..7=Sun
+    var js = d.getUTCDay();
+    return js === 0 ? 7 : js;
+  }
+  function slotsForDay(day) {
+    if (!day || !day.enabled) return [];
+    if (day.kind === 'fixed') return Array.isArray(day.times) ? day.times.slice() : [];
+    var start = (day.time_start || '09:00').slice(0, 5);
+    var end = (day.time_end || '18:00').slice(0, 5);
+    var step = Math.max(5, parseInt((cfg && cfg.slot_minutes) || 30, 10));
+    var out = [];
+    var sp = start.split(':').map(Number);
+    var ep = end.split(':').map(Number);
+    var cur = sp[0] * 60 + sp[1];
+    var limit = ep[0] * 60 + ep[1];
+    var guard = 0;
+    while (cur <= limit && guard < 96) {
+      out.push(pad(Math.floor(cur / 60)) + ':' + pad(cur % 60));
+      cur += step;
+      guard++;
+    }
+    return out;
+  }
+  function rebuildTimes() {
+    if (!sel || !cfg) return;
+    var ymd = dateInput ? dateInput.value : '';
+    var n = weekdayN(ymd);
+    var prev = sel.value;
+    var wanted = (cfg.selected_extra && prev === '') ? '__extraordinary__' : (prev || cfg.selected || '');
+    while (sel.options.length) sel.remove(0);
+    sel.add(new Option(ymd ? '— Elige hora —' : '— Primero elige la fecha —', ''));
+    if (!ymd || !n) {
+      if (dayHint) dayHint.textContent = '';
+      syncExtra();
+      return;
+    }
+    var day = (cfg.weekdays && cfg.weekdays[String(n)]) || null;
+    var label = (cfg.labels && cfg.labels[n]) || ('día ' + n);
+    if (!day || !day.enabled) {
+      if (dayHint) dayHint.textContent = label + ': no hay aplicaciones este día.';
+      if (cfg.extraordinary_enabled) {
+        sel.add(new Option('Fuera de horario / día', '__extraordinary__'));
+      }
+      if (wanted === '__extraordinary__') sel.value = '__extraordinary__';
+      syncExtra();
+      return;
+    }
+    var slots = slotsForDay(day);
+    var detail = day.kind === 'fixed'
+      ? ('horas fijas ' + slots.join(', '))
+      : ((day.time_start || '') + ' – ' + (day.time_end || ''));
+    if (dayHint) dayHint.textContent = label + ': ' + detail;
+    slots.forEach(function (s) { sel.add(new Option(s, s)); });
+    if (cfg.extraordinary_enabled) {
+      sel.add(new Option('Fuera de horario / día', '__extraordinary__'));
+    }
+    if (wanted && [...sel.options].some(function (o) { return o.value === wanted; })) {
+      sel.value = wanted;
+    }
+    syncExtra();
+  }
+  function syncExtra() {
+    if (!sel || !box) return;
     var isExtra = sel.value === '__extraordinary__';
     box.hidden = !isExtra;
     if (extra) extra.required = isExtra;
   }
-  sel.addEventListener('change', sync);
-  sync();
+  sel?.addEventListener('change', syncExtra);
+  dateInput?.addEventListener('change', function () {
+    if (cfg) cfg.selected = '';
+    rebuildTimes();
+  });
+  rebuildTimes();
 })();
 </script>
