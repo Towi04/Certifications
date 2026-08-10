@@ -64,6 +64,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_student_acquire_flow.sql` (firma de reglamento en casos / adquisición alumno)
 - `sql/migration_cert_registration_fields.sql` (campos de formulario configurables por certificación)
 - `sql/migration_cert_exam_schedule_extra.sql` (hora, aplicación extraordinaria, campos custom en casos)
+  - Horarios por día (rango o horas fijas) se guardan en `registration_fields_json.schedule.weekdays` (Admin → Certificación → Horario).
 - `sql/migration_certification_docs.sql` (vínculo certificación ↔ reglamento; también se crea al usar Precios/reglamentos)
 
 ### Subida de PDFs de convenio
