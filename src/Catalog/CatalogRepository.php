@@ -1703,67 +1703,20 @@ final class CatalogRepository
         return $row ?: null;
     }
 
-    public function signCaseRegulation(int $caseId, string $signerName, ?int $documentId, ?int $userId): void
-    {
-        $this->ensureRegulationSignatureColumns();
-        $signerName = trim($signerName);
-        if ($signerName === '') {
-            throw new \RuntimeException('Escribe tu nombre completo para firmar el reglamento.');
-        }
-        $signedAt = date('Y-m-d H:i:s');
-        $this->updateCertificationCase($caseId, [
-            'regulation_document_id' => $documentId,
-            'regulation_signed_at' => $signedAt,
-            'regulation_signer_name' => $signerName,
-        ]);
-        $this->completeCurrentStepMatching(
-            $caseId,
-            ['reglamento', 'firmar'],
-            $userId,
-            'Reglamento firmado por el alumno: ' . $signerName
-        );
+    public function signCaseRegulation(
+        int $caseId,
+        string $signerName,
+        ?int $documentId,
+        ?int $userId,
+        string $mode = 'type',
+        ?string $signatureDataUrl = null
+    ): array {
+        $svc = new \App\Documents\RegulationSignService($this);
 
-        // Constancia HTML de firma (auditoría) para mostrar si el alumno niega haber sido informado.
-        try {
-            $case = $this->certificationCaseDetailed($caseId);
-            $doc = $documentId ? $this->document($documentId) : null;
-            $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
-            $ua = mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250);
-            $html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Firma de reglamento</title></head><body>'
-                . '<h1>Constancia de firma de reglamento</h1>'
-                . '<p><strong>Caso:</strong> #' . (int) $caseId . '</p>'
-                . '<p><strong>Alumno:</strong> ' . htmlspecialchars((string) ($case['student_name'] ?? ''), ENT_QUOTES, 'UTF-8')
-                . ' ' . htmlspecialchars((string) ($case['student_last_name_p'] ?? ''), ENT_QUOTES, 'UTF-8')
-                . ' (' . htmlspecialchars((string) ($case['student_email'] ?? ''), ENT_QUOTES, 'UTF-8') . ')</p>'
-                . '<p><strong>Certificación:</strong> ' . htmlspecialchars((string) ($case['certification_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p><strong>Documento:</strong> ' . htmlspecialchars((string) ($doc['title'] ?? 'Reglamento'), ENT_QUOTES, 'UTF-8')
-                . ' v' . htmlspecialchars((string) ($doc['version'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p><strong>Firmado como:</strong> ' . htmlspecialchars($signerName, ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p><strong>Fecha/hora:</strong> ' . htmlspecialchars($signedAt, ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p><strong>IP:</strong> ' . htmlspecialchars($ip, ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p><strong>Navegador:</strong> ' . htmlspecialchars($ua, ENT_QUOTES, 'UTF-8') . '</p>'
-                . '<p>El alumno declaró haber leído y aceptado el reglamento antes de continuar.</p>'
-                . '</body></html>';
-            $dir = dirname(__DIR__, 2) . '/storage/uploads/cases/' . $caseId;
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0755, true);
-            }
-            $relative = 'cases/' . $caseId . '/regulation-signature-' . date('YmdHis') . '.html';
-            $absolute = dirname(__DIR__, 2) . '/storage/uploads/' . $relative;
-            if (@file_put_contents($absolute, $html) !== false) {
-                $this->addCaseAttachment(
-                    $caseId,
-                    'regulation_signature',
-                    'Constancia de firma — ' . $signerName,
-                    $relative,
-                    $userId
-                );
-            }
-        } catch (\Throwable) {
-        }
+        return $svc->sign($caseId, $signerName, $documentId, $userId, $mode, $signatureDataUrl);
     }
 
-    private function ensureRegulationSignatureColumns(): void
+    public function ensureRegulationSignatureColumns(): void
     {
         static $done = false;
         if ($done) {
@@ -1773,6 +1726,9 @@ final class CatalogRepository
             'regulation_document_id' => 'BIGINT UNSIGNED NULL',
             'regulation_signed_at' => 'DATETIME NULL',
             'regulation_signer_name' => 'VARCHAR(190) NULL',
+            'regulation_signed_pdf_path' => 'VARCHAR(255) NULL',
+            'regulation_signature_path' => 'VARCHAR(255) NULL',
+            'regulation_signature_mode' => 'VARCHAR(16) NULL',
         ];
         foreach ($cols as $name => $def) {
             $stmt = $this->pdo->prepare(
@@ -1989,6 +1945,7 @@ final class CatalogRepository
             'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
             'openpay_pdf_url', 'cenni_status', 'cenni_folio', 'cenni_notes', 'cenni_status_updated_at',
             'regulation_document_id', 'regulation_signed_at', 'regulation_signer_name',
+            'regulation_signed_pdf_path', 'regulation_signature_path', 'regulation_signature_mode',
         ];
         $sets = [];
         $params = [];
@@ -2185,6 +2142,7 @@ final class CatalogRepository
                 "SELECT c.id AS case_id, c.student_name, c.student_last_name_p, c.student_last_name_m,
                         c.student_email, c.regulation_signed_at, c.regulation_signer_name,
                         c.regulation_document_id, c.status AS case_status,
+                        c.regulation_signed_pdf_path, c.regulation_signature_path, c.regulation_signature_mode,
                         cert.name AS certification_name, cert.code AS certification_code,
                         d.title AS document_title, d.version AS document_version, d.file_path AS document_path,
                         d.code AS document_code

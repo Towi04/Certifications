@@ -58,7 +58,7 @@ $checklist = [
 <?php if ($needsSign): ?>
 <section class="note student-stage" id="reglamento">
     <h2>1. Firma el reglamento</h2>
-    <p>Debes leer y aceptar el reglamento del examen antes de continuar.</p>
+    <p>Lee el reglamento y fírmalo en pantalla (dibujo o nombre escrito). Se genera un PDF de evidencia para el proveedor — no necesitas imprimir ni escanear.</p>
     <?php if ($regulation && !empty($regulation['file_path'])): ?>
         <p>
             <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$regulation['file_path'])) ?>" target="_blank" rel="noopener">
@@ -68,27 +68,136 @@ $checklist = [
     <?php else: ?>
         <p class="muted">El reglamento aún no está cargado. Si el botón de firma no aparece disponible, contacta a Instituto Doceo.</p>
     <?php endif; ?>
-    <form method="post" action="/alumno/caso/sign-regulation" class="stack form-grid">
+    <form method="post" action="/alumno/caso/sign-regulation" class="stack form-grid" id="signRegulationForm">
         <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+        <input type="hidden" name="signature_data" id="signatureData" value="">
         <label class="check field-wide">
             <input type="checkbox" name="accept_regulation" value="1" required>
             He leído el reglamento y acepto sus términos.
         </label>
-        <label class="field-wide">Nombre completo para firma
-            <input name="signer_name" required value="<?= e($fullName) ?>"
+        <label class="field-wide">Nombre completo para la firma
+            <input name="signer_name" id="signerName" required value="<?= e($fullName) ?>"
                    placeholder="Debe coincidir con tu identificación">
         </label>
+        <fieldset class="field-wide signature-modes">
+            <legend>Cómo firmar</legend>
+            <label class="check"><input type="radio" name="signature_mode" value="draw" checked> Dibujar mi firma</label>
+            <label class="check"><input type="radio" name="signature_mode" value="type"> Firmar con mi nombre escrito</label>
+        </fieldset>
+        <div class="field-wide signature-pad-wrap" id="drawPadWrap">
+            <p class="muted">Dibuja tu firma con el dedo o el mouse dentro del recuadro.</p>
+            <canvas id="signaturePad" width="640" height="200" aria-label="Área para dibujar la firma"></canvas>
+            <div class="actions" style="margin-top:0.5rem">
+                <button type="button" class="btn btn-ghost" id="clearSignature">Borrar firma</button>
+            </div>
+        </div>
+        <div class="field-wide" id="typePadWrap" hidden>
+            <p class="muted">Se usará tu nombre tipográfico como firma en el PDF de evidencia.</p>
+            <p class="signature-type-preview" id="typePreview"><?= e($fullName !== '' ? $fullName : 'Tu nombre') ?></p>
+        </div>
         <div class="actions">
-            <button class="btn" type="submit" <?= ($regulation || !$requires_regulation) ? '' : 'disabled' ?>>Firmar reglamento</button>
+            <button class="btn" type="submit" id="signSubmit" <?= ($regulation || !$requires_regulation) ? '' : 'disabled' ?>>Firmar reglamento digitalmente</button>
         </div>
     </form>
 </section>
+<script>
+(function () {
+  var canvas = document.getElementById('signaturePad');
+  var form = document.getElementById('signRegulationForm');
+  var dataInput = document.getElementById('signatureData');
+  var drawWrap = document.getElementById('drawPadWrap');
+  var typeWrap = document.getElementById('typePadWrap');
+  var typePreview = document.getElementById('typePreview');
+  var nameInput = document.getElementById('signerName');
+  if (!canvas || !form) return;
+  var ctx = canvas.getContext('2d');
+  var drawing = false;
+  var hasInk = false;
+  function resize() {
+    var ratio = Math.max(window.devicePixelRatio || 1, 1);
+    var cssW = canvas.clientWidth || 640;
+    var cssH = 200;
+    canvas.width = Math.floor(cssW * ratio);
+    canvas.height = Math.floor(cssH * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cssW, cssH);
+    hasInk = false;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  function pos(e) {
+    var r = canvas.getBoundingClientRect();
+    var t = e.touches && e.touches[0] ? e.touches[0] : e;
+    return { x: t.clientX - r.left, y: t.clientY - r.top };
+  }
+  function start(e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    hasInk = true;
+  }
+  function end() { drawing = false; }
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+  document.getElementById('clearSignature')?.addEventListener('click', resize);
+  function mode() {
+    var checked = form.querySelector('input[name="signature_mode"]:checked');
+    return checked ? checked.value : 'draw';
+  }
+  function syncMode() {
+    var m = mode();
+    if (drawWrap) drawWrap.hidden = m !== 'draw';
+    if (typeWrap) typeWrap.hidden = m !== 'type';
+  }
+  form.querySelectorAll('input[name="signature_mode"]').forEach(function (el) {
+    el.addEventListener('change', syncMode);
+  });
+  nameInput?.addEventListener('input', function () {
+    if (typePreview) typePreview.textContent = nameInput.value.trim() || 'Tu nombre';
+  });
+  syncMode();
+  form.addEventListener('submit', function (e) {
+    var m = mode();
+    dataInput.value = '';
+    if (m === 'draw') {
+      if (!hasInk) {
+        e.preventDefault();
+        alert('Dibuja tu firma en el recuadro o elige “Firmar con mi nombre escrito”.');
+        return;
+      }
+      dataInput.value = canvas.toDataURL('image/png');
+    }
+  });
+})();
+</script>
 <?php elseif ($signed): ?>
 <section class="note">
     <p class="alert alert-ok">
-        Reglamento firmado<?= !empty($item['regulation_signed_at']) ? ' el ' . e($item['regulation_signed_at']) : '' ?>
+        Reglamento firmado digitalmente<?= !empty($item['regulation_signed_at']) ? ' el ' . e($item['regulation_signed_at']) : '' ?>
         por <?= e($item['regulation_signer_name'] ?? '') ?>.
     </p>
+    <?php if (!empty($item['regulation_signed_pdf_path'])): ?>
+        <p class="actions">
+            <a class="btn" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>" target="_blank" rel="noopener">
+                Descargar PDF firmado (evidencia)
+            </a>
+            <?php if (!empty($item['regulation_signature_path'])): ?>
+                <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signature_path'])) ?>" target="_blank" rel="noopener">Ver imagen de firma</a>
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
 </section>
 <?php endif; ?>
 

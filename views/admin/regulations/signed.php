@@ -20,6 +20,7 @@ $items = $items ?? [];
                     <th>Firmó como</th>
                     <th>Certificación</th>
                     <th>Documento</th>
+                    <th>PDF firmado</th>
                     <th></th>
                 </tr>
             </thead>
@@ -50,17 +51,27 @@ $items = $items ?? [];
                                 <span class="muted">v<?= e($item['document_version']) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($item['document_path'])): ?>
-                                <br><a href="/media?f=<?= e(rawurlencode((string)$item['document_path'])) ?>" target="_blank" rel="noopener">ver PDF</a>
+                                <br><a href="/media?f=<?= e(rawurlencode((string)$item['document_path'])) ?>" target="_blank" rel="noopener">original</a>
                             <?php endif; ?>
                         <?php else: ?>
                             <span class="muted">Documento no disponible</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($item['regulation_signed_pdf_path'])): ?>
+                            <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>" target="_blank" rel="noopener">Descargar</a>
+                            <?php if (!empty($item['regulation_signature_mode'])): ?>
+                                <br><span class="muted"><?= e($item['regulation_signature_mode'] === 'draw' ? 'dibujo' : 'nombre') ?></span>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="muted">Solo clickwrap (antes de firma digital)</span>
                         <?php endif; ?>
                     </td>
                     <td><a href="/admin/cases/view?id=<?= (int)$item['case_id'] ?>">Caso #<?= (int)$item['case_id'] ?></a></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="6" class="muted">Aún no hay firmas registradas.</td></tr>
+                <tr><td colspan="7" class="muted">Aún no hay firmas registradas.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

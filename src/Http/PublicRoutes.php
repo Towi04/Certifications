@@ -436,13 +436,17 @@ final class PublicRoutes
                     throw new \RuntimeException('Debes aceptar el reglamento para continuar.');
                 }
                 $signer = trim((string) ($_POST['signer_name'] ?? ''));
+                $mode = (string) ($_POST['signature_mode'] ?? 'type');
+                $sigData = (string) ($_POST['signature_data'] ?? '');
                 $repo()->signCaseRegulation(
                     $caseId,
                     $signer,
                     $doc ? (int) $doc['id'] : null,
-                    (int) $user['id']
+                    (int) $user['id'],
+                    $mode,
+                    $sigData !== '' ? $sigData : null
                 );
-                flash('info', 'Reglamento firmado. Continúa con tu pago SPEI.');
+                flash('info', 'Reglamento firmado digitalmente. Ya puedes descargar el PDF de evidencia y continuar con tu pago SPEI.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
