@@ -1219,6 +1219,81 @@ final class AdminRoutes
             exit;
         });
 
+        $router->get('/admin/actions', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $actions = new \App\Workflow\ActionRepository();
+            $actions->ensureSchema();
+            view('admin/actions/index', [
+                'title' => 'Acciones',
+                'items' => $actions->all(false),
+                'handlers' => \App\Workflow\ActionRepository::handlers(),
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/actions/create', static function () use ($repo): void {
+            Auth::requireAdmin();
+            (new \App\Workflow\ActionRepository())->ensureSchema();
+            view('admin/actions/form', [
+                'title' => 'Nueva acción',
+                'item' => null,
+                'handlers' => \App\Workflow\ActionRepository::handlers(),
+                'triggerOptions' => \App\Workflow\ActionRepository::triggerOptions(),
+                'requireOptions' => \App\Workflow\ActionRepository::requireOptions(),
+                'mail_templates' => $repo()->mailTemplates(true),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->get('/admin/actions/edit', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $actions = new \App\Workflow\ActionRepository();
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $actions->find($id);
+            if (!$item) {
+                flash('error', 'Acción no encontrada.');
+                header('Location: /admin/actions');
+                exit;
+            }
+            view('admin/actions/form', [
+                'title' => 'Editar acción · ' . $item['code'],
+                'item' => $item,
+                'handlers' => \App\Workflow\ActionRepository::handlers(),
+                'triggerOptions' => \App\Workflow\ActionRepository::triggerOptions(),
+                'requireOptions' => \App\Workflow\ActionRepository::requireOptions(),
+                'mail_templates' => $repo()->mailTemplates(true),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/actions/save', static function (): void {
+            Auth::requireAdmin();
+            $actions = new \App\Workflow\ActionRepository();
+            $id = (int) ($_POST['id'] ?? 0) ?: null;
+            try {
+                $saved = $actions->save([
+                    'code' => (string) ($_POST['code'] ?? ''),
+                    'name' => (string) ($_POST['name'] ?? ''),
+                    'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
+                    'handler' => (string) ($_POST['handler'] ?? 'send_mail'),
+                    'mail_template_code' => (string) ($_POST['mail_template_code'] ?? ''),
+                    'button_label' => (string) ($_POST['button_label'] ?? ''),
+                    'show_as_button' => isset($_POST['show_as_button']),
+                    'auto_triggers' => $_POST['auto_triggers'] ?? [],
+                    'requires_json' => $_POST['requires_json'] ?? [],
+                    'sort_order' => (int) ($_POST['sort_order'] ?? 0),
+                    'is_active' => isset($_POST['is_active']),
+                ], $id);
+                flash('info', 'Acción guardada.');
+                header('Location: /admin/actions/edit?id=' . $saved);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: ' . ($id ? '/admin/actions/edit?id=' . $id : '/admin/actions/create'));
+            }
+            exit;
+        });
+
         $router->get('/admin/protocols', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/protocols/index', [
@@ -1238,6 +1313,8 @@ final class AdminRoutes
                 'providers' => $repo()->providers(true),
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
                 'mail_templates' => $repo()->mailTemplates(true),
+                'workflow_actions' => (new \App\Workflow\ActionRepository())->all(true),
+                'protocol_action_ids' => [],
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
@@ -1254,6 +1331,8 @@ final class AdminRoutes
                 header('Location: /admin/protocols');
                 exit;
             }
+            $actionRepo = new \App\Workflow\ActionRepository();
+            $assigned = $actionRepo->protocolActions($id, false);
             view('admin/protocols/form', [
                 'title' => 'Editar protocolo',
                 'item' => $item,
@@ -1261,6 +1340,8 @@ final class AdminRoutes
                 'providers' => $repo()->providers(true),
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
                 'mail_templates' => $repo()->mailTemplates(true),
+                'workflow_actions' => $actionRepo->all(true),
+                'protocol_action_ids' => array_map(static fn (array $a): int => (int) $a['id'], $assigned),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'error' => flash('error'),
@@ -1295,7 +1376,12 @@ final class AdminRoutes
                     'student_access_template' => trim((string) ($_POST['student_access_template'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
-                flash('info', 'Protocolo guardado. Ahora define los pasos del flujo.');
+                $actionIds = $_POST['action_ids'] ?? [];
+                if (!is_array($actionIds)) {
+                    $actionIds = [];
+                }
+                (new \App\Workflow\ActionRepository())->setProtocolActions($savedId, $actionIds);
+                flash('info', 'Protocolo y acciones guardados.');
                 header('Location: /admin/protocols/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
@@ -1433,12 +1519,46 @@ final class AdminRoutes
 
         $router->get('/admin/cases', static function () use ($repo): void {
             Auth::requireAdmin();
+            (new \App\Workflow\ActionRepository())->ensureSchema();
+            $items = $repo()->certificationCases(200);
+            $runner = new \App\Workflow\ActionRunner($repo());
+            $caseButtons = [];
+            foreach ($items as $item) {
+                $caseButtons[(int) $item['id']] = $runner->buttonsForCase($item);
+            }
             view('admin/cases/index', [
                 'title' => 'Casos de certificación',
-                'items' => $repo()->certificationCases(),
+                'items' => $items,
+                'case_buttons' => $caseButtons,
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/admin/cases/run-action', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $actionId = (int) ($_POST['action_id'] ?? 0);
+            $user = Auth::user();
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            if ($returnTo === '' || !str_starts_with($returnTo, '/admin/cases')) {
+                $returnTo = '/admin/cases';
+            }
+            try {
+                $runner = new \App\Workflow\ActionRunner($repo());
+                $result = $runner->run(
+                    $caseId,
+                    $actionId,
+                    'button',
+                    $user ? (int) $user['id'] : null,
+                    isset($_FILES['payment_proof']) ? $_FILES['payment_proof'] : null
+                );
+                flash($result['ok'] ? 'info' : 'error', $result['message']);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $returnTo);
+            exit;
         });
 
         $router->get('/admin/cases/create', static function () use ($repo): void {
@@ -1469,6 +1589,14 @@ final class AdminRoutes
                     'exam_date' => $examDate !== '' ? $examDate : null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
                 ]);
+                try {
+                    (new \App\Workflow\ActionRunner($repo()))->runTriggers(
+                        $caseId,
+                        'registration_complete',
+                        Auth::user() ? (int) Auth::user()['id'] : null
+                    );
+                } catch (\Throwable) {
+                }
                 try {
                     (new \App\Payments\OpenPayPaymentService($repo()))->ensureSpeiCharge($caseId, false, true);
                     flash('info', 'Caso abierto con CLABE OpenPay. El alumno inicia en el paso 1 del protocolo.');
@@ -1566,6 +1694,22 @@ final class AdminRoutes
                     $fields[$key] = $val;
                 }
                 $repo()->updateCertificationCase($caseId, $fields);
+                $caseAfter = $repo()->certificationCaseDetailed($caseId);
+                if ($caseAfter) {
+                    $folioReady = trim((string) ($caseAfter['folio_id'] ?? '')) !== ''
+                        && trim((string) ($caseAfter['access_key'] ?? '')) !== '';
+                    $moodleReady = trim((string) ($caseAfter['moodle_user'] ?? '')) !== '';
+                    if ($folioReady || $moodleReady) {
+                        try {
+                            (new \App\Workflow\ActionRunner($repo()))->runTriggers(
+                                $caseId,
+                                'access_data_ready',
+                                Auth::user() ? (int) Auth::user()['id'] : null
+                            );
+                        } catch (\Throwable) {
+                        }
+                    }
+                }
                 flash('info', 'Datos del caso guardados.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
