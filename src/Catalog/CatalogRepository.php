@@ -2042,6 +2042,7 @@ final class CatalogRepository
     public function mailTemplates(bool $onlyActive = false): array
     {
         try {
+            $this->ensureMailTemplateAttachRegulationColumn();
             $sql = 'SELECT * FROM mail_templates';
             if ($onlyActive) {
                 $sql .= ' WHERE is_active = 1';
@@ -2055,6 +2056,10 @@ final class CatalogRepository
 
     public function mailTemplateByCode(string $code): ?array
     {
+        try {
+            $this->ensureMailTemplateAttachRegulationColumn();
+        } catch (\Throwable) {
+        }
         $stmt = $this->pdo->prepare('SELECT * FROM mail_templates WHERE code = ?');
         $stmt->execute([$code]);
         $row = $stmt->fetch();
@@ -2063,6 +2068,10 @@ final class CatalogRepository
 
     public function mailTemplate(int $id): ?array
     {
+        try {
+            $this->ensureMailTemplateAttachRegulationColumn();
+        } catch (\Throwable) {
+        }
         $stmt = $this->pdo->prepare('SELECT * FROM mail_templates WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch();
@@ -2110,7 +2119,10 @@ final class CatalogRepository
         $toFixed = trim((string) ($data['to_fixed'] ?? '')) ?: null;
         $ccFixed = trim((string) ($data['cc_fixed'] ?? '')) ?: null;
         $attachExport = !empty($data['attach_export']) ? 1 : 0;
+        $attachRegulation = !empty($data['attach_regulation']) ? 1 : 0;
         $isActive = !empty($data['is_active']) ? 1 : 0;
+
+        $this->ensureMailTemplateAttachRegulationColumn();
 
         if ($id) {
             $existing = $this->mailTemplate($id);
@@ -2123,12 +2135,12 @@ final class CatalogRepository
             }
             $stmt = $this->pdo->prepare(
                 'UPDATE mail_templates SET code=?, name=?, audience=?, to_mode=?, to_fixed=?,
-                 cc_mode=?, cc_fixed=?, subject=?, body_html=?, attach_export=?, is_active=?
+                 cc_mode=?, cc_fixed=?, subject=?, body_html=?, attach_export=?, attach_regulation=?, is_active=?
                  WHERE id=?'
             );
             $stmt->execute([
                 $code, $name, $audience, $toMode, $toFixed, $ccMode, $ccFixed,
-                $subject, $body, $attachExport, $isActive, $id,
+                $subject, $body, $attachExport, $attachRegulation, $isActive, $id,
             ]);
 
             return $id;
@@ -2139,15 +2151,37 @@ final class CatalogRepository
         }
         $stmt = $this->pdo->prepare(
             'INSERT INTO mail_templates
-             (code, name, audience, to_mode, to_fixed, cc_mode, cc_fixed, subject, body_html, attach_export, is_active)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             (code, name, audience, to_mode, to_fixed, cc_mode, cc_fixed, subject, body_html, attach_export, attach_regulation, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute([
             $code, $name, $audience, $toMode, $toFixed, $ccMode, $ccFixed,
-            $subject, $body, $attachExport, $isActive,
+            $subject, $body, $attachExport, $attachRegulation, $isActive,
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function ensureMailTemplateAttachRegulationColumn(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['mail_templates', 'attach_regulation']);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $this->pdo->exec(
+                'ALTER TABLE mail_templates
+                 ADD COLUMN attach_regulation TINYINT(1) NOT NULL DEFAULT 0
+                 COMMENT \'Adjuntar PDF del reglamento firmado (o original)\'
+                 AFTER attach_export'
+            );
+        }
+        $done = true;
     }
 
     public function deleteMailTemplate(int $id): void
