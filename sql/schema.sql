@@ -429,6 +429,7 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   reschedule_time VARCHAR(32) NULL,
   folio_id VARCHAR(120) NULL,
   access_key VARCHAR(120) NULL,
+  inventory_code_id BIGINT UNSIGNED NULL,
   zoom_url VARCHAR(512) NULL,
   prep_doc_url VARCHAR(512) NULL,
   access_doc_url VARCHAR(512) NULL,
@@ -441,6 +442,10 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   provider_request_sent_at DATETIME NULL,
   cancel_reason TEXT NULL,
   results_url VARCHAR(512) NULL,
+  score_url VARCHAR(512) NULL,
+  certificate_url VARCHAR(512) NULL,
+  exam_outcome VARCHAR(32) NULL DEFAULT 'pending' COMMENT 'pending|delivered|invalidated',
+  invalidation_reason TEXT NULL,
   cc_email VARCHAR(190) NULL,
   openpay_charge_id VARCHAR(64) NULL,
   openpay_order_id VARCHAR(100) NULL,
@@ -477,6 +482,28 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   CONSTRAINT fk_cases_student_user FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_cases_partner FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL,
   CONSTRAINT fk_cases_current_step FOREIGN KEY (current_step_id) REFERENCES protocol_steps(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Inventario de códigos de examen (iTEP y similares)
+CREATE TABLE IF NOT EXISTS inventory_codes (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NULL,
+  certification_id BIGINT UNSIGNED NULL,
+  exam_id VARCHAR(120) NOT NULL COMMENT 'Examen ID / Folio que ve el alumno',
+  access_code VARCHAR(190) NOT NULL COMMENT 'Contraseña / clave del examen',
+  batch_label VARCHAR(190) NULL,
+  status ENUM('available','assigned','void') NOT NULL DEFAULT 'available',
+  assigned_case_id BIGINT UNSIGNED NULL,
+  assigned_at DATETIME NULL,
+  notes VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_inventory_status (status, certification_id, provider_id),
+  KEY idx_inventory_case (assigned_case_id),
+  UNIQUE KEY uq_inventory_exam_code (exam_id, access_code),
+  CONSTRAINT fk_inventory_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_inventory_cert FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE SET NULL,
+  CONSTRAINT fk_inventory_case FOREIGN KEY (assigned_case_id) REFERENCES certification_cases(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS certification_case_steps (

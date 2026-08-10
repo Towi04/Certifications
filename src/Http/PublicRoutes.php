@@ -404,6 +404,7 @@ final class PublicRoutes
                 'attachments' => $repo()->caseAttachments($id),
                 'regulation' => $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
                 'requires_regulation' => !empty($item['requires_regulation_signature']),
+                'cenni_docs' => $repo()->certificationDocumentsByStage((int) ($item['certification_id'] ?? 0), 'cenni'),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),

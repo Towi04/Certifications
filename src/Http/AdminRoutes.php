@@ -762,6 +762,110 @@ final class AdminRoutes
             exit;
         });
 
+        $parseInventoryRows = static function (string $text, ?array $file): array {
+            $rows = [];
+            $blob = $text;
+            if ($file && (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $tmp = (string) ($file['tmp_name'] ?? '');
+                if ($tmp !== '' && is_readable($tmp)) {
+                    $blob = (string) file_get_contents($tmp);
+                }
+            }
+            $blob = str_replace(["\r\n", "\r"], "\n", $blob);
+            if (str_starts_with($blob, "\xEF\xBB\xBF")) {
+                $blob = substr($blob, 3);
+            }
+            $lines = preg_split('/\n+/', $blob) ?: [];
+            $first = true;
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if ($line === '') {
+                    continue;
+                }
+                if (str_contains($line, "\t")) {
+                    $parts = preg_split("/\t+/", $line) ?: [];
+                } else {
+                    $parts = str_getcsv($line);
+                }
+                $parts = array_values(array_map(static fn ($p) => trim((string) $p), $parts));
+                if ($first) {
+                    $first = false;
+                    $joined = strtolower(implode('|', $parts));
+                    if (str_contains($joined, 'exam') || str_contains($joined, 'access')
+                        || str_contains($joined, 'clave') || str_contains($joined, 'folio')) {
+                        continue;
+                    }
+                }
+                if (count($parts) < 2) {
+                    continue;
+                }
+                $rows[] = ['exam_id' => $parts[0], 'access_code' => $parts[1]];
+            }
+
+            return $rows;
+        };
+
+        $router->get('/admin/inventory', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $repo()->ensureInventoryAndResultColumns();
+            $status = trim((string) ($_GET['status'] ?? ''));
+            $providerId = (int) ($_GET['provider_id'] ?? 0) ?: null;
+            $certId = (int) ($_GET['certification_id'] ?? 0) ?: null;
+            view('admin/inventory/index', [
+                'title' => 'Inventario de códigos',
+                'items' => $repo()->inventoryCodes($status !== '' ? $status : null, $certId, $providerId),
+                'counts' => $repo()->inventoryCounts($certId, $providerId),
+                'providers' => $repo()->providers(true),
+                'certifications' => $repo()->certifications(null),
+                'status' => $status,
+                'providerFilter' => $providerId,
+                'certFilter' => $certId,
+                'info' => flash('info'),
+                'error' => flash('error'),
+            ]);
+        });
+
+        $router->post('/admin/inventory/import', static function () use ($repo, $parseInventoryRows): void {
+            Auth::requireAdmin();
+            try {
+                $rows = $parseInventoryRows(
+                    (string) ($_POST['codes_text'] ?? ''),
+                    isset($_FILES['codes_file']) ? $_FILES['codes_file'] : null
+                );
+                if ($rows === []) {
+                    throw new \RuntimeException('No se detectaron códigos. Usa ExamID,Contraseña por línea.');
+                }
+                $result = $repo()->importInventoryCodes(
+                    $rows,
+                    (int) ($_POST['provider_id'] ?? 0) ?: null,
+                    (int) ($_POST['certification_id'] ?? 0) ?: null,
+                    trim((string) ($_POST['batch_label'] ?? '')) ?: null
+                );
+                $msg = 'Importados: ' . $result['inserted'] . ' · omitidos/duplicados: ' . $result['skipped'] . '.';
+                if ($result['errors'] !== []) {
+                    $msg .= ' ' . implode(' ', $result['errors']);
+                }
+                flash($result['inserted'] > 0 ? 'info' : 'error', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/inventory');
+            exit;
+        });
+
+        $router->post('/admin/inventory/void', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            try {
+                $repo()->voidInventoryCode($id);
+                flash('info', 'Código anulado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/inventory');
+            exit;
+        });
+
         $router->get('/admin/protocols', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/protocols/index', [
@@ -1029,6 +1133,7 @@ final class AdminRoutes
         $router->get('/admin/cases/view', static function () use ($repo): void {
             Auth::requireAdmin();
             $id = (int) ($_GET['id'] ?? 0);
+            $repo()->ensureInventoryAndResultColumns();
             $item = $repo()->certificationCaseDetailed($id);
             if (!$item) {
                 flash('error', 'Caso no encontrado.');
@@ -1072,7 +1177,8 @@ final class AdminRoutes
                     'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
                     'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
                     'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
-                    'moodle_user', 'moodle_password', 'results_url', 'cancel_reason', 'cc_email', 'notes',
+                    'moodle_user', 'moodle_password', 'results_url', 'score_url', 'certificate_url',
+                    'exam_outcome', 'invalidation_reason', 'cancel_reason', 'cc_email', 'notes',
                 ];
                 $fields = [];
                 foreach ($map as $key) {
@@ -1123,6 +1229,23 @@ final class AdminRoutes
                 } elseif (is_array($moodle) && !empty($moodle['error'])) {
                     $msg .= ' Moodle: ' . $moodle['error'];
                 }
+                $inv = $result['fulfill']['inventory'] ?? null;
+                if (is_array($inv)) {
+                    if (!empty($inv['assigned'])) {
+                        $msg .= ' Código inventario: ' . ($inv['exam_id'] ?? '') . '.';
+                    } elseif (!empty($inv['error'])) {
+                        $msg .= ' Inventario: ' . $inv['error'];
+                        $flashType = 'error';
+                    }
+                }
+                $accessMail = $result['fulfill']['access_mail'] ?? null;
+                if (is_array($accessMail)) {
+                    if (!empty($accessMail['sent'])) {
+                        $msg .= ' Acceso alumno (“' . ($accessMail['template'] ?? '') . '”) enviado.';
+                    } elseif (!empty($accessMail['error'])) {
+                        $msg .= ' Acceso alumno: ' . $accessMail['error'];
+                    }
+                }
                 flash($flashType, $msg);
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
@@ -1159,6 +1282,20 @@ final class AdminRoutes
                         . ' · ' . count($moodle['enrolled'] ?? []) . ' curso(s).';
                 } elseif (is_array($moodle) && !empty($moodle['error'])) {
                     $msg .= ' Moodle: ' . $moodle['error'];
+                }
+                $inv = $result['fulfill']['inventory'] ?? null;
+                if (is_array($inv)) {
+                    if (!empty($inv['assigned'])) {
+                        $msg .= ' Código inventario: ' . ($inv['exam_id'] ?? '') . '.';
+                    } elseif (!empty($inv['error'])) {
+                        $msg .= ' Inventario: ' . $inv['error'];
+                    }
+                }
+                $accessMail = $result['fulfill']['access_mail'] ?? null;
+                if (is_array($accessMail) && !empty($accessMail['sent'])) {
+                    $msg .= ' Acceso alumno (“' . ($accessMail['template'] ?? '') . '”) enviado.';
+                } elseif (is_array($accessMail) && !empty($accessMail['error'])) {
+                    $msg .= ' Acceso alumno: ' . $accessMail['error'];
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {
@@ -1822,6 +1959,8 @@ final class AdminRoutes
                 'courses' => $repo()->courses(true),
                 'assets' => $repo()->assets('certification', $id),
                 'assetTypes' => CatalogRepository::assetTypesFor('certification'),
+                'documents' => $repo()->documents(null, true),
+                'cenni_instruction_doc_id' => (int) (($repo()->certificationDocumentsByStage($id, 'cenni')[0]['id'] ?? 0)),
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -2023,6 +2162,15 @@ final class AdminRoutes
                     $allowedTiers[$tid] = $rawTierPrices[$tid] ?? ($rawTierPrices[(string) $tid] ?? '');
                 }
                 $repo()->saveCertificationTierPrices($savedId, $allowedTiers);
+
+                if (array_key_exists('cenni_instruction_document_id', $_POST)) {
+                    $cenniDocId = (int) ($_POST['cenni_instruction_document_id'] ?? 0);
+                    $repo()->setCertificationStageDocument(
+                        $savedId,
+                        'cenni',
+                        $cenniDocId > 0 ? $cenniDocId : null
+                    );
+                }
 
                 flash('info', $intent === 'publish' ? 'Certificación publicada.' : 'Certificación guardada.');
                 header('Location: /admin/certifications/edit?id=' . $savedId);
@@ -2651,6 +2799,84 @@ final class AdminRoutes
                         . (!empty($result['access_mail']) ? ' · correo moodle_acceso enviado' : '')
                     );
                 }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/fulfill', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $result = (new \App\Services\ExamFulfillmentService($repo()))->fulfillAfterPayment(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                $parts = [];
+                $moodle = $result['moodle'] ?? null;
+                if (is_array($moodle) && empty($moodle['skipped']) && empty($moodle['error'])) {
+                    $parts[] = 'Moodle OK (' . ($moodle['username'] ?? '') . ')';
+                } elseif (is_array($moodle) && !empty($moodle['error'])) {
+                    $parts[] = 'Moodle: ' . $moodle['error'];
+                } elseif (is_array($moodle) && !empty($moodle['skipped'])) {
+                    $parts[] = 'Moodle omitido';
+                }
+                $inv = $result['inventory'] ?? null;
+                if (is_array($inv) && !empty($inv['assigned'])) {
+                    $parts[] = 'Código ' . ($inv['exam_id'] ?? '');
+                } elseif (is_array($inv) && !empty($inv['error'])) {
+                    $parts[] = 'Inventario: ' . $inv['error'];
+                }
+                $mail = $result['access_mail'] ?? null;
+                if (is_array($mail) && !empty($mail['sent'])) {
+                    $parts[] = 'Mail “' . ($mail['template'] ?? '') . '” a ' . ($mail['to'] ?? '');
+                } elseif (is_array($mail) && !empty($mail['error'])) {
+                    $parts[] = 'Mail acceso: ' . $mail['error'];
+                }
+                flash($parts === [] ? 'info' : 'info', $parts === [] ? 'Sin cambios.' : implode(' · ', $parts));
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/cases/view?id=' . $caseId);
+            exit;
+        });
+
+        $router->post('/admin/cases/exam-results', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            $action = trim((string) ($_POST['action'] ?? 'deliver'));
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                if ($action === 'invalidate') {
+                    $result = $svc->invalidateExam(
+                        $caseId,
+                        (string) ($_POST['invalidation_reason'] ?? ''),
+                        isset($_POST['notify_student']),
+                        $user ? (int) $user['id'] : null,
+                        trim((string) ($_POST['template_code'] ?? 'itep_invalidado')) ?: 'itep_invalidado'
+                    );
+                    $msg = 'Examen marcado como invalidado.';
+                } else {
+                    $result = $svc->deliverExamResults(
+                        $caseId,
+                        (string) ($_POST['results_url'] ?? ''),
+                        (string) ($_POST['score_url'] ?? ''),
+                        (string) ($_POST['certificate_url'] ?? ''),
+                        isset($_POST['notify_student']),
+                        $user ? (int) $user['id'] : null,
+                        trim((string) ($_POST['template_code'] ?? 'itep_resultados')) ?: 'itep_resultados'
+                    );
+                    $msg = 'Resultados guardados.';
+                }
+                if (!empty($result['mailed'])) {
+                    $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado'
+                        . (!empty($result['to']) ? ' a ' . $result['to'] : '') . '.';
+                }
+                flash('info', $msg);
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }

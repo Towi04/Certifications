@@ -5,11 +5,19 @@ $attachments = $attachments ?? [];
 $regulation = $regulation ?? null;
 $requires_regulation = !empty($requires_regulation);
 $cenni_statuses = $cenni_statuses ?? [];
+$cenni_docs = $cenni_docs ?? [];
 
 $paid = !empty($item['payment_confirmed_at']) || in_array(strtolower((string)($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
 $signed = !empty($item['regulation_signed_at']);
 $needsSign = ($requires_regulation || $regulation) && !$signed;
 $hasAccess = trim((string) ($item['access_key'] ?? '')) !== '' || trim((string) ($item['folio_id'] ?? '')) !== '';
+$hasMoodle = trim((string) ($item['moodle_user'] ?? '')) !== '';
+$examOutcome = (string) ($item['exam_outcome'] ?? 'pending');
+$hasResults = $examOutcome === 'delivered'
+    || trim((string) ($item['results_url'] ?? '')) !== ''
+    || trim((string) ($item['score_url'] ?? '')) !== ''
+    || trim((string) ($item['certificate_url'] ?? '')) !== '';
+$isInvalidated = $examOutcome === 'invalidated';
 $cenniProcess = (string) ($item['cenni_process'] ?? 'none');
 $cenniStatus = (string) ($item['cenni_status'] ?? 'none');
 $fullName = trim(
@@ -58,6 +66,14 @@ $timeline = [
         'done' => $hasAccess,
     ],
     [
+        'key' => 'resultados',
+        'label' => 'Resultados',
+        'hint' => $isInvalidated
+            ? 'Examen invalidado'
+            : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
+        'done' => $hasResults || $isInvalidated,
+    ],
+    [
         'key' => 'cenni',
         'label' => 'Certificado / CENNI',
         'hint' => $cenni_statuses[$cenniStatus] ?? $cenniStatus,
@@ -79,6 +95,8 @@ if ($needsSign) {
     $currentKey = 'pago';
 } elseif (!$hasAccess) {
     $currentKey = 'examen';
+} elseif (!$hasResults && !$isInvalidated) {
+    $currentKey = 'resultados';
 } elseif ($cenniStatus !== 'issued') {
     $currentKey = 'cenni';
 }
@@ -431,6 +449,20 @@ if ($needsSign) {
 <?php endif; ?>
 
 <?php if ($paid): ?>
+<?php if ($hasMoodle): ?>
+<section class="note student-stage" id="moodle">
+    <h2>Curso de preparación (Moodle)</h2>
+    <p>Ya tienes acceso a la plataforma de preparación.</p>
+    <ul>
+        <li><strong>Usuario:</strong> <code><?= e($item['moodle_user'] ?? '') ?></code></li>
+        <?php if (!empty($item['moodle_password'])): ?>
+            <li><strong>Contraseña:</strong> <code><?= e($item['moodle_password']) ?></code></li>
+        <?php endif; ?>
+    </ul>
+    <p class="muted">Revisa tu correo: también te enviamos estos datos con la plantilla de acceso Moodle.</p>
+</section>
+<?php endif; ?>
+
 <section class="note student-stage <?= !$hasAccess ? 'student-stage-active' : '' ?>" id="examen">
     <h2>Acceso a tu examen</h2>
     <?php if ($hasAccess): ?>
@@ -443,9 +475,10 @@ if ($needsSign) {
             <?php endif; ?>
             <?php if (!empty($item['zoom_url'])): ?><li><strong>Zoom:</strong> <a href="<?= e($item['zoom_url']) ?>" target="_blank" rel="noopener">Abrir enlace</a></li><?php endif; ?>
         </ul>
+        <p class="muted">También te enviamos estos códigos por correo.</p>
     <?php else: ?>
         <p>
-            Un día antes de tu examen te enviaremos el código de acceso.
+            Cuando tu pago esté confirmado y haya códigos en inventario, te asignaremos el Exam ID y la contraseña automáticamente.
             También puedes entrar a esta cuenta para revisar si ya fue asignado.
         </p>
         <?php if (!empty($item['exam_date'])): ?>
@@ -454,6 +487,32 @@ if ($needsSign) {
         <?php if (!empty($item['reschedule_date'])): ?>
             <p class="muted">Reagenda pendiente: <?= e($item['reschedule_date']) ?><?= !empty($item['reschedule_time']) ? ' · ' . e($item['reschedule_time']) : '' ?></p>
         <?php endif; ?>
+    <?php endif; ?>
+</section>
+
+<section class="note student-stage <?= ($hasAccess && !$hasResults && !$isInvalidated) ? 'student-stage-active' : '' ?>" id="resultados">
+    <h2>Resultados del examen</h2>
+    <?php if ($isInvalidated): ?>
+        <p class="alert alert-warn">
+            Tu examen fue marcado como <strong>invalidado</strong>.
+            <?php if (!empty($item['invalidation_reason'])): ?>
+                Motivo: <?= e($item['invalidation_reason']) ?>
+            <?php endif; ?>
+        </p>
+    <?php elseif ($hasResults): ?>
+        <ul>
+            <?php if (!empty($item['results_url'])): ?>
+                <li><a href="<?= e($item['results_url']) ?>" target="_blank" rel="noopener">Ver resultados</a></li>
+            <?php endif; ?>
+            <?php if (!empty($item['score_url'])): ?>
+                <li><a href="<?= e($item['score_url']) ?>" target="_blank" rel="noopener">Score result</a></li>
+            <?php endif; ?>
+            <?php if (!empty($item['certificate_url'])): ?>
+                <li><a href="<?= e($item['certificate_url']) ?>" target="_blank" rel="noopener">Certificate</a></li>
+            <?php endif; ?>
+        </ul>
+    <?php else: ?>
+        <p class="muted">Cuando el proveedor publique tus resultados, aparecerán aquí (y te avisaremos por correo).</p>
     <?php endif; ?>
 </section>
 
@@ -487,6 +546,25 @@ if ($needsSign) {
     <?php elseif ($cenniProcess === 'doceo_managed'): ?>
         <p>Sube tus documentos para que Instituto Doceo gestione el trámite ante la SEP.</p>
         <p class="muted">Estatus: <strong><?= e($cenni_statuses[$cenniStatus] ?? $cenniStatus) ?></strong></p>
+        <?php if ($cenni_docs): ?>
+            <div class="note" style="margin:0.75rem 0">
+                <p><strong>Cómo llenar la solicitud CENNI</strong></p>
+                <ul>
+                    <?php foreach ($cenni_docs as $doc): ?>
+                        <li>
+                            <?php if (!empty($doc['file_path'])): ?>
+                                <a href="/media?f=<?= e(rawurlencode((string)$doc['file_path'])) ?>&download=1&name=<?= e(rawurlencode((string)($doc['title'] ?? 'solicitud-cenni'))) ?>" target="_blank" rel="noopener">
+                                    <?= e($doc['title'] ?? 'Instrucciones') ?>
+                                </a>
+                                <?php if (!empty($doc['version'])): ?> · v<?= e((string)$doc['version']) ?><?php endif; ?>
+                            <?php else: ?>
+                                <?= e($doc['title'] ?? 'Instrucciones') ?>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
         <form method="post" action="/alumno/caso/upload-cenni" enctype="multipart/form-data" class="stack">
             <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
             <label>INE (PDF/imagen)<input type="file" name="cenni_ine" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>

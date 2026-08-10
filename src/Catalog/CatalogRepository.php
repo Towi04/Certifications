@@ -1765,6 +1765,368 @@ final class CatalogRepository
         $done = true;
     }
 
+    public function ensureInventoryAndResultColumns(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        try {
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS inventory_codes (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  provider_id BIGINT UNSIGNED NULL,
+                  certification_id BIGINT UNSIGNED NULL,
+                  exam_id VARCHAR(120) NOT NULL,
+                  access_code VARCHAR(190) NOT NULL,
+                  batch_label VARCHAR(190) NULL,
+                  status ENUM('available','assigned','void') NOT NULL DEFAULT 'available',
+                  assigned_case_id BIGINT UNSIGNED NULL,
+                  assigned_at DATETIME NULL,
+                  notes VARCHAR(255) NULL,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                  KEY idx_inventory_status (status, certification_id, provider_id),
+                  KEY idx_inventory_case (assigned_case_id),
+                  UNIQUE KEY uq_inventory_exam_code (exam_id, access_code)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        } catch (\Throwable) {
+        }
+        $cols = [
+            'score_url' => 'VARCHAR(512) NULL',
+            'certificate_url' => 'VARCHAR(512) NULL',
+            'exam_outcome' => "VARCHAR(32) NULL DEFAULT 'pending'",
+            'invalidation_reason' => 'TEXT NULL',
+            'inventory_code_id' => 'BIGINT UNSIGNED NULL',
+        ];
+        foreach ($cols as $name => $def) {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['certification_cases', $name]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                try {
+                    $this->pdo->exec('ALTER TABLE certification_cases ADD COLUMN ' . $name . ' ' . $def);
+                } catch (\Throwable) {
+                }
+            }
+        }
+        $this->ensureItepMailTemplatesAndPrepCourse();
+        $done = true;
+    }
+
+    private function ensureItepMailTemplatesAndPrepCourse(): void
+    {
+        try {
+            $this->pdo->exec(
+                "INSERT INTO courses (code, name, platform_type, moodle_course_id, access_notes, is_active) VALUES
+                 ('ITEP_PREP', 'iTEP Preparation', 'moodle', NULL,
+                  'Curso prep iTEP en campus.institutodoceo.com — asignar moodle_course_id', 1)
+                 ON DUPLICATE KEY UPDATE name = VALUES(name)"
+            );
+        } catch (\Throwable) {
+        }
+        $templates = [
+            [
+                'itep_data',
+                'iTEP — Datos de acceso al alumno',
+                'Datos de acceso iTEP — {{Nombre}}',
+                '<p>¡Hola {{Nombre}}!</p><p>Tu examen <strong>{{Certificación}}</strong> ya tiene códigos de acceso.</p>'
+                . '<p><strong>Examen ID:</strong> {{Folio / ID}}<br><strong>Contraseña:</strong> {{Clave}}</p>'
+                . '<p>Fecha solicitada: {{Fecha}} {{Hora}}</p><p>Sigue la guía de aplicación iTEP e ingresa con estos datos.</p>'
+                . '<p>Instituto DOCEO</p>',
+            ],
+            [
+                'itep_resultados',
+                'iTEP — Resultados / certificado',
+                'Resultados iTEP — {{Nombre}}',
+                '<p>¡Hola {{Nombre}}!</p><p>Ya están disponibles tus resultados de <strong>{{Certificación}}</strong>.</p>'
+                . '<p>{{Resultados Line}}{{Score Line}}{{Certificate Line}}</p><p>Instituto DOCEO</p>',
+            ],
+            [
+                'itep_invalidado',
+                'iTEP — Examen invalidado',
+                'Aviso sobre tu examen iTEP — {{Nombre}}',
+                '<p>¡Hola {{Nombre}}!</p><p>Te informamos que tu examen <strong>{{Certificación}}</strong> fue marcado como invalidado.</p>'
+                . '<p><strong>Motivo:</strong> {{Canceled}}</p>'
+                . '<p>Si tienes dudas, responde a este correo o contacta a {{Contacto Doceo}}.</p><p>Instituto DOCEO</p>',
+            ],
+        ];
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO mail_templates
+             (code, name, audience, to_mode, to_fixed, cc_mode, cc_fixed, subject, body_html, attach_export, is_active)
+             VALUES (?, ?, \'student\', \'student\', NULL, \'case_cc\', NULL, ?, ?, 0, 1)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), subject = VALUES(subject),
+               body_html = VALUES(body_html), is_active = 1'
+        );
+        foreach ($templates as $tpl) {
+            try {
+                $stmt->execute($tpl);
+            } catch (\Throwable) {
+            }
+        }
+        try {
+            $this->pdo->exec(
+                "UPDATE protocols
+                 SET student_access_template = COALESCE(NULLIF(TRIM(student_access_template), ''), 'itep_data'),
+                     uses_inventory = 1
+                 WHERE code LIKE 'ITEP%' OR name LIKE '%iTEP%' OR name LIKE '%ITEP%'"
+            );
+        } catch (\Throwable) {
+        }
+    }
+
+    /**
+     * @param list<array{exam_id:string,access_code:string}> $rows
+     * @return array{inserted:int,skipped:int,errors:list<string>}
+     */
+    public function importInventoryCodes(
+        array $rows,
+        ?int $providerId,
+        ?int $certificationId,
+        ?string $batchLabel
+    ): array {
+        $this->ensureInventoryAndResultColumns();
+        $inserted = 0;
+        $skipped = 0;
+        $errors = [];
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inventory_codes
+             (provider_id, certification_id, exam_id, access_code, batch_label, status)
+             VALUES (?,?,?,?,?,\'available\')'
+        );
+        foreach ($rows as $i => $row) {
+            $examId = trim((string) ($row['exam_id'] ?? ''));
+            $code = trim((string) ($row['access_code'] ?? ''));
+            if ($examId === '' || $code === '') {
+                $skipped++;
+                continue;
+            }
+            try {
+                $stmt->execute([
+                    $providerId ?: null,
+                    $certificationId ?: null,
+                    $examId,
+                    $code,
+                    $batchLabel !== null && $batchLabel !== '' ? $batchLabel : null,
+                ]);
+                $inserted++;
+            } catch (\Throwable $e) {
+                $skipped++;
+                if (count($errors) < 8) {
+                    $errors[] = 'Fila ' . ($i + 1) . ' (' . $examId . '): ' . $e->getMessage();
+                }
+            }
+        }
+
+        return ['inserted' => $inserted, 'skipped' => $skipped, 'errors' => $errors];
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function inventoryCodes(?string $status = null, ?int $certificationId = null, ?int $providerId = null, int $limit = 300): array
+    {
+        $this->ensureInventoryAndResultColumns();
+        $sql = 'SELECT ic.*, cert.name AS certification_name, cert.code AS certification_code,
+                       p.name AS provider_name
+                FROM inventory_codes ic
+                LEFT JOIN certifications cert ON cert.id = ic.certification_id
+                LEFT JOIN providers p ON p.id = ic.provider_id
+                WHERE 1=1';
+        $params = [];
+        if ($status !== null && $status !== '') {
+            $sql .= ' AND ic.status = ?';
+            $params[] = $status;
+        }
+        if ($certificationId !== null && $certificationId > 0) {
+            $sql .= ' AND ic.certification_id = ?';
+            $params[] = $certificationId;
+        }
+        if ($providerId !== null && $providerId > 0) {
+            $sql .= ' AND ic.provider_id = ?';
+            $params[] = $providerId;
+        }
+        $sql .= ' ORDER BY ic.status ASC, ic.id DESC LIMIT ' . max(1, min(1000, $limit));
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll();
+    }
+
+    /** @return array{available:int,assigned:int,void:int} */
+    public function inventoryCounts(?int $certificationId = null, ?int $providerId = null): array
+    {
+        $this->ensureInventoryAndResultColumns();
+        $sql = 'SELECT status, COUNT(*) AS c FROM inventory_codes WHERE 1=1';
+        $params = [];
+        if ($certificationId !== null && $certificationId > 0) {
+            $sql .= ' AND certification_id = ?';
+            $params[] = $certificationId;
+        }
+        if ($providerId !== null && $providerId > 0) {
+            $sql .= ' AND provider_id = ?';
+            $params[] = $providerId;
+        }
+        $sql .= ' GROUP BY status';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = ['available' => 0, 'assigned' => 0, 'void' => 0];
+        foreach ($stmt->fetchAll() as $row) {
+            $st = (string) ($row['status'] ?? '');
+            if (isset($out[$st])) {
+                $out[$st] = (int) $row['c'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Asigna un código disponible al caso (prioridad: misma certificación, luego mismo proveedor).
+     *
+     * @return array{assigned:bool,exam_id?:string,access_code?:string,inventory_id?:int,error?:string}
+     */
+    public function assignInventoryCodeToCase(int $caseId, ?int $actorUserId = null): array
+    {
+        $this->ensureInventoryAndResultColumns();
+        $case = $this->certificationCaseDetailed($caseId);
+        if (!$case) {
+            return ['assigned' => false, 'error' => 'Caso no encontrado'];
+        }
+        if (!empty($case['inventory_code_id']) || (
+            trim((string) ($case['access_key'] ?? '')) !== ''
+            && trim((string) ($case['folio_id'] ?? '')) !== ''
+        )) {
+            return [
+                'assigned' => true,
+                'exam_id' => (string) ($case['folio_id'] ?? ''),
+                'access_code' => (string) ($case['access_key'] ?? ''),
+                'inventory_id' => (int) ($case['inventory_code_id'] ?? 0) ?: null,
+            ];
+        }
+
+        $certId = (int) ($case['certification_id'] ?? 0);
+        $providerId = (int) ($case['provider_id'] ?? 0);
+
+        $this->pdo->beginTransaction();
+        try {
+            $row = null;
+            if ($certId > 0) {
+                $stmt = $this->pdo->prepare(
+                    "SELECT * FROM inventory_codes
+                     WHERE status = 'available' AND certification_id = ?
+                     ORDER BY id ASC LIMIT 1 FOR UPDATE"
+                );
+                $stmt->execute([$certId]);
+                $row = $stmt->fetch() ?: null;
+            }
+            if (!$row && $providerId > 0) {
+                $stmt = $this->pdo->prepare(
+                    "SELECT * FROM inventory_codes
+                     WHERE status = 'available' AND provider_id = ?
+                       AND (certification_id IS NULL OR certification_id = 0)
+                     ORDER BY id ASC LIMIT 1 FOR UPDATE"
+                );
+                $stmt->execute([$providerId]);
+                $row = $stmt->fetch() ?: null;
+            }
+            if (!$row && $providerId > 0) {
+                $stmt = $this->pdo->prepare(
+                    "SELECT * FROM inventory_codes
+                     WHERE status = 'available' AND provider_id = ?
+                     ORDER BY id ASC LIMIT 1 FOR UPDATE"
+                );
+                $stmt->execute([$providerId]);
+                $row = $stmt->fetch() ?: null;
+            }
+            if (!$row) {
+                $this->pdo->rollBack();
+
+                return ['assigned' => false, 'error' => 'No hay códigos disponibles en inventario. Súbelos en Admin → Inventario.'];
+            }
+
+            $invId = (int) $row['id'];
+            $examId = (string) $row['exam_id'];
+            $access = (string) $row['access_code'];
+            $this->pdo->prepare(
+                "UPDATE inventory_codes
+                 SET status = 'assigned', assigned_case_id = ?, assigned_at = NOW()
+                 WHERE id = ?"
+            )->execute([$caseId, $invId]);
+            $this->updateCertificationCase($caseId, [
+                'folio_id' => $examId,
+                'access_key' => $access,
+                'inventory_code_id' => $invId,
+            ]);
+            $this->pdo->commit();
+
+            try {
+                $this->markCaseStepDoneByKeywords(
+                    $caseId,
+                    ['inventario', 'código', 'codigo', 'asign'],
+                    $actorUserId,
+                    'Código inventario asignado: ' . $examId
+                );
+            } catch (\Throwable) {
+            }
+
+            return [
+                'assigned' => true,
+                'exam_id' => $examId,
+                'access_code' => $access,
+                'inventory_id' => $invId,
+            ];
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+
+            return ['assigned' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    public function voidInventoryCode(int $id): void
+    {
+        $this->ensureInventoryAndResultColumns();
+        $this->pdo->prepare(
+            "UPDATE inventory_codes SET status = 'void' WHERE id = ? AND status = 'available'"
+        )->execute([$id]);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function certificationDocumentsByStage(int $certificationId, string $stage): array
+    {
+        $this->ensureCertificationDocsTable();
+        $stmt = $this->pdo->prepare(
+            "SELECT d.*
+             FROM certification_docs cd
+             JOIN documents d ON d.id = cd.document_id
+             WHERE cd.certification_id = ? AND cd.stage = ? AND d.is_active = 1
+             ORDER BY d.title"
+        );
+        $stmt->execute([$certificationId, $stage]);
+
+        return $stmt->fetchAll();
+    }
+
+    public function setCertificationStageDocument(int $certificationId, string $stage, ?int $documentId): void
+    {
+        $this->ensureCertificationDocsTable();
+        $allowed = ['purchase', 'exam', 'cenni', 'conocer', 'other'];
+        if (!in_array($stage, $allowed, true)) {
+            throw new \InvalidArgumentException('Etapa de documento inválida.');
+        }
+        $this->pdo->prepare(
+            'DELETE FROM certification_docs WHERE certification_id = ? AND stage = ?'
+        )->execute([$certificationId, $stage]);
+        if ($documentId === null || $documentId <= 0) {
+            return;
+        }
+        $this->pdo->prepare(
+            'INSERT INTO certification_docs (certification_id, document_id, is_required, stage)
+             VALUES (?,?,1,?)'
+        )->execute([$certificationId, $documentId, $stage]);
+    }
+
     public function saveProtocol(array $data, ?int $id = null): int
     {
         $fields = [
@@ -1806,6 +2168,7 @@ final class CatalogRepository
                     cert.cenni_fee, cert.cenni_process,
                     pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
+                    pr.uses_inventory,
                     prov.code AS provider_code, prov.name AS provider_name,
                     prov.contact_email AS provider_contact_email,
                     pu.email AS partner_email, p.organization AS partner_organization
@@ -1963,6 +2326,7 @@ final class CatalogRepository
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
             'payment_method',
             'provider_export_path', 'provider_request_sent_at', 'cancel_reason', 'results_url',
+            'score_url', 'certificate_url', 'exam_outcome', 'invalidation_reason', 'inventory_code_id',
             'cc_email', 'notes', 'status', 'partner_id',
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
             'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
