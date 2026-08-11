@@ -54,7 +54,11 @@ final class MoodleClient
         if (isset($decoded['exception'])) {
             $message = (string) ($decoded['message'] ?? $decoded['exception']);
             $code = (string) ($decoded['errorcode'] ?? 'moodle_error');
-            $hint = self::hintForError($function, $code, $message);
+            $debug = trim((string) ($decoded['debuginfo'] ?? ''));
+            if ($debug !== '' && !str_contains($message, $debug)) {
+                $message .= ' (' . $debug . ')';
+            }
+            $hint = self::hintForError($function, $code, $message . ' ' . $debug);
             throw new \RuntimeException("Moodle [{$code}] en {$function}: {$message}" . ($hint !== '' ? ' — ' . $hint : ''));
         }
 
@@ -75,6 +79,23 @@ final class MoodleClient
         }
         if ($code === 'invalidtoken' || str_contains($hay, 'invalid token')) {
             return 'Revisa MOODLE_TOKEN en .env (token del servicio externo, no la clave de login).';
+        }
+        if ($code === 'invalidparameter' || str_contains($hay, 'parámetro inválido') || str_contains($hay, 'invalid parameter')) {
+            if (str_contains($hay, 'password') || str_contains($hay, 'contraseña')) {
+                return 'La contraseña no cumple la política de Moodle (Administración → Seguridad → Políticas del sitio).';
+            }
+            if (str_contains($hay, 'username') || str_contains($hay, 'usuario')) {
+                return 'El nombre de usuario no es válido para Moodle (solo a-z, 0-9, .-_).';
+            }
+            if (str_contains($hay, 'lang') || str_contains($hay, 'language')) {
+                return 'Idioma no instalado en Moodle; el PDV ya omite lang por defecto (MOODLE_USER_LANG).';
+            }
+            if (str_contains($hay, 'profile') || str_contains($hay, 'custom')) {
+                return 'Hay campos de perfil obligatorios en Moodle; hazlos opcionales o rellena defaults.';
+            }
+
+            return 'Revisa política de contraseñas, username, e-mail y campos de perfil obligatorios. '
+                . 'El detalle suele venir en debuginfo del error.';
         }
         if (str_contains($hay, 'password')) {
             return 'La contraseña generada no cumple la política de Moodle; ajusta la política o el generador del PDV.';
@@ -237,38 +258,110 @@ final class MoodleClient
      */
     public function createUser(array $data): array
     {
-        $username = strtolower(trim((string) ($data['username'] ?? '')));
+        $username = self::sanitizeUsername((string) ($data['username'] ?? ''));
         $password = (string) ($data['password'] ?? '');
-        $firstname = trim((string) ($data['firstname'] ?? 'Alumno'));
-        $lastname = trim((string) ($data['lastname'] ?? 'Doceo'));
+        $firstname = self::sanitizePersonName((string) ($data['firstname'] ?? 'Alumno'), 'Alumno');
+        $lastname = self::sanitizePersonName((string) ($data['lastname'] ?? 'Doceo'), 'Doceo');
         $email = strtolower(trim((string) ($data['email'] ?? '')));
 
         if ($username === '' || $email === '' || $password === '') {
             throw new \InvalidArgumentException('username, email y password son obligatorios para crear usuario Moodle.');
         }
-
-        $result = $this->call('core_user_create_users', [
-            'users[0][username]' => $username,
-            'users[0][password]' => $password,
-            'users[0][firstname]' => mb_substr($firstname !== '' ? $firstname : 'Alumno', 0, 100),
-            'users[0][lastname]' => mb_substr($lastname !== '' ? $lastname : 'Doceo', 0, 100),
-            'users[0][email]' => $email,
-            'users[0][auth]' => 'manual',
-            'users[0][lang]' => 'es',
-            'users[0][mailformat]' => 1,
-        ]);
-
-        $created = is_array($result[0] ?? null) ? $result[0] : null;
-        if (!$created || empty($created['id'])) {
-            throw new \RuntimeException('Moodle no devolvió el ID del usuario creado.');
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new \InvalidArgumentException('e-mail inválido para Moodle: ' . $email);
         }
 
-        return [
-            'id' => (int) $created['id'],
-            'username' => (string) ($created['username'] ?? $username),
-            'password' => $password,
-            'created' => true,
+        // Minimal payload first: lang=es suele romper si el pack no está instalado (invalidparameter).
+        $attempts = [];
+        $base = [
+            'users[0][username]' => $username,
+            'users[0][password]' => $password,
+            'users[0][firstname]' => $firstname,
+            'users[0][lastname]' => $lastname,
+            'users[0][email]' => $email,
+            'users[0][auth]' => 'manual',
         ];
+        $attempts[] = $base;
+
+        $lang = trim((string) (Env::get('MOODLE_USER_LANG', '') ?? ''));
+        if ($lang !== '') {
+            $withLang = $base;
+            $withLang['users[0][lang]'] = $lang;
+            $attempts[] = $withLang;
+        }
+
+        // Segunda oportunidad con contraseña más estricta (por si la política es dura).
+        $strong = self::strongPassword();
+        if ($strong !== $password) {
+            $retry = $base;
+            $retry['users[0][password]'] = $strong;
+            $attempts[] = $retry;
+        }
+
+        $lastError = null;
+        foreach ($attempts as $i => $params) {
+            try {
+                $result = $this->call('core_user_create_users', $params);
+                $created = is_array($result[0] ?? null) ? $result[0] : null;
+                if (!$created || empty($created['id'])) {
+                    throw new \RuntimeException('Moodle no devolvió el ID del usuario creado.');
+                }
+                $usedPassword = (string) ($params['users[0][password]'] ?? $password);
+
+                return [
+                    'id' => (int) $created['id'],
+                    'username' => (string) ($created['username'] ?? $username),
+                    'password' => $usedPassword,
+                    'created' => true,
+                ];
+            } catch (\Throwable $e) {
+                $lastError = $e;
+                if (!str_contains(strtolower($e->getMessage()), 'invalidparameter')) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw $lastError ?? new \RuntimeException('No se pudo crear el usuario Moodle.');
+    }
+
+    /** Username Moodle: por defecto solo a-z 0-9 _ (compatible sin “usernames extendidos”). */
+    public static function sanitizeUsername(string $username): string
+    {
+        $username = strtolower(trim($username));
+        // Puntos/guiones → guion bajo (si el sitio no tiene usernames extendidos, . y - invalidan el parámetro)
+        $username = str_replace(['.', '-'], '_', $username);
+        $username = preg_replace('/[^a-z0-9_]+/', '', $username) ?? '';
+        $username = trim($username, '_');
+        $username = preg_replace('/_+/', '_', $username) ?? $username;
+        if (strlen($username) > 90) {
+            $username = substr($username, 0, 90);
+        }
+        if (strlen($username) < 2) {
+            $username = 'alumno' . substr(bin2hex(random_bytes(3)), 0, 6);
+        }
+
+        return $username;
+    }
+
+    private static function sanitizePersonName(string $name, string $fallback): string
+    {
+        $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+        // Quita controles; deja letras/acentos/espacios/guiones comunes en MX
+        $name = preg_replace('/[^\p{L}\p{N} .\'\-]/u', '', $name) ?? '';
+        $name = trim($name);
+        if ($name === '') {
+            $name = $fallback;
+        }
+
+        return mb_substr($name, 0, 100);
+    }
+
+    /** Contraseña que suele pasar políticas Moodle estrictas. */
+    public static function strongPassword(): string
+    {
+        // Mayúscula + minúsculas + dígitos + símbolo, longitud >= 12
+        return 'Doceo!' . bin2hex(random_bytes(4)) . 'A9x';
     }
 
     public function enrolUser(

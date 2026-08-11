@@ -329,21 +329,17 @@ final class MoodleEnrolService
     private function suggestUsername(string $email, int $caseId): string
     {
         $local = strtolower((string) strstr($email, '@', true));
-        $local = preg_replace('/[^a-z0-9._-]+/', '', $local) ?: '';
-        if ($local === '' || strlen($local) < 3) {
-            $local = 'alumno' . $caseId;
-        }
-        if (strlen($local) > 50) {
-            $local = substr($local, 0, 50);
+        $username = MoodleClient::sanitizeUsername($local !== '' ? $local : ('alumno' . $caseId));
+        // Si el local del correo quedó demasiado corto, anclar al caso
+        if (strlen($username) < 3) {
+            $username = MoodleClient::sanitizeUsername('alumno' . $caseId);
         }
 
-        return $local;
+        return $username;
     }
 
     private function generatePassword(): string
     {
-        $base = bin2hex(random_bytes(4));
-
-        return 'Doceo!' . $base . '9';
+        return MoodleClient::strongPassword();
     }
 }
