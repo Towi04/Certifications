@@ -48,7 +48,7 @@ final class AdminRoutes
         };
 
         $caseViewUrl = static function (int $id, ?string $tab = null): string {
-            $allowed = ['alumno', 'reglamento', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
+            $allowed = ['alumno', 'reglamento', 'accesos', 'resultados', 'pago', 'operacion', 'cenni', 'adjuntos', 'protocolo'];
             if ($tab === null) {
                 $tab = trim((string) ($_POST['tab'] ?? $_GET['tab'] ?? 'alumno'));
             }
@@ -1692,9 +1692,19 @@ final class AdminRoutes
             }
             $tab = trim((string) ($_GET['tab'] ?? 'alumno'));
             $requiresRegulation = !empty($item['requires_regulation_signature']);
+            $cenniProcess = (string) ($item['cenni_process'] ?? 'none');
+            $hasCenni = $cenniProcess !== '' && $cenniProcess !== 'none';
             $allowedCaseTabs = ['alumno', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
             if ($requiresRegulation) {
                 array_splice($allowedCaseTabs, 1, 0, ['reglamento']);
+            }
+            if ($hasCenni) {
+                $opIdx = array_search('operacion', $allowedCaseTabs, true);
+                if ($opIdx === false) {
+                    $allowedCaseTabs[] = 'cenni';
+                } else {
+                    array_splice($allowedCaseTabs, $opIdx + 1, 0, ['cenni']);
+                }
             }
             if (!in_array($tab, $allowedCaseTabs, true)) {
                 $tab = 'alumno';
@@ -1706,7 +1716,9 @@ final class AdminRoutes
                 $providerFields
             );
             try {
-                (new \App\Mail\CaseMailService($repo()))->ensureItepStudentResultTemplates();
+                $mailSvc = new \App\Mail\CaseMailService($repo());
+                $mailSvc->ensureItepStudentResultTemplates();
+                $mailSvc->ensureCenniMailTemplates();
             } catch (\Throwable) {
             }
             view('admin/cases/show', [
@@ -1719,6 +1731,7 @@ final class AdminRoutes
                 'regulation_doc' => $regulationDoc,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
+                'cenni_docs_case' => $hasCenni ? $repo()->caseCenniDocuments($id) : [],
                 'payment_share_url' => (static function () use ($repo, $item, $id): string {
                     $rel = trim((string) ($item['payment_proof_path'] ?? ''));
                     if ($rel === '') {
@@ -1932,29 +1945,86 @@ final class AdminRoutes
             $user = Auth::user();
             try {
                 $svc = new \App\Mail\CaseMailService($repo());
+                $svc->ensureCenniMailTemplates();
                 $result = $svc->updateCenniStatus(
                     $caseId,
                     trim((string) ($_POST['cenni_status'] ?? 'none')),
                     trim((string) ($_POST['cenni_folio'] ?? '')) ?: null,
                     trim((string) ($_POST['cenni_notes'] ?? '')) ?: null,
-                    isset($_POST['notify_student']),
+                    true,
                     $user ? (int) $user['id'] : null,
                     array_key_exists('cenni_download_url', $_POST)
                         ? trim((string) $_POST['cenni_download_url'])
                         : null,
                     array_key_exists('cenni_sep_url', $_POST)
                         ? trim((string) $_POST['cenni_sep_url'])
-                        : null
+                        : null,
+                    trim((string) ($_POST['template_code'] ?? '')) ?: null
                 );
                 $msg = 'Estatus CENNI actualizado: ' . $result['status'] . '.';
-                if ($result['mailed']) {
-                    $msg .= ' Correo enviado al alumno.';
+                if (!empty($result['mailed'])) {
+                    $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado'
+                        . (!empty($result['to']) ? ' a ' . $result['to'] : '') . '.';
                 }
                 flash('info', $msg);
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: ' . $caseViewUrl($caseId));
+            header('Location: ' . $caseViewUrl($caseId, 'cenni'));
+            exit;
+        });
+
+        $router->post('/admin/cases/cenni-doc-review', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $attachmentId = (int) ($_POST['attachment_id'] ?? 0);
+            $status = trim((string) ($_POST['review_status'] ?? ''));
+            $user = Auth::user();
+            try {
+                $att = $repo()->caseAttachment($attachmentId);
+                if (!$att || (int) ($att['case_id'] ?? 0) !== $caseId) {
+                    throw new \RuntimeException('Documento no pertenece a este caso.');
+                }
+                $repo()->reviewCaseAttachment(
+                    $attachmentId,
+                    $status,
+                    trim((string) ($_POST['review_notes'] ?? '')) ?: null,
+                    $user ? (int) $user['id'] : null
+                );
+                $label = trim((string) ($att['label'] ?? $att['kind'] ?? 'Documento'));
+                flash(
+                    'info',
+                    $status === 'approved'
+                        ? $label . ' aprobado.'
+                        : $label . ' rechazado.'
+                );
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId, 'cenni'));
+            exit;
+        });
+
+        $router->post('/admin/cases/cenni-notify-docs', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->notifyCenniDocumentReview(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                $msg = 'Revisión CENNI registrada (' . $result['status'] . ').';
+                if (!empty($result['mailed'])) {
+                    $msg .= ' Correo (“' . ($result['template'] ?? '') . '”) enviado'
+                        . (!empty($result['to']) ? ' a ' . $result['to'] : '') . '.';
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId, 'cenni'));
             exit;
         });
 
