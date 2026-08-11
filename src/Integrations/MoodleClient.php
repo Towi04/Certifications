@@ -46,13 +46,27 @@ final class MoodleClient
             throw new \RuntimeException("cURL Moodle: {$error}");
         }
 
-        if ($raw === false || $raw === '') {
+        if ($raw === false || trim((string) $raw) === '') {
             throw new \RuntimeException("Respuesta vacía de Moodle (HTTP {$status}).");
         }
 
-        $decoded = json_decode($raw, true);
+        $rawTrim = trim((string) $raw);
+        $decoded = json_decode($rawTrim, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $snippet = mb_substr(preg_replace('/\s+/', ' ', $rawTrim) ?? $rawTrim, 0, 180);
+            throw new \RuntimeException(
+                'Moodle no devolvió JSON válido (HTTP ' . $status . '): ' . $snippet
+            );
+        }
+
+        // Varias WS (p. ej. enrol_manual_enrol_users) responden JSON null = éxito.
+        if ($decoded === null) {
+            return [];
+        }
+
         if (!is_array($decoded)) {
-            throw new \RuntimeException('Moodle no devolvió JSON válido.');
+            // Escalares raros: tratar como éxito vacío si no es estructura de error.
+            return [];
         }
 
         if (isset($decoded['exception'])) {
@@ -476,19 +490,19 @@ final class MoodleClient
         if ($userId < 1 || $courseId < 1) {
             throw new \InvalidArgumentException('userId y courseId Moodle inválidos.');
         }
-        $params = [
-            'enrolments[0][roleid]' => $roleId,
-            'enrolments[0][userid]' => $userId,
-            'enrolments[0][courseid]' => $courseId,
-            'enrolments[0][suspend]' => $suspend > 0 ? 1 : 0,
+        $enrolment = [
+            'roleid' => $roleId,
+            'userid' => $userId,
+            'courseid' => $courseId,
+            'suspend' => $suspend > 0 ? 1 : 0,
         ];
         if ($timestart !== null && $timestart > 0) {
-            $params['enrolments[0][timestart]'] = $timestart;
+            $enrolment['timestart'] = $timestart;
         }
         if ($timeend !== null && $timeend > 0) {
-            $params['enrolments[0][timeend]'] = $timeend;
+            $enrolment['timeend'] = $timeend;
         }
-        $this->call('enrol_manual_enrol_users', $params);
+        $this->call('enrol_manual_enrol_users', ['enrolments' => [$enrolment]]);
     }
 
     /** Suspende (1) o reactiva (0) la matrícula manual en un curso. */
