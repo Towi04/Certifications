@@ -3526,14 +3526,38 @@ final class AdminRoutes
                 if (!empty($result['skipped'])) {
                     flash('info', 'Sin acción Moodle: ' . ($result['reason'] ?? 'omitido'));
                 } else {
+                    $pass = \App\Integrations\MoodleEnrolService::defaultPassword();
                     flash(
                         'info',
                         (!empty($result['created_user']) ? 'Usuario Moodle creado' : 'Usuario Moodle existente')
-                        . ' (' . ($result['username'] ?? '') . ') · matriculado en '
-                        . count($result['enrolled'] ?? []) . ' curso(s)'
+                        . ' (' . ($result['username'] ?? '') . ') · clave ' . $pass
+                        . ' · matriculado en ' . count($result['enrolled'] ?? []) . ' curso(s)'
                         . (!empty($result['access_mail']) ? ' · correo moodle_acceso enviado' : '')
                     );
                 }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId));
+            exit;
+        });
+
+        $router->post('/admin/cases/moodle-reset-password', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $result = (new \App\Integrations\MoodleEnrolService($repo()))->resetPasswordForCase(
+                    $caseId,
+                    isset($_POST['notify_student']),
+                    $user ? (int) $user['id'] : null
+                );
+                $msg = 'Contraseña Moodle restablecida a ' . $result['password']
+                    . ' (usuario ' . $result['username'] . '). El alumno deberá cambiarla al entrar.';
+                if (!empty($result['mailed'])) {
+                    $msg .= ' Correo moodle_acceso enviado.';
+                }
+                flash('info', $msg);
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }

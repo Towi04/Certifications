@@ -18,6 +18,9 @@ final class MoodleEnrolService
     public const DEFAULT_ACCESS_MONTHS = 6;
     public const PRORROGA_MONTHS = 6;
 
+    /** Contraseña estándar Doceo para altas y restablecimientos. */
+    public const DEFAULT_PASSWORD = 'Doceo*1234';
+
     public function __construct(
         private readonly CatalogRepository $repo,
         private readonly MoodleClient $moodle = new MoodleClient(),
@@ -30,6 +33,11 @@ final class MoodleEnrolService
         return $this->mail ?? new CaseMailService($this->repo);
     }
 
+    public static function defaultPassword(): string
+    {
+        return MoodleClient::defaultPassword();
+    }
+
     /**
      * @return array{
      *   skipped?: bool,
@@ -37,6 +45,7 @@ final class MoodleEnrolService
      *   moodle_user_id?: int,
      *   username?: string,
      *   created_user?: bool,
+     *   password_reset?: bool,
      *   enrolled?: list<array{course_id:int,moodle_course_id:int,name:string,access_ends_at?:string}>,
      *   access_mail?: bool,
      *   error?: string
@@ -75,100 +84,121 @@ final class MoodleEnrolService
             $lastname = 'Doceo';
         }
 
-        $existingUsername = trim((string) ($case['moodle_user'] ?? ''));
+        $password = self::defaultPassword();
+        $desiredUsername = trim((string) ($case['moodle_user'] ?? ''));
+        if ($desiredUsername === '') {
+            $desiredUsername = $this->suggestUsername($email, $caseId);
+        } else {
+            $desiredUsername = MoodleClient::sanitizeUsername($desiredUsername);
+        }
+
+        // Prellena ficha antes de llamar a Moodle para que el correo use estos datos.
+        $this->repo->updateCertificationCase($caseId, [
+            'moodle_user' => $desiredUsername,
+            'moodle_password' => $password,
+        ]);
+
         $user = null;
         $created = false;
-        $password = null;
+        $passwordReset = false;
         $stage = 'buscar_usuario';
+        $username = $desiredUsername;
+        $moodleUserId = 0;
 
         try {
-        if ($existingUsername !== '') {
-            $user = $this->moodle->findUserByUsername($existingUsername);
-        }
-        if (!$user) {
-            $user = $this->moodle->findUserByEmail($email);
-        }
-
-        if ($user) {
-            $moodleUserId = (int) $user['id'];
-            $username = (string) ($user['username'] ?? $existingUsername);
-        } else {
-            $stage = 'crear_usuario';
-            $username = $this->suggestUsername($email, $caseId);
-            $password = $this->generatePassword();
-            if ($this->moodle->findUserByUsername($username)) {
-                $username = $username . $caseId;
+            if ($desiredUsername !== '') {
+                $user = $this->moodle->findUserByUsername($desiredUsername);
             }
-            $createdUser = $this->moodle->createUser([
-                'username' => $username,
-                'password' => $password,
-                'firstname' => $firstname !== '' ? $firstname : 'Alumno',
-                'lastname' => $lastname,
-                'email' => $email,
-            ]);
-            $moodleUserId = $createdUser['id'];
-            $username = $createdUser['username'];
-            $password = $createdUser['password'];
-            $created = true;
-        }
-
-        $now = new \DateTimeImmutable('now');
-        $enrolled = [];
-        foreach ($courses as $course) {
-            $moodleCourseId = (int) ($course['moodle_course_id'] ?? 0);
-            $courseId = (int) ($course['id'] ?? 0);
-            if ($moodleCourseId < 1 || $courseId < 1) {
-                continue;
+            if (!$user) {
+                $user = $this->moodle->findUserByEmail($email);
             }
 
-            $existing = $this->repo->caseMoodleEnrolmentByCaseCourse($caseId, $courseId);
-            $months = max(1, (int) ($course['access_months'] ?? self::DEFAULT_ACCESS_MONTHS));
-            if ($months < 1) {
-                $months = self::DEFAULT_ACCESS_MONTHS;
-            }
-
-            // Si ya hay ventana vigente, no acortar; solo asegurar matrícula activa.
-            if ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()
-                && ($existing['status'] ?? '') === 'active') {
-                $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
-                $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
-            } elseif ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()) {
-                // Había fecha futura pero estaba suspendido → reactivar hasta esa fecha
-                $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
-                $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
+            if ($user) {
+                $moodleUserId = (int) $user['id'];
+                $username = MoodleClient::sanitizeUsername((string) ($user['username'] ?? $desiredUsername));
+                // Asegura la clave estándar en Moodle (ficha y campus alineados).
+                $stage = 'actualizar_password';
+                $this->moodle->updateUserPassword($moodleUserId, $password, true);
+                $passwordReset = true;
             } else {
-                $startsAt = $now;
-                $endsAt = $now->modify('+' . $months . ' months');
+                $stage = 'crear_usuario';
+                $username = $desiredUsername;
+                if ($this->moodle->findUserByUsername($username)) {
+                    $username = MoodleClient::sanitizeUsername($username . $caseId);
+                }
+                $createdUser = $this->moodle->createUser([
+                    'username' => $username,
+                    'password' => $password,
+                    'firstname' => $firstname !== '' ? $firstname : 'Alumno',
+                    'lastname' => $lastname,
+                    'email' => $email,
+                    'force_password_change' => true,
+                ]);
+                $moodleUserId = $createdUser['id'];
+                $username = $createdUser['username'];
+                // createUser puede haber caído a otra clave en reintentos; forzamos la estándar.
+                $gotPass = (string) ($createdUser['password'] ?? '');
+                if ($gotPass !== $password) {
+                    $this->moodle->updateUserPassword($moodleUserId, $password, true);
+                }
+                $created = true;
             }
 
-            $stage = 'matricular_curso_' . $moodleCourseId;
-            $this->moodle->enrolUser(
-                $moodleUserId,
-                $moodleCourseId,
-                5,
-                $startsAt->getTimestamp(),
-                $endsAt->getTimestamp(),
-                0
-            );
+            $now = new \DateTimeImmutable('now');
+            $enrolled = [];
+            foreach ($courses as $course) {
+                $moodleCourseId = (int) ($course['moodle_course_id'] ?? 0);
+                $courseId = (int) ($course['id'] ?? 0);
+                if ($moodleCourseId < 1 || $courseId < 1) {
+                    continue;
+                }
 
-            $rowId = $this->repo->upsertCaseMoodleEnrolment([
-                'case_id' => $caseId,
-                'course_id' => $courseId,
-                'moodle_user_id' => $moodleUserId,
-                'moodle_course_id' => $moodleCourseId,
-                'access_starts_at' => $startsAt->format('Y-m-d H:i:s'),
-                'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
-                'status' => 'active',
-            ]);
+                $existing = $this->repo->caseMoodleEnrolmentByCaseCourse($caseId, $courseId);
+                $months = max(1, (int) ($course['access_months'] ?? self::DEFAULT_ACCESS_MONTHS));
+                if ($months < 1) {
+                    $months = self::DEFAULT_ACCESS_MONTHS;
+                }
 
-            $enrolled[] = [
-                'course_id' => $courseId,
-                'moodle_course_id' => $moodleCourseId,
-                'name' => (string) ($course['name'] ?? ''),
-                'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
-                'enrolment_id' => $rowId,
-            ];
-        }
+                if ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()
+                    && ($existing['status'] ?? '') === 'active') {
+                    $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
+                    $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
+                } elseif ($existing && strtotime((string) ($existing['access_ends_at'] ?? '')) > time()) {
+                    $endsAt = new \DateTimeImmutable((string) $existing['access_ends_at']);
+                    $startsAt = new \DateTimeImmutable((string) ($existing['access_starts_at'] ?? 'now'));
+                } else {
+                    $startsAt = $now;
+                    $endsAt = $now->modify('+' . $months . ' months');
+                }
+
+                $stage = 'matricular_curso_' . $moodleCourseId;
+                $this->moodle->enrolUser(
+                    $moodleUserId,
+                    $moodleCourseId,
+                    5,
+                    $startsAt->getTimestamp(),
+                    $endsAt->getTimestamp(),
+                    0
+                );
+
+                $rowId = $this->repo->upsertCaseMoodleEnrolment([
+                    'case_id' => $caseId,
+                    'course_id' => $courseId,
+                    'moodle_user_id' => $moodleUserId,
+                    'moodle_course_id' => $moodleCourseId,
+                    'access_starts_at' => $startsAt->format('Y-m-d H:i:s'),
+                    'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
+                    'status' => 'active',
+                ]);
+
+                $enrolled[] = [
+                    'course_id' => $courseId,
+                    'moodle_course_id' => $moodleCourseId,
+                    'name' => (string) ($course['name'] ?? ''),
+                    'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
+                    'enrolment_id' => $rowId,
+                ];
+            }
         } catch (\Throwable $e) {
             throw new \RuntimeException(
                 'Moodle falló en etapa “' . $stage . '”: ' . $e->getMessage(),
@@ -177,20 +207,15 @@ final class MoodleEnrolService
             );
         }
 
-        $fields = [
+        $this->repo->updateCertificationCase($caseId, [
             'moodle_user' => $username,
-        ];
-        if ($created && $password !== null && $password !== '') {
-            $fields['moodle_password'] = $password;
-        }
-        $this->repo->updateCertificationCase($caseId, $fields);
+            'moodle_password' => $password,
+        ]);
 
         $note = $created
-            ? 'Usuario Moodle creado (' . $username . ') y matriculado en ' . count($enrolled) . ' curso(s) (acceso 6 meses).'
-            : 'Usuario Moodle existente (' . $username . ') matriculado en ' . count($enrolled) . ' curso(s) (acceso limitado).';
-        if ($created && ($password === null || $password === '')) {
-            $note .= ' Contraseña generada por Moodle (revisa correo del alumno o restablécela en campus).';
-        } try {
+            ? 'Usuario Moodle creado (' . $username . ') y matriculado en ' . count($enrolled) . ' curso(s). Clave: ' . $password
+            : 'Usuario Moodle existente (' . $username . ') matriculado en ' . count($enrolled) . ' curso(s). Clave restablecida a ' . $password;
+        try {
             $this->repo->markCaseStepDoneByKeywords(
                 $caseId,
                 ['moodle', 'acceso al curso', 'plataforma', 'campus'],
@@ -215,8 +240,67 @@ final class MoodleEnrolService
             'moodle_user_id' => $moodleUserId,
             'username' => $username,
             'created_user' => $created,
+            'password_reset' => $passwordReset,
             'enrolled' => $enrolled,
             'access_mail' => $accessMail,
+        ];
+    }
+
+    /**
+     * Restablece la contraseña Moodle del caso a la clave estándar Doceo.
+     *
+     * @return array{username:string,password:string,mailed:bool}
+     */
+    public function resetPasswordForCase(int $caseId, bool $notify, ?int $actorUserId = null): array
+    {
+        if (!Env::isFilled('MOODLE_URL') || !Env::isFilled('MOODLE_TOKEN')) {
+            throw new \RuntimeException('Moodle no está configurado.');
+        }
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+
+        $password = self::defaultPassword();
+        $username = trim((string) ($case['moodle_user'] ?? ''));
+        $email = strtolower(trim((string) ($case['student_email'] ?? '')));
+
+        $user = null;
+        if ($username !== '') {
+            $user = $this->moodle->findUserByUsername($username);
+        }
+        if (!$user && $email !== '') {
+            $user = $this->moodle->findUserByEmail($email);
+        }
+        if (!$user) {
+            throw new \RuntimeException(
+                'No hay usuario Moodle para este caso. Usa primero “Sincronizar Moodle”.'
+            );
+        }
+
+        $moodleUserId = (int) $user['id'];
+        $username = (string) ($user['username'] ?? $username);
+        $this->moodle->updateUserPassword($moodleUserId, $password, true);
+
+        $this->repo->updateCertificationCase($caseId, [
+            'moodle_user' => $username,
+            'moodle_password' => $password,
+        ]);
+
+        $mailed = false;
+        if ($notify) {
+            $this->repo->ensureMoodleAccessMailTemplate();
+            try {
+                $this->mailer()->sendTemplate($caseId, 'moodle_acceso', $actorUserId);
+                $mailed = true;
+            } catch (\Throwable) {
+            }
+        }
+
+        return [
+            'username' => $username,
+            'password' => $password,
+            'mailed' => $mailed,
         ];
     }
 
@@ -338,10 +422,5 @@ final class MoodleEnrolService
         }
 
         return $username;
-    }
-
-    private function generatePassword(): string
-    {
-        return MoodleClient::strongPassword();
     }
 }

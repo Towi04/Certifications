@@ -160,18 +160,44 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <label>Zoom (TOEFL)<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>"></label>
             <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>"></label>
             <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>"></label>
-            <label>Moodle user<input name="moodle_user" value="<?= e($item['moodle_user'] ?? '') ?>"></label>
-            <label>Moodle password<input name="moodle_password" value="<?= e($item['moodle_password'] ?? '') ?>"></label>
+            <?php
+            $moodleDefaultPass = \App\Integrations\MoodleEnrolService::defaultPassword();
+            $moodleUserVal = trim((string) ($item['moodle_user'] ?? ''));
+            if ($moodleUserVal === '') {
+                $emailLocal = strtolower((string) strstr((string) ($item['student_email'] ?? ''), '@', true));
+                $moodleUserVal = \App\Integrations\MoodleClient::sanitizeUsername(
+                    $emailLocal !== '' ? $emailLocal : ('alumno' . $caseId)
+                );
+            }
+            $moodlePassVal = trim((string) ($item['moodle_password'] ?? ''));
+            if ($moodlePassVal === '') {
+                $moodlePassVal = $moodleDefaultPass;
+            }
+            ?>
+            <label>Moodle user<input name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
+            <label>Moodle password
+                <input name="moodle_password" value="<?= e($moodlePassVal) ?>">
+                <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
+            </label>
             <label>Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
             <div class="admin-ficha-actions">
                 <button class="btn" type="submit">Guardar credenciales</button>
             </div>
         </form>
         <form method="post" action="/admin/cases/moodle-enrol" class="admin-ficha-actions" style="margin-top:0.75rem"
-              onsubmit="return confirm('¿Crear/matricular usuario Moodle para los cursos ligados a esta certificación?');">
+              onsubmit="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>?');">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
             <button class="btn btn-ghost" type="submit">Sincronizar Moodle (crear usuario + enrol)</button>
+        </form>
+        <form method="post" action="/admin/cases/moodle-reset-password" class="admin-ficha-actions" style="margin-top:0.5rem"
+              onsubmit="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y forzar cambio al entrar?');">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="accesos">
+            <label class="check" style="margin-right:0.75rem">
+                <input type="checkbox" name="notify_student" value="1" checked> Avisar al alumno por correo
+            </label>
+            <button class="btn btn-ghost" type="submit">Restablecer password Moodle a <?= e($moodleDefaultPass) ?></button>
         </form>
         <form method="post" action="/admin/cases/fulfill" class="admin-ficha-actions" style="margin-top:0.5rem"
               onsubmit="return confirm('¿Ejecutar fulfillment: Moodle + asignar código de inventario + correo de acceso?');">
