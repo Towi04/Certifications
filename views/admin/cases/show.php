@@ -824,7 +824,8 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <form method="post" action="/admin/cases/cenni-notify-docs" class="admin-ficha-actions" style="margin-top:0.85rem"
                   onsubmit="return confirm('¿Guardar el resultado de la revisión y avisar al alumno por correo?');">
                 <input type="hidden" name="case_id" value="<?= $caseId ?>">
-                <button class="btn" type="submit" <?= $allReviewed ? '' : 'disabled title="Revisa todos los documentos primero"' ?>>
+                <button class="btn" type="submit" <?= $allReviewed ? '' : 'disabled' ?>
+                        title="<?= $allReviewed ? 'Guardar revisión y enviar correo' : 'Revisa todos los documentos primero' ?>">
                     Avisar al alumno (revisión de documentos)
                 </button>
             </form>
