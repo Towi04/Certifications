@@ -1032,6 +1032,7 @@ final class CaseMailService
         string $templateCode = 'itep_resultados'
     ): array {
         $this->repo->ensureInventoryAndResultColumns();
+        $this->ensureItepStudentResultTemplates();
         $case = $this->repo->certificationCaseDetailed($caseId);
         if (!$case) {
             throw new \RuntimeException('Caso no encontrado.');
@@ -1076,16 +1077,10 @@ final class CaseMailService
         } catch (\Throwable) {
         }
 
-        $mailed = false;
-        $to = null;
         $tpl = trim($templateCode) !== '' ? trim($templateCode) : 'itep_resultados';
-        if ($notify) {
-            $sent = $this->sendTemplate($caseId, $tpl, $userId);
-            $mailed = true;
-            $to = $sent['to'] ?? null;
-        }
+        $sent = $this->sendTemplate($caseId, $tpl, $userId);
 
-        return ['mailed' => $mailed, 'template' => $notify ? $tpl : null, 'to' => $to];
+        return ['mailed' => true, 'template' => $tpl, 'to' => $sent['to'] ?? null];
     }
 
     /**
@@ -1101,6 +1096,7 @@ final class CaseMailService
         string $templateCode = 'itep_invalidado'
     ): array {
         $this->repo->ensureInventoryAndResultColumns();
+        $this->ensureItepStudentResultTemplates();
         $reason = trim($reason);
         if ($reason === '') {
             throw new \InvalidArgumentException('Indica el motivo de invalidación.');
@@ -1120,16 +1116,67 @@ final class CaseMailService
         } catch (\Throwable) {
         }
 
-        $mailed = false;
-        $to = null;
         $tpl = trim($templateCode) !== '' ? trim($templateCode) : 'itep_invalidado';
-        if ($notify) {
-            $sent = $this->sendTemplate($caseId, $tpl, $userId);
-            $mailed = true;
-            $to = $sent['to'] ?? null;
-        }
+        $sent = $this->sendTemplate($caseId, $tpl, $userId);
 
-        return ['mailed' => $mailed, 'template' => $notify ? $tpl : null, 'to' => $to];
+        return ['mailed' => true, 'template' => $tpl, 'to' => $sent['to'] ?? null];
+    }
+
+    /** Crea plantillas iTEP de resultados/invalidación si no existen (no sobrescribe ediciones). */
+    public function ensureItepStudentResultTemplates(): void
+    {
+        $defaults = [
+            [
+                'code' => 'itep_resultados',
+                'name' => 'iTEP — Resultados / certificado',
+                'subject' => 'Resultados iTEP — {{Nombre}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Ya están disponibles tus resultados de {{Certificación}}.</p>'
+                    . '<p>{{Score Line}}{{Certificate Line}}</p>'
+                    . '<p>También puedes verlos en tu ficha de alumno.</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+            [
+                'code' => 'itep_invalidado',
+                'name' => 'iTEP — Examen invalidado',
+                'subject' => 'Aviso sobre tu examen iTEP — {{Nombre}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Tu examen {{Certificación}} fue marcado como invalidado.</p>'
+                    . '<p>Motivo: {{Canceled}}</p>'
+                    . '<p>Si tienes dudas, responde a este correo o contacta a {{Contacto Doceo}}.</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+            [
+                'code' => 'itep_data',
+                'name' => 'iTEP — Datos de acceso al alumno',
+                'subject' => 'Datos de acceso iTEP — {{Nombre}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Tu examen {{Certificación}} ya tiene códigos de acceso.</p>'
+                    . '<p>Examen ID: {{Folio / ID}}<br>Contraseña: {{Clave}}</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+        ];
+        foreach ($defaults as $row) {
+            if ($this->repo->mailTemplateByCode($row['code'])) {
+                continue;
+            }
+            try {
+                $this->repo->saveMailTemplate([
+                    'code' => $row['code'],
+                    'name' => $row['name'],
+                    'audience' => 'student',
+                    'to_mode' => 'student',
+                    'to_fixed' => '',
+                    'cc_mode' => 'case_cc',
+                    'cc_fixed' => '',
+                    'subject' => $row['subject'],
+                    'body_html' => $row['body_html'],
+                    'attach_export' => 0,
+                    'is_active' => 1,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
     }
 
     /** @return array<string, string> Clave token => descripción para el editor admin */

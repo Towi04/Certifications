@@ -1170,6 +1170,38 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   margin: 0;
   white-space: nowrap;
 }
+.case-access-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 0.85rem 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+.case-access-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.case-access-row .field-wide {
+  grid-column: 1 / -1;
+}
+.case-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding-bottom: 0.15rem;
+}
+.hidden-form { display: none !important; }
+@media (max-width: 900px) {
+  .case-access-row {
+    grid-template-columns: 1fr;
+  }
+  .case-inline-actions {
+    padding-bottom: 0;
+  }
+}
 .logo-mini {
   display: block !important; margin-top: 0.45rem;
   width: 56px !important; height: 56px !important;
