@@ -239,8 +239,19 @@ final class Auth
             $mustChange,
         ]);
 
+        $userId = (int) $pdo->lastInsertId();
+        if ($userId < 1) {
+            // Con algunos drivers/hosting lastInsertId() puede devolver 0 tras prepare emulado.
+            $lookup = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $lookup->execute([$normalizedEmail]);
+            $userId = (int) ($lookup->fetchColumn() ?: 0);
+        }
+        if ($userId < 1) {
+            throw new \RuntimeException('No se pudo crear la cuenta. Intenta de nuevo o inicia sesión.');
+        }
+
         return [
-            'id' => (int) $pdo->lastInsertId(),
+            'id' => $userId,
             'plain_password' => $plainPassword,
         ];
     }
@@ -531,6 +542,49 @@ final class Auth
     public static function user(): ?array
     {
         return $_SESSION['user'] ?? null;
+    }
+
+    /**
+     * Recarga el usuario de sesión desde la BD.
+     * Si la sesión apunta a un id inexistente (cuenta borrada / lastInsertId roto), limpia la sesión.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function refreshUserFromDatabase(): ?array
+    {
+        $session = self::user();
+        if ($session === null) {
+            return null;
+        }
+        $userId = (int) ($session['id'] ?? 0);
+        if ($userId < 1) {
+            self::logout();
+            return null;
+        }
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'SELECT id, email, username, name, first_name, last_name, phone, role, is_active, must_change_password
+             FROM users WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row || (int) ($row['is_active'] ?? 0) !== 1) {
+            self::logout();
+            return null;
+        }
+        $_SESSION['user'] = [
+            'id' => (int) $row['id'],
+            'email' => (string) $row['email'],
+            'username' => $row['username'] ?? null,
+            'name' => (string) $row['name'],
+            'first_name' => $row['first_name'] ?? null,
+            'last_name' => $row['last_name'] ?? null,
+            'phone' => $row['phone'] ?? null,
+            'role' => (string) $row['role'],
+            'must_change_password' => !empty($row['must_change_password']),
+        ];
+
+        return $_SESSION['user'];
     }
 
     public static function mustChangePassword(): bool
