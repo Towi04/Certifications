@@ -52,6 +52,7 @@ Si la base ya existía antes de sedes/subcentros, ejecuta también en phpMyAdmin
 - `sql/migration_provider_accounts_sites.sql` (permite sitios sin usuario/contraseña)
 - `sql/migration_admin_users_roles.sql` (roles Administrador/Asistente/Gestor/Partner TR + teléfono/nombre)
 - `sql/migration_partners_onboarding.sql` (alta Partner TR con docs/domicilio + must_change_password)
+- `sql/migration_agreement_signature_workflow.sql` (versiones de convenio TR: publicar → firma → soft-block → confirmación admin)
 - `sql/migration_user_activation.sql` (activación por correo + email_verified_at)
 - `sql/migration_protocol_steps.sql` (pasos del protocolo + casos de progreso)
 - Luego el seed ELET: `sql/seed_protocol_elet.sql`
@@ -150,9 +151,9 @@ Si falla, el error ahora dice si la clave del formulario no coincide con la del 
 1. Entra como admin → `/admin`.
 2. **Proveedores:** crea cada casa certificadora con contacto, logo, convenio PDF (versiones) y prueba de autorización opcional (enlace o documento). Agrega ahí solo el **nombre** de cada certificación.
 3. Completa el detalle de cada certificación en **Certificaciones**.
-4. Crea o edita el **convenio anual TR** (niveles partner) y asigna precios.
-5. En **Partners**, asigna un usuario a nivel + convenio.
-6. Ese usuario entra a `/partner`.
+4. En **Convenios TR**, crea una versión por nivel (PDF plantilla), publícala (asigna a todos los partners del nivel y notifica).
+5. En **Partners**, crea el TR con nivel (sin subir el firmado aquí). El partner firma en `/partner/convenio`; Doceo confirma en la ficha del convenio y se reactiva el registro de alumnos.
+6. Ese usuario entra a `/partner` (catálogo) y `/partner/convenio` (firma).
 
 Si ya tenías la BD creada, importa también (en orden, ignora “Duplicate column”):
 - `sql/migration_providers_enrich_columns.sql`

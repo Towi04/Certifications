@@ -13,7 +13,21 @@
             <?php endif; ?>
         </p>
     </div>
+    <a class="btn btn-ghost" href="/partner/convenio">Mi convenio</a>
 </section>
+
+<?php if (!empty($error)): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
+<?php if (!empty($info)): ?><p class="info"><?= e($info) ?></p><?php endif; ?>
+
+<?php if (isset($canRegister) && !$canRegister): ?>
+<section class="note">
+    <p>
+        Acceso limitado: puedes consultar el catálogo, pero <strong>no registrar alumnos</strong>
+        hasta firmar el convenio vigente y que Doceo lo confirme.
+        <a href="/partner/convenio">Ir a mi convenio</a>
+    </p>
+</section>
+<?php endif; ?>
 
 <form method="get" class="filters note stack form-grid">
     <label>Buscar<input name="q" value="<?= e($filters['q'] ?? '') ?>"></label>

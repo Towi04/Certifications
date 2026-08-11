@@ -591,6 +591,39 @@ final class Auth
         }
     }
 
+    /**
+     * Soft-block TR: puede iniciar sesión y subir convenio, pero no registrar alumnos.
+     * Staff siempre puede.
+     */
+    public static function partnerCanRegisterStudents(?array $partner = null): bool
+    {
+        $user = self::user();
+        if ($user !== null && self::isStaffRole($user['role'] ?? null)) {
+            return true;
+        }
+        if ($partner === null && $user !== null) {
+            $partner = (new \App\Catalog\CatalogRepository())->findPartnerByUserId((int) $user['id']);
+        }
+        if (!$partner) {
+            return false;
+        }
+        if (!empty($partner['access_restricted'])) {
+            return false;
+        }
+
+        return (new \App\Catalog\CatalogRepository())->partnerCanRegisterStudents((int) $partner['id']);
+    }
+
+    public static function requirePartnerCanRegisterStudents(?array $partner = null): void
+    {
+        self::requirePartner();
+        if (!self::partnerCanRegisterStudents($partner)) {
+            flash('error', 'Tu acceso está limitado: debes firmar el convenio vigente (o esperar confirmación de Doceo) antes de registrar alumnos.');
+            header('Location: /partner/convenio');
+            exit;
+        }
+    }
+
     /** Verifica la contraseña del usuario actualmente autenticado. */
     public static function verifyCurrentPassword(string $password): bool
     {

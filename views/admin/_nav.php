@@ -25,7 +25,7 @@
     <a href="/admin/certifications">Certificaciones</a>
     <a href="/admin/certifications/pricing">Precios</a>
     <a href="/admin/tiers">Niveles TR</a>
-    <a href="/admin/agreements">Convenios anuales</a>
+    <a href="/admin/agreements">Convenios TR</a>
     <a href="/admin/partners">Partners</a>
     <a href="/admin/users">Usuarios</a>
     <a href="/admin/mail-templates">Correos</a>

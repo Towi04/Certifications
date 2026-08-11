@@ -7,6 +7,7 @@ namespace App\Http;
 use App\Auth\Auth;
 use App\Catalog\CatalogRepository;
 use App\Config\Env;
+use App\Partners\PartnerAgreementService;
 use App\Support\SecretBox;
 use App\Support\Str;
 use App\Support\Uploader;
@@ -2209,7 +2210,7 @@ final class AdminRoutes
         $router->get('/admin/agreements', static function () use ($repo): void {
             Auth::requireAdmin();
             view('admin/agreements/index', [
-                'title' => 'Versiones de convenio',
+                'title' => 'Versiones de convenio TR',
                 'items' => $repo()->agreements(),
                 'info' => flash('info'),
                 'error' => flash('error'),
@@ -2222,6 +2223,7 @@ final class AdminRoutes
                 'title' => 'Nueva versión de convenio',
                 'item' => null,
                 'tiers' => $repo()->partnerTiers(true),
+                'assignments' => [],
                 'error' => flash('error'),
             ]);
         });
@@ -2236,13 +2238,10 @@ final class AdminRoutes
                 exit;
             }
             view('admin/agreements/form', [
-                'title' => 'Editar convenio',
+                'title' => 'Editar / publicar convenio',
                 'item' => $item,
                 'tiers' => $repo()->partnerTiers(true),
-                'prices' => $repo()->agreementPrices($id),
-                'certifications' => $repo()->certifications(),
-                'assets' => $repo()->assets('agreement', $id),
-                'assetTypes' => CatalogRepository::assetTypesFor('agreement'),
+                'assignments' => $repo()->agreementAssignments($id),
                 'error' => flash('error'),
                 'info' => flash('info'),
             ]);
@@ -2259,16 +2258,25 @@ final class AdminRoutes
                 exit;
             }
             try {
+                $existing = $id ? $repo()->agreement($id) : null;
+                $pdfPath = $existing['pdf_path'] ?? null;
+                $file = $_FILES['blank_pdf'] ?? null;
+                if (is_array($file) && (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $pdfPath = Uploader::store($file, 'agreements');
+                }
+
                 $savedId = $repo()->saveAgreement([
                     'partner_tier_id' => $tierId,
                     'name' => $name,
                     'year' => (int) ($_POST['year'] ?? date('Y')),
                     'valid_from' => (string) ($_POST['valid_from'] ?? date('Y-01-01')),
                     'valid_to' => trim((string) ($_POST['valid_to'] ?? '')) ?: null,
+                    'pdf_path' => $pdfPath,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                    'is_current' => isset($_POST['is_current']) ? 1 : 0,
+                    'is_current' => 0,
+                    'sign_deadline_days' => max(1, (int) ($_POST['sign_deadline_days'] ?? 15)),
                 ], $id);
-                flash('info', 'Convenio guardado.');
+                flash('info', 'Versión guardada. Usa “Publicar a partners del nivel” para asignarla y notificar.');
                 header('Location: /admin/agreements/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
@@ -2276,6 +2284,66 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/agreements/edit?id=' . $id : '/admin/agreements/create'));
                 exit;
             }
+        });
+
+        $router->post('/admin/agreements/publish', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $admin = Auth::user();
+            try {
+                if ($id < 1) {
+                    throw new \RuntimeException('Convenio inválido.');
+                }
+                $result = (new PartnerAgreementService($repo()))->publishVersion(
+                    $id,
+                    $admin ? (int) $admin['id'] : null,
+                    max(1, (int) ($_POST['sign_deadline_days'] ?? 15))
+                );
+                $msg = 'Publicado: ' . $result['assigned'] . ' partner(s) asignados, '
+                    . $result['notified'] . ' correo(s) enviados.';
+                if ($result['mail_errors'] !== []) {
+                    $msg .= ' Algunos correos fallaron: ' . implode(' · ', array_slice($result['mail_errors'], 0, 3));
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/agreements/edit?id=' . $id);
+            exit;
+        });
+
+        $router->post('/admin/agreements/approve-signature', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $assignmentId = (int) ($_POST['assignment_id'] ?? 0);
+            $agreementId = (int) ($_POST['agreement_id'] ?? 0);
+            $admin = Auth::user();
+            try {
+                $repo()->approvePartnerSignature($assignmentId, $admin ? (int) $admin['id'] : 0);
+                flash('info', 'Convenio firmado confirmado. El TR recuperó acceso completo.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/agreements/edit?id=' . $agreementId);
+            exit;
+        });
+
+        $router->post('/admin/agreements/reject-signature', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $assignmentId = (int) ($_POST['assignment_id'] ?? 0);
+            $agreementId = (int) ($_POST['agreement_id'] ?? 0);
+            $admin = Auth::user();
+            try {
+                $repo()->rejectPartnerSignature(
+                    $assignmentId,
+                    $admin ? (int) $admin['id'] : 0,
+                    trim((string) ($_POST['reject_reason'] ?? ''))
+                );
+                flash('info', 'Convenio rechazado. El TR sigue restringido hasta subir una versión correcta.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/agreements/edit?id=' . $agreementId);
+            exit;
         });
 
         $router->post('/admin/agreements/price', static function () use ($repo): void {
@@ -2872,7 +2940,7 @@ final class AdminRoutes
                 }
                 $agreement = $repo()->currentAgreementForTier($tierId);
                 if (!$agreement) {
-                    throw new \RuntimeException('Ese nivel no tiene un convenio vigente. Márcalo en Convenios anuales.');
+                    throw new \RuntimeException('Ese nivel no tiene un convenio publicado. Crea y publica una versión en Convenios TR.');
                 }
 
                 $shippingLine = trim((string) ($_POST['shipping_address_line'] ?? ''));
@@ -2884,13 +2952,6 @@ final class AdminRoutes
                 $existing = $id ? $repo()->partner($id) : null;
                 if ($id && !$existing) {
                     throw new \RuntimeException('Partner no encontrado.');
-                }
-
-                $signedFile = $_FILES['signed_agreement'] ?? null;
-                $hasSignedUpload = is_array($signedFile)
-                    && (int) ($signedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
-                if (!$id && !$hasSignedUpload) {
-                    throw new \RuntimeException('Sube el convenio firmado por el Teacher Referral (PDF).');
                 }
 
                 $taxFile = $_FILES['tax_status'] ?? null;
@@ -2920,10 +2981,14 @@ final class AdminRoutes
                 }
 
                 $admin = Auth::user();
+                $tierChanged = $id && (int) ($existing['partner_tier_id'] ?? 0) !== $tierId;
                 $savedId = $repo()->savePartner([
                     'user_id' => $userId,
                     'partner_tier_id' => $tierId,
-                    'current_agreement_id' => (int) $agreement['id'],
+                    // En alta / cambio de nivel la asignación con firma la hace PartnerAgreementService.
+                    'current_agreement_id' => $id && !$tierChanged
+                        ? ($existing['current_agreement_id'] ?? (int) $agreement['id'])
+                        : null,
                     'organization' => $organization,
                     'phone' => $phone,
                     'shipping_address_line' => $shippingLine,
@@ -2938,19 +3003,14 @@ final class AdminRoutes
                     'tax_status_path' => $existing['tax_status_path'] ?? null,
                     'logo_path' => $existing['logo_path'] ?? null,
                     'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                    'assignment_reason' => trim((string) ($_POST['assignment_reason'] ?? '')) ?: 'Alta / actualización partner TR',
+                    'skip_assignment_history' => true,
                 ], $id, $admin ? (int) $admin['id'] : null);
 
                 $subdir = 'partners/' . $savedId;
-                $signedPath = $existing['signed_agreement_path'] ?? null;
                 $taxPath = $existing['tax_status_path'] ?? null;
                 $logoPath = $existing['logo_path'] ?? null;
                 $filesChanged = false;
 
-                if ($hasSignedUpload) {
-                    $signedPath = Uploader::store($signedFile, $subdir);
-                    $filesChanged = true;
-                }
                 if ($hasTaxUpload) {
                     $taxPath = Uploader::store($taxFile, $subdir);
                     $filesChanged = true;
@@ -2962,11 +3022,12 @@ final class AdminRoutes
                 }
 
                 if ($filesChanged) {
-                    $fresh = $repo()->partner($savedId);
                     $repo()->savePartner([
                         'user_id' => $userId,
                         'partner_tier_id' => $tierId,
-                        'current_agreement_id' => (int) $agreement['id'],
+                        'tax_status_path' => $taxPath,
+                        'logo_path' => $logoPath,
+                        'requires_invoice' => $requiresInvoice,
                         'organization' => $organization,
                         'phone' => $phone,
                         'shipping_address_line' => $shippingLine,
@@ -2976,22 +3037,27 @@ final class AdminRoutes
                         'shipping_state' => trim((string) ($_POST['shipping_state'] ?? '')) ?: null,
                         'shipping_postal_code' => trim((string) ($_POST['shipping_postal_code'] ?? '')) ?: null,
                         'shipping_country' => trim((string) ($_POST['shipping_country'] ?? 'México')) ?: 'México',
-                        'signed_agreement_path' => $signedPath,
-                        'requires_invoice' => $requiresInvoice,
-                        'tax_status_path' => $taxPath,
-                        'logo_path' => $logoPath,
                         'notes' => trim((string) ($_POST['notes'] ?? '')) ?: null,
-                        'assignment_reason' => 'Actualización de documentos',
+                        'skip_assignment_history' => true,
                     ], $savedId, $admin ? (int) $admin['id'] : null);
-                    unset($fresh);
+                }
+
+                if (!$id || $tierChanged) {
+                    (new PartnerAgreementService($repo()))->assignCurrentOnPartnerCreate(
+                        $savedId,
+                        $tierId,
+                        $admin ? (int) $admin['id'] : null
+                    );
                 }
 
                 flash(
                     'info',
                     $id
-                        ? 'Partner actualizado.'
-                        : 'Partner creado. Correo: ' . $email . ' · contraseña temporal: '
-                            . UserRepository::PARTNER_DEFAULT_PASSWORD
+                        ? ($tierChanged
+                            ? 'Partner actualizado. Se asignó el convenio vigente del nuevo nivel (pendiente de firma).'
+                            : 'Partner actualizado.')
+                        : 'Partner creado. Debe firmar el convenio vigente en el portal TR. Correo: ' . $email
+                            . ' · contraseña temporal: ' . UserRepository::PARTNER_DEFAULT_PASSWORD
                 );
                 header('Location: /admin/partners/edit?id=' . $savedId);
                 exit;

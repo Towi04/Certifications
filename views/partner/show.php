@@ -28,8 +28,18 @@ $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_
     </div>
     <div class="actions">
         <a class="btn btn-ghost" href="/partner">Volver al catálogo</a>
+        <a class="btn btn-ghost" href="/partner/convenio">Mi convenio</a>
     </div>
 </section>
+
+<?php if (isset($canRegister) && !$canRegister): ?>
+<section class="note">
+    <p>
+        Registro de alumnos bloqueado hasta confirmar tu convenio firmado.
+        <a href="/partner/convenio">Subir / ver convenio</a>
+    </p>
+</section>
+<?php endif; ?>
 
 <?php
 $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
