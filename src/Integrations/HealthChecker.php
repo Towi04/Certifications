@@ -60,6 +60,34 @@ final class HealthChecker
 
         try {
             $client = new MoodleClient();
+            $probes = $client->probeRequiredFunctions();
+            $failed = [];
+            $okFns = [];
+            foreach ($probes as $fn => $row) {
+                if (!empty($row['ok'])) {
+                    $okFns[] = $fn;
+                } else {
+                    $failed[] = $fn . ': ' . ($row['error'] ?? 'error');
+                }
+            }
+
+            $site = $probes['core_webservice_get_site_info']['detail'] ?? null;
+            $meta = [
+                'functions_ok' => $okFns,
+                'functions_failed' => array_keys(array_filter($probes, static fn ($r) => empty($r['ok']))),
+                'site' => $site,
+            ];
+
+            if ($failed !== []) {
+                return [
+                    'name' => $name,
+                    'ok' => false,
+                    'message' => 'Token conecta, pero faltan permisos/funciones para alta de alumnos. '
+                        . implode(' | ', $failed),
+                    'meta' => $meta,
+                ];
+            }
+
             $courses = $client->getCourses();
             $count = count($courses);
             $sample = [];
@@ -74,12 +102,15 @@ final class HealthChecker
                 ];
             }
             unset($courses);
+            $meta['sample'] = $sample;
+            $who = is_array($site) ? ((string) ($site['username'] ?? '') . ' @ ' . (string) ($site['sitename'] ?? '')) : '';
 
             return [
                 'name' => $name,
                 'ok' => true,
-                'message' => "OK — {$count} curso(s) visibles vía core_course_get_courses",
-                'meta' => ['sample' => $sample],
+                'message' => "OK — {$count} curso(s); funciones PDV listas"
+                    . ($who !== '' ? " ({$who})" : ''),
+                'meta' => $meta,
             ];
         } catch (\Throwable $e) {
             return ['name' => $name, 'ok' => false, 'message' => $e->getMessage()];
