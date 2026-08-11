@@ -58,12 +58,15 @@ Qué hacer:
 ## Error `invalidparameter` al crear usuario
 
 Causas frecuentes:
-1. **`lang` no instalado** — el PDV ya **no envía** `lang` salvo `MOODLE_USER_LANG`.
-2. **Política de contraseñas** — el PDV genera claves tipo `Doceo!…A9x`.
-3. **Username** — sin “usernames extendidos”, Moodle solo acepta `a-z0-9_`; el PDV convierte puntos a `_`.
+1. **Idioma** — el PDV prueba `en` / `es` / `es_mx` / sin lang (y `MOODLE_USER_LANG` si lo defines).
+2. **Política de contraseñas** — evita palabras de diccionario; genera claves aleatorias fuertes.
+3. **Username** — solo `a-z0-9_` (sin puntos).
 4. **Campos de perfil obligatorios** — hazlos opcionales o pon default en Moodle.
+5. Último recurso del PDV: `createpassword=1` + `core_user_update_users` (agrega también esa función al servicio).
 
-El error incluye `debuginfo` de Moodle. Tras corregir: **Sincronizar Moodle** en el caso.
+Para ver el campo exacto: Moodle → Desarrollo → Mensajes de depuración = **DEVELOPER**, reproduce, y mira `debuginfo`. Luego vuelve a “Ninguno”.
+
+Tras corregir: **Sincronizar Moodle** en el caso.
 
 ## Alta automática tras el pago
 
