@@ -79,7 +79,9 @@ final class MoodleEnrolService
         $user = null;
         $created = false;
         $password = null;
+        $stage = 'buscar_usuario';
 
+        try {
         if ($existingUsername !== '') {
             $user = $this->moodle->findUserByUsername($existingUsername);
         }
@@ -91,6 +93,7 @@ final class MoodleEnrolService
             $moodleUserId = (int) $user['id'];
             $username = (string) ($user['username'] ?? $existingUsername);
         } else {
+            $stage = 'crear_usuario';
             $username = $this->suggestUsername($email, $caseId);
             $password = $this->generatePassword();
             if ($this->moodle->findUserByUsername($username)) {
@@ -138,6 +141,7 @@ final class MoodleEnrolService
                 $endsAt = $now->modify('+' . $months . ' months');
             }
 
+            $stage = 'matricular_curso_' . $moodleCourseId;
             $this->moodle->enrolUser(
                 $moodleUserId,
                 $moodleCourseId,
@@ -164,6 +168,13 @@ final class MoodleEnrolService
                 'access_ends_at' => $endsAt->format('Y-m-d H:i:s'),
                 'enrolment_id' => $rowId,
             ];
+        }
+        } catch (\Throwable $e) {
+            throw new \RuntimeException(
+                'Moodle falló en etapa “' . $stage . '”: ' . $e->getMessage(),
+                0,
+                $e
+            );
         }
 
         $fields = [

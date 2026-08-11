@@ -141,7 +141,7 @@ Si falla, el error ahora dice si la clave del formulario no coincide con la del 
 | “No se encontró .env” | Crear `.env` en la raíz del proyecto (junto a `src/`) |
 | Login: error de tabla | Importar `schema.sql` |
 | Contraseña incorrecta tras editar en phpMyAdmin | Usar `ADMIN_RESET_PASSWORD=true` (ver arriba) |
-| Moodle access exception | Función no agregada al servicio externo |
+| Moodle access exception / “control de acceso” | Función faltante en el servicio externo **o** capacidades del usuario del token (`core_user_create_users`, `enrol_manual_enrol_users`). Ver `docs/setup-moodle.md`. Salud ahora reporta qué función falla. Tras corregir: **Sincronizar Moodle** en el caso (el inventario no se pierde). |
 | OpenPay 1002 / invalid key | `OPENPAY_PRIVATE_KEY` incorrecta o aún placeholder |
 | SMTP auth fail | Contraseña del correo o puerto/encryption |
 | CSS no carga | Document Root / rewrite de `assets/` |

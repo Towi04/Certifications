@@ -54,10 +54,131 @@ final class MoodleClient
         if (isset($decoded['exception'])) {
             $message = (string) ($decoded['message'] ?? $decoded['exception']);
             $code = (string) ($decoded['errorcode'] ?? 'moodle_error');
-            throw new \RuntimeException("Moodle [{$code}]: {$message}");
+            $hint = self::hintForError($function, $code, $message);
+            throw new \RuntimeException("Moodle [{$code}] en {$function}: {$message}" . ($hint !== '' ? ' — ' . $hint : ''));
         }
 
         return $decoded;
+    }
+
+    /** Mensaje accionable para errores frecuentes del webservice Moodle. */
+    private static function hintForError(string $function, string $code, string $message): string
+    {
+        $code = strtolower($code);
+        $hay = strtolower($function . ' ' . $code . ' ' . $message);
+        if ($code === 'accessexception' || str_contains($hay, 'control de acceso') || str_contains($hay, 'access control')) {
+            return 'El token no puede ejecutar esta función. En Moodle → Administración del sitio → Servidor → Servicios web: '
+                . '(1) agrega "' . $function . '" al servicio externo del PDV, '
+                . '(2) el usuario del token necesita capacidades: webservice/rest:use, moodle/user:viewdetails, moodle/user:create, '
+                . 'moodle/course:view, enrol/manual:enrol (contexto sistema o curso), '
+                . '(3) el usuario debe estar autorizado en el servicio. Luego usa “Sincronizar Moodle” en el caso.';
+        }
+        if ($code === 'invalidtoken' || str_contains($hay, 'invalid token')) {
+            return 'Revisa MOODLE_TOKEN en .env (token del servicio externo, no la clave de login).';
+        }
+        if (str_contains($hay, 'password')) {
+            return 'La contraseña generada no cumple la política de Moodle; ajusta la política o el generador del PDV.';
+        }
+
+        return '';
+    }
+
+    /**
+     * Prueba las funciones que el PDV necesita sin crear usuarios reales.
+     * Usa core_webservice_get_site_info (lista de funciones del token) + get_users / get_courses.
+     *
+     * @return array<string, array{ok:bool,error?:string,detail?:mixed}>
+     */
+    public function probeRequiredFunctions(): array
+    {
+        $required = [
+            'core_webservice_get_site_info',
+            'core_course_get_courses',
+            'core_user_get_users_by_field',
+            'core_user_create_users',
+            'enrol_manual_enrol_users',
+        ];
+        $out = [];
+
+        $site = null;
+        try {
+            $site = $this->call('core_webservice_get_site_info');
+            $out['core_webservice_get_site_info'] = [
+                'ok' => true,
+                'detail' => [
+                    'sitename' => $site['sitename'] ?? null,
+                    'username' => $site['username'] ?? null,
+                    'userid' => $site['userid'] ?? null,
+                    'release' => $site['release'] ?? null,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            $out['core_webservice_get_site_info'] = ['ok' => false, 'error' => $e->getMessage()];
+            foreach ($required as $fn) {
+                if (!isset($out[$fn])) {
+                    $out[$fn] = ['ok' => false, 'error' => 'Sin site_info; no se pudo listar funciones del token.'];
+                }
+            }
+
+            return $out;
+        }
+
+        $allowed = [];
+        foreach ($site['functions'] ?? [] as $fnRow) {
+            if (is_array($fnRow) && !empty($fnRow['name'])) {
+                $allowed[(string) $fnRow['name']] = true;
+            } elseif (is_string($fnRow)) {
+                $allowed[$fnRow] = true;
+            }
+        }
+
+        foreach (['core_course_get_courses', 'core_user_get_users_by_field', 'core_user_create_users', 'enrol_manual_enrol_users'] as $fn) {
+            if ($allowed !== [] && empty($allowed[$fn])) {
+                $out[$fn] = [
+                    'ok' => false,
+                    'error' => 'No está en el servicio externo del token. Agrégala en Moodle → Servicios web → Funciones.',
+                ];
+            }
+        }
+
+        if (!isset($out['core_course_get_courses'])) {
+            try {
+                $n = count($this->getCourses());
+                $out['core_course_get_courses'] = ['ok' => true, 'detail' => ['courses' => $n]];
+            } catch (\Throwable $e) {
+                $out['core_course_get_courses'] = ['ok' => false, 'error' => $e->getMessage()];
+            }
+        }
+
+        if (!isset($out['core_user_get_users_by_field'])) {
+            try {
+                // Búsqueda inocua: no falla si no hay resultados
+                $this->getUsersByField('email', ['nobody-pdv-probe@institutodoceo.com']);
+                $out['core_user_get_users_by_field'] = ['ok' => true];
+            } catch (\Throwable $e) {
+                $out['core_user_get_users_by_field'] = ['ok' => false, 'error' => $e->getMessage()];
+            }
+        }
+
+        // create + enrol: sin ejecutar (evitar usuarios basura). Si están en la lista del token, OK.
+        if (!isset($out['core_user_create_users'])) {
+            $out['core_user_create_users'] = !empty($allowed['core_user_create_users'])
+                ? ['ok' => true]
+                : [
+                    'ok' => false,
+                    'error' => 'No está en el servicio externo del token (necesaria para crear alumnos).',
+                ];
+        }
+        if (!isset($out['enrol_manual_enrol_users'])) {
+            $out['enrol_manual_enrol_users'] = !empty($allowed['enrol_manual_enrol_users'])
+                ? ['ok' => true]
+                : [
+                    'ok' => false,
+                    'error' => 'No está en el servicio externo del token (necesaria para matricular).',
+                ];
+        }
+
+        return $out;
     }
 
     /** @return list<array<string, mixed>> */
