@@ -703,6 +703,31 @@ foreach ($course_prorrogas as $pr) {
     <?php elseif ($cenniProcess === 'doceo_managed'): ?>
         <p>Sube tus documentos para que Instituto Doceo gestione el trámite ante la SEP.</p>
         <p class="muted">Estatus: <strong><?= e($cenni_statuses[$cenniStatus] ?? $cenniStatus) ?></strong></p>
+        <?php if ($cenniStatus === 'docs_rejected' && !empty($item['cenni_notes'])): ?>
+            <p class="alert alert-error">
+                <strong>Documentos por corregir:</strong><br>
+                <?= nl2br(e((string)$item['cenni_notes'])) ?>
+            </p>
+        <?php endif; ?>
+        <?php if ($cenniStatus === 'issued'): ?>
+            <div class="note">
+                <?php if (!empty($item['cenni_folio'])): ?>
+                    <p><strong>Folio:</strong> <?= e((string)$item['cenni_folio']) ?></p>
+                <?php endif; ?>
+                <?php if (!empty($item['student_curp'])): ?>
+                    <p><strong>CURP:</strong> <?= e((string)$item['student_curp']) ?></p>
+                <?php endif; ?>
+                <?php if (!empty($item['cenni_download_url'])): ?>
+                    <p><a class="btn" href="<?= e((string)$item['cenni_download_url']) ?>" target="_blank" rel="noopener">Descargar tu CENNI</a></p>
+                <?php endif; ?>
+                <?php if (!empty($item['cenni_sep_url'])): ?>
+                    <p><a href="<?= e((string)$item['cenni_sep_url']) ?>" target="_blank" rel="noopener">Consulta oficial SEP</a></p>
+                <?php endif; ?>
+                <?php if (!empty($item['cenni_notes'])): ?>
+                    <p class="muted"><?= nl2br(e((string)$item['cenni_notes'])) ?></p>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php if ($cenni_docs): ?>
             <div class="note" style="margin:0.75rem 0">
                 <p><strong>Cómo llenar la solicitud CENNI</strong></p>
@@ -722,6 +747,7 @@ foreach ($course_prorrogas as $pr) {
                 </ul>
             </div>
         <?php endif; ?>
+        <?php if ($cenniStatus !== 'issued'): ?>
         <form method="post" action="/alumno/caso/upload-cenni" enctype="multipart/form-data" class="stack">
             <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
             <label>INE (PDF/imagen)<input type="file" name="cenni_ine" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
@@ -729,6 +755,7 @@ foreach ($course_prorrogas as $pr) {
             <label>Solicitud CENNI firmada (PDF)<input type="file" name="cenni_solicitud" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
             <button class="btn" type="submit">Subir documentos</button>
         </form>
+        <?php endif; ?>
     <?php else: ?>
         <p class="muted">Esta certificación no incluye trámite CENNI en plataforma. Te avisaremos del estatus de tu certificado por correo.</p>
     <?php endif; ?>
