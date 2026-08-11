@@ -22,6 +22,54 @@ final class AdminRoutes
             return '/admin/providers/edit?id=' . $id . '&tab=' . rawurlencode($tab);
         };
 
+        $protocolEditUrl = static function (int $id, ?string $tab = null): string {
+            $allowed = ['general', 'requisitos', 'correos', 'acciones', 'pasos'];
+            if ($tab === null) {
+                $tab = trim((string) ($_POST['tab'] ?? $_GET['tab'] ?? 'general'));
+            }
+            if (!in_array($tab, $allowed, true)) {
+                $tab = 'general';
+            }
+
+            return '/admin/protocols/edit?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
+        $partnerEditUrl = static function (int $id, ?string $tab = null): string {
+            $allowed = ['datos', 'envio', 'facturacion', 'historial'];
+            if ($tab === null) {
+                $tab = trim((string) ($_POST['tab'] ?? $_GET['tab'] ?? 'datos'));
+            }
+            if (!in_array($tab, $allowed, true)) {
+                $tab = 'datos';
+            }
+
+            return '/admin/partners/edit?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
+        $caseViewUrl = static function (int $id, ?string $tab = null): string {
+            $allowed = ['alumno', 'reglamento', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
+            if ($tab === null) {
+                $tab = trim((string) ($_POST['tab'] ?? $_GET['tab'] ?? 'alumno'));
+            }
+            if (!in_array($tab, $allowed, true)) {
+                $tab = 'alumno';
+            }
+
+            return '/admin/cases/view?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
+        $certEditUrl = static function (int $id, ?string $tab = null): string {
+            $allowed = ['general', 'contenido', 'nivel', 'precios', 'adquisicion', 'elegibilidad', 'cursos', 'assets'];
+            if ($tab === null) {
+                $tab = trim((string) ($_POST['tab'] ?? $_GET['tab'] ?? 'general'));
+            }
+            if (!in_array($tab, $allowed, true)) {
+                $tab = 'general';
+            }
+
+            return '/admin/certifications/edit?id=' . $id . '&tab=' . rawurlencode($tab);
+        };
+
         $saveDocumentFromPost = static function (
             CatalogRepository $repo,
             ?int $id,
@@ -1306,8 +1354,13 @@ final class AdminRoutes
 
         $router->get('/admin/protocols/create', static function () use ($repo): void {
             Auth::requireAdmin();
+            $tab = trim((string) ($_GET['tab'] ?? 'general'));
+            if ($tab !== 'general') {
+                $tab = 'general';
+            }
             view('admin/protocols/form', [
                 'title' => 'Nuevo protocolo',
+                'tab' => $tab,
                 'item' => null,
                 'steps' => [],
                 'providers' => $repo()->providers(true),
@@ -1333,8 +1386,17 @@ final class AdminRoutes
             }
             $actionRepo = new \App\Workflow\ActionRepository();
             $assigned = $actionRepo->protocolActions($id, false);
+            $tab = trim((string) ($_GET['tab'] ?? 'general'));
+            $allowedTabs = ['general', 'requisitos', 'correos', 'acciones', 'pasos'];
+            if (!in_array($tab, $allowedTabs, true)) {
+                $tab = 'general';
+            }
+            if ((int) ($_GET['step'] ?? 0) > 0) {
+                $tab = 'pasos';
+            }
             view('admin/protocols/form', [
                 'title' => 'Editar protocolo',
+                'tab' => $tab,
                 'item' => $item,
                 'steps' => $repo()->protocolSteps($id),
                 'providers' => $repo()->providers(true),
@@ -1349,7 +1411,7 @@ final class AdminRoutes
             ]);
         });
 
-        $router->post('/admin/protocols/save', static function () use ($repo): void {
+        $router->post('/admin/protocols/save', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
             $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
@@ -1382,16 +1444,16 @@ final class AdminRoutes
                 }
                 (new \App\Workflow\ActionRepository())->setProtocolActions($savedId, $actionIds);
                 flash('info', 'Protocolo y acciones guardados.');
-                header('Location: /admin/protocols/edit?id=' . $savedId);
+                header('Location: ' . $protocolEditUrl($savedId));
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                header('Location: ' . ($id ? '/admin/protocols/edit?id=' . $id : '/admin/protocols/create'));
+                header('Location: ' . ($id ? $protocolEditUrl($id) : '/admin/protocols/create'));
                 exit;
             }
         });
 
-        $router->post('/admin/protocols/steps/save', static function () use ($repo): void {
+        $router->post('/admin/protocols/steps/save', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
             $stepId = (int) ($_POST['step_id'] ?? 0) ?: null;
@@ -1434,11 +1496,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/protocols/edit?id=' . $protocolId);
+            header('Location: ' . $protocolEditUrl($protocolId, 'pasos'));
             exit;
         });
 
-        $router->post('/admin/protocols/steps/delete', static function () use ($repo): void {
+        $router->post('/admin/protocols/steps/delete', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
             $stepId = (int) ($_POST['step_id'] ?? 0);
@@ -1450,11 +1512,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', 'No se pudo eliminar (puede estar en uso en un caso): ' . $e->getMessage());
             }
-            header('Location: /admin/protocols/edit?id=' . $protocolId);
+            header('Location: ' . $protocolEditUrl($protocolId, 'pasos'));
             exit;
         });
 
-        $router->post('/admin/protocols/steps/move', static function () use ($repo): void {
+        $router->post('/admin/protocols/steps/move', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
             $stepId = (int) ($_POST['step_id'] ?? 0);
@@ -1471,11 +1533,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/protocols/edit?id=' . $protocolId . '#pasos');
+            header('Location: ' . $protocolEditUrl($protocolId, 'pasos'));
             exit;
         });
 
-        $router->post('/admin/protocols/steps/reorder', static function () use ($repo): void {
+        $router->post('/admin/protocols/steps/reorder', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
             $orderRaw = $_POST['step_order'] ?? [];
@@ -1495,7 +1557,7 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/protocols/edit?id=' . $protocolId . '#pasos');
+            header('Location: ' . $protocolEditUrl($protocolId, 'pasos'));
             exit;
         });
 
@@ -1570,7 +1632,7 @@ final class AdminRoutes
             ]);
         });
 
-        $router->post('/admin/cases/save', static function () use ($repo): void {
+        $router->post('/admin/cases/save', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $certId = (int) ($_POST['certification_id'] ?? 0);
             $name = trim((string) ($_POST['student_name'] ?? ''));
@@ -1603,7 +1665,7 @@ final class AdminRoutes
                 } catch (\Throwable $payErr) {
                     flash('info', 'Caso abierto. OpenPay aún no generó CLABE: ' . $payErr->getMessage());
                 }
-                header('Location: /admin/cases/view?id=' . $caseId);
+                header('Location: ' . $caseViewUrl($caseId));
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
@@ -1627,8 +1689,14 @@ final class AdminRoutes
             if ($regDocId > 0) {
                 $regulationDoc = $repo()->document($regDocId);
             }
+            $tab = trim((string) ($_GET['tab'] ?? 'alumno'));
+            $allowedCaseTabs = ['alumno', 'reglamento', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
+            if (!in_array($tab, $allowedCaseTabs, true)) {
+                $tab = 'alumno';
+            }
             view('admin/cases/show', [
                 'title' => 'Caso #' . $id,
+                'tab' => $tab,
                 'item' => $item,
                 'regulation_doc' => $regulationDoc,
                 'steps' => $repo()->certificationCaseSteps($id),
@@ -1665,7 +1733,7 @@ final class AdminRoutes
             ]);
         });
 
-        $router->post('/admin/cases/update', static function () use ($repo): void {
+        $router->post('/admin/cases/update', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             if ($caseId <= 0 || !$repo()->certificationCase($caseId)) {
@@ -1714,11 +1782,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/confirm-payment', static function () use ($repo): void {
+        $router->post('/admin/cases/confirm-payment', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1771,11 +1839,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/mark-payment', static function () use ($repo): void {
+        $router->post('/admin/cases/mark-payment', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1822,11 +1890,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/openpay-spei', static function () use ($repo): void {
+        $router->post('/admin/cases/openpay-spei', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $force = isset($_POST['force_new']);
@@ -1836,11 +1904,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/cenni-status', static function () use ($repo): void {
+        $router->post('/admin/cases/cenni-status', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1862,11 +1930,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/regenerate-export', static function () use ($repo): void {
+        $router->post('/admin/cases/regenerate-export', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1877,11 +1945,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/send-provider-request', static function () use ($repo): void {
+        $router->post('/admin/cases/send-provider-request', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1908,11 +1976,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/reschedule', static function () use ($repo): void {
+        $router->post('/admin/cases/reschedule', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -1936,11 +2004,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/send-mail', static function () use ($repo): void {
+        $router->post('/admin/cases/send-mail', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $code = trim((string) ($_POST['template_code'] ?? ''));
@@ -1967,24 +2035,24 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->get('/admin/cases/download-export', static function () use ($repo): void {
+        $router->get('/admin/cases/download-export', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_GET['id'] ?? 0);
             $item = $repo()->certificationCase($caseId);
             if (!$item || empty($item['provider_export_path'])) {
                 flash('error', 'No hay archivo de exportación en este caso.');
-                header('Location: /admin/cases/view?id=' . $caseId);
+                header('Location: ' . $caseViewUrl($caseId));
                 exit;
             }
             $rel = ltrim((string) $item['provider_export_path'], '/');
             $abs = BASE_PATH . '/storage/' . $rel;
             if (!is_file($abs)) {
                 flash('error', 'El archivo ya no existe en disco.');
-                header('Location: /admin/cases/view?id=' . $caseId);
+                header('Location: ' . $caseViewUrl($caseId));
                 exit;
             }
             $name = basename($abs);
@@ -1998,7 +2066,7 @@ final class AdminRoutes
             exit;
         });
 
-        $router->post('/admin/cases/complete-step', static function () use ($repo): void {
+        $router->post('/admin/cases/complete-step', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $caseStepId = (int) ($_POST['case_step_id'] ?? 0);
@@ -2014,7 +2082,7 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
@@ -2490,8 +2558,14 @@ final class AdminRoutes
                 exit;
             }
             $providerId = (int) ($item['provider_id'] ?? 0);
+            $tab = trim((string) ($_GET['tab'] ?? 'general'));
+            $allowedCertTabs = ['general', 'contenido', 'nivel', 'precios', 'adquisicion', 'elegibilidad', 'cursos', 'assets'];
+            if (!in_array($tab, $allowedCertTabs, true)) {
+                $tab = 'general';
+            }
             view('admin/certifications/form', [
                 'title' => 'Editar certificación',
+                'tab' => $tab,
                 'item' => $item,
                 'providers' => $repo()->providers(true),
                 'protocols' => $repo()->protocols(true),
@@ -2510,14 +2584,14 @@ final class AdminRoutes
             ]);
         });
 
-        $router->post('/admin/certifications/save', static function () use ($repo): void {
+        $router->post('/admin/certifications/save', static function () use ($repo, $certEditUrl): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
             $name = trim((string) ($_POST['name'] ?? ''));
             $existing = $id ? $repo()->certification($id) : null;
             if ($name === '') {
                 flash('error', 'El nombre es obligatorio.');
-                header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
+                header('Location: ' . ($id ? $certEditUrl($id) : '/admin/certifications/create'));
                 exit;
             }
 
@@ -2526,7 +2600,7 @@ final class AdminRoutes
                 : (int) ($_POST['provider_id'] ?? 0);
             if ($providerId < 1) {
                 flash('error', 'Selecciona el proveedor (o créala desde Proveedores).');
-                header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
+                header('Location: ' . ($id ? $certEditUrl($id) : '/admin/certifications/create'));
                 exit;
             }
 
@@ -2744,11 +2818,11 @@ final class AdminRoutes
                 }
 
                 flash('info', $intent === 'publish' ? 'Certificación publicada.' : 'Certificación guardada.');
-                header('Location: /admin/certifications/edit?id=' . $savedId);
+                header('Location: ' . $certEditUrl($savedId));
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                header('Location: ' . ($id ? '/admin/certifications/edit?id=' . $id : '/admin/certifications/create'));
+                header('Location: ' . ($id ? $certEditUrl($id) : '/admin/certifications/create'));
                 exit;
             }
         });
@@ -2774,7 +2848,7 @@ final class AdminRoutes
             exit;
         });
 
-        $router->post('/admin/certifications/attach-course', static function () use ($repo): void {
+        $router->post('/admin/certifications/attach-course', static function () use ($repo, $certEditUrl): void {
             Auth::requireAdmin();
             $certificationId = (int) ($_POST['certification_id'] ?? 0);
             $courseId = (int) ($_POST['course_id'] ?? 0);
@@ -2782,7 +2856,7 @@ final class AdminRoutes
             $bundlePrice = trim((string) ($_POST['bundle_price'] ?? ''));
             if ($certificationId < 1 || $courseId < 1) {
                 flash('error', 'Selecciona un curso.');
-                header('Location: /admin/certifications/edit?id=' . $certificationId);
+                header('Location: ' . $certEditUrl($certificationId, 'cursos'));
                 exit;
             }
             try {
@@ -2801,17 +2875,17 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/certifications/edit?id=' . $certificationId);
+            header('Location: ' . $certEditUrl($certificationId, 'cursos'));
             exit;
         });
 
-        $router->post('/admin/certifications/detach-course', static function () use ($repo): void {
+        $router->post('/admin/certifications/detach-course', static function () use ($repo, $certEditUrl): void {
             Auth::requireAdmin();
             $certificationId = (int) ($_POST['certification_id'] ?? 0);
             $courseId = (int) ($_POST['course_id'] ?? 0);
             $repo()->detachCertificationCourse($certificationId, $courseId);
             flash('info', 'Curso desvinculado.');
-            header('Location: /admin/certifications/edit?id=' . $certificationId);
+            header('Location: ' . $certEditUrl($certificationId, 'cursos'));
             exit;
         });
 
@@ -2827,8 +2901,14 @@ final class AdminRoutes
 
         $router->get('/admin/partners/create', static function () use ($repo): void {
             Auth::requireAdmin();
+            $tab = trim((string) ($_GET['tab'] ?? 'datos'));
+            $allowedTabs = ['datos', 'envio', 'facturacion'];
+            if (!in_array($tab, $allowedTabs, true)) {
+                $tab = 'datos';
+            }
             view('admin/partners/form', [
                 'title' => 'Nuevo partner TR',
+                'tab' => $tab,
                 'item' => null,
                 'tiers' => $repo()->partnerTiers(true),
                 'error' => flash('error'),
@@ -2845,8 +2925,14 @@ final class AdminRoutes
                 header('Location: /admin/partners');
                 exit;
             }
+            $tab = trim((string) ($_GET['tab'] ?? 'datos'));
+            $allowedTabs = ['datos', 'envio', 'facturacion', 'historial'];
+            if (!in_array($tab, $allowedTabs, true)) {
+                $tab = 'datos';
+            }
             view('admin/partners/form', [
                 'title' => 'Editar partner TR',
+                'tab' => $tab,
                 'item' => $item,
                 'tiers' => $repo()->partnerTiers(true),
                 'history' => $repo()->partnerAssignmentHistory($id),
@@ -2855,7 +2941,7 @@ final class AdminRoutes
             ]);
         });
 
-        $router->post('/admin/partners/save', static function () use ($repo): void {
+        $router->post('/admin/partners/save', static function () use ($repo, $partnerEditUrl): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;
             $tierId = (int) ($_POST['partner_tier_id'] ?? 0);
@@ -2993,11 +3079,11 @@ final class AdminRoutes
                         : 'Partner creado. Correo: ' . $email . ' · contraseña temporal: '
                             . UserRepository::PARTNER_DEFAULT_PASSWORD
                 );
-                header('Location: /admin/partners/edit?id=' . $savedId);
+                header('Location: ' . $partnerEditUrl($savedId));
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
-                header('Location: ' . ($id ? '/admin/partners/edit?id=' . $id : '/admin/partners/create'));
+                header('Location: ' . ($id ? $partnerEditUrl($id) : '/admin/partners/create'));
                 exit;
             }
         });
@@ -3350,7 +3436,7 @@ final class AdminRoutes
             exit;
         });
 
-        $router->post('/admin/cases/moodle-enrol', static function () use ($repo): void {
+        $router->post('/admin/cases/moodle-enrol', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -3373,11 +3459,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/fulfill', static function () use ($repo): void {
+        $router->post('/admin/cases/fulfill', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -3411,11 +3497,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/cases/exam-results', static function () use ($repo): void {
+        $router->post('/admin/cases/exam-results', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
@@ -3451,11 +3537,11 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: /admin/cases/view?id=' . $caseId);
+            header('Location: ' . $caseViewUrl($caseId));
             exit;
         });
 
-        $router->post('/admin/prorrogas/confirm', static function () use ($repo): void {
+        $router->post('/admin/prorrogas/confirm', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $prorrogaId = (int) ($_POST['prorroga_id'] ?? 0);
             $user = Auth::user();
@@ -3482,7 +3568,7 @@ final class AdminRoutes
                 if ($redirect !== '' && str_starts_with($redirect, '/admin/')) {
                     header('Location: ' . $redirect);
                 } else {
-                    header('Location: /admin/cases/view?id=' . $caseId);
+                    header('Location: ' . $caseViewUrl($caseId));
                 }
                 exit;
             } catch (\Throwable $e) {

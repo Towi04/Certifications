@@ -1051,6 +1051,8 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   font-size: 0.9rem;
   border: 1px solid transparent;
   background: transparent;
+  cursor: pointer;
+  font-family: inherit;
 }
 .provider-tab:hover {
   background: rgba(49, 82, 133, 0.08);
@@ -1070,6 +1072,84 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   box-shadow: 0 10px 28px rgba(10, 10, 10, 0.04);
 }
 .provider-panel h3 { margin: 0 0 0.5rem; }
+
+/* Alias compartido: mismas pestañas en el resto de fichas admin */
+.admin-ficha { display: flex; flex-direction: column; gap: 1rem; }
+.admin-ficha-head {
+  display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap;
+}
+.admin-ficha-identity {
+  display: flex; gap: 0.85rem; align-items: center; min-width: 0;
+}
+.admin-ficha-logo,
+.admin-ficha-fallback {
+  width: 56px !important; height: 56px !important;
+  border-radius: 14px; object-fit: contain;
+  background: rgba(49, 82, 133, 0.1);
+  display: grid; place-items: center;
+  font-weight: 800; color: var(--blue); font-size: 1.2rem;
+  overflow: hidden;
+}
+.admin-ficha-head h2 { margin: 0; font-size: 1.35rem; }
+.admin-ficha-head p { margin: 0.2rem 0 0; }
+.admin-ficha-tabs {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.35rem;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(49, 82, 133, 0.12);
+  border-radius: 14px;
+}
+.admin-ficha-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.admin-ficha-tab:hover {
+  background: rgba(49, 82, 133, 0.08);
+  color: var(--blue);
+}
+.admin-ficha-tab.is-active {
+  background: var(--blue) !important;
+  color: #fff !important;
+  border-color: var(--blue);
+}
+.admin-ficha-panel {
+  background: #fff;
+  border: 1px solid rgba(49, 82, 133, 0.12);
+  border-radius: 18px;
+  padding: 1.25rem 1.35rem;
+  box-shadow: 0 10px 28px rgba(10, 10, 10, 0.04);
+}
+.admin-ficha-panel[hidden] { display: none !important; }
+.admin-ficha-panel h3 { margin: 0 0 0.5rem; }
+.admin-ficha-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 0.25rem;
+  padding: 0.85rem 1rem;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(49, 82, 133, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 8px 20px rgba(10, 10, 10, 0.04);
+}
+.admin-ficha > form > .admin-ficha-actions {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 5;
+}
 .logo-mini {
   display: block !important; margin-top: 0.45rem;
   width: 56px !important; height: 56px !important;

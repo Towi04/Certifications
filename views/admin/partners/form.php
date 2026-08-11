@@ -3,54 +3,96 @@ require __DIR__ . '/../_nav.php';
 $item = $item ?? null;
 $isEdit = $item !== null;
 $requiresInvoice = !empty($item['requires_invoice']);
+$history = $history ?? [];
+
+$tab = $tab ?? (string) ($_GET['tab'] ?? 'datos');
+$allowed = $isEdit
+    ? ['datos' => 'Datos', 'envio' => 'Envío', 'facturacion' => 'Facturación', 'historial' => 'Historial']
+    : ['datos' => 'Datos', 'envio' => 'Envío', 'facturacion' => 'Facturación'];
+if (!isset($allowed[$tab])) {
+    $tab = array_key_first($allowed);
+}
+
+$partnerId = $isEdit ? (int) $item['id'] : 0;
+$fichaTitle = $isEdit
+    ? trim((string) ($item['first_name'] ?? '') . ' ' . (string) ($item['last_name'] ?? ''))
+    : 'Nuevo partner TR';
+$fichaSubtitle = $isEdit && !empty($item['organization'])
+    ? e((string) $item['organization'])
+    : 'El usuario Partner TR se crea aquí (no en Usuarios). Contraseña temporal: <code>' . e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) . '</code>';
+$fichaBackUrl = '/admin/partners';
+$fichaTabBase = $partnerId > 0 ? '/admin/partners/edit?id=' . $partnerId : '';
+$fichaMode = 'js';
+$tabs = $allowed;
+$fichaLogo = $item['logo_path'] ?? null;
+$fichaInitial = mb_substr(trim((string) ($item['first_name'] ?? 'P')), 0, 1);
 ?>
-<section class="note">
-    <h2><?= e($title) ?></h2>
+<section class="admin-ficha" data-admin-ficha data-tab="<?= e($tab) ?>">
+    <?php require __DIR__ . '/../_ficha_head.php'; ?>
+
+    <?php if (!empty($info)): ?><p class="alert alert-ok"><?= e($info) ?></p><?php endif; ?>
+    <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
+
     <p class="muted">
-        El usuario Partner TR se crea aquí (no en Usuarios). Contraseña temporal:
-        <code><?= e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) ?></code>
-        — deberán cambiarla en el primer acceso.
         El convenio vigente se toma automáticamente del nivel TR.
+        <?php if (!$isEdit): ?>
+            Contraseña temporal: <code><?= e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) ?></code>
+            — deberán cambiarla en el primer acceso.
+        <?php endif; ?>
     </p>
 
-    <form method="post" action="/admin/partners/save" class="stack form-grid" enctype="multipart/form-data">
+    <form method="post" action="/admin/partners/save" class="stack" enctype="multipart/form-data">
         <?php if ($isEdit): ?>
-            <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+            <input type="hidden" name="id" value="<?= $partnerId ?>">
         <?php endif; ?>
+        <input type="hidden" name="tab" value="<?= e($tab) ?>">
 
-        <label>Nombre
-            <input name="first_name" required value="<?= e($item['first_name'] ?? '') ?>" autocomplete="given-name">
-        </label>
-        <label>Apellidos
-            <input name="last_name" required value="<?= e($item['last_name'] ?? '') ?>" autocomplete="family-name">
-        </label>
-        <label>Correo
-            <input type="email" name="email" required value="<?= e($item['email'] ?? '') ?>" autocomplete="email">
-            <?php if ($isEdit && !empty($item['username'])): ?>
-                <small class="muted">Usuario login: <code><?= e($item['username']) ?></code></small>
-            <?php endif; ?>
-        </label>
-        <label>Teléfono
-            <input name="phone" value="<?= e($item['phone'] ?? ($item['user_phone'] ?? '')) ?>" autocomplete="tel">
-        </label>
-        <label>Escuela / organización
-            <input name="organization" value="<?= e($item['organization'] ?? '') ?>">
-        </label>
-        <label>Nivel TR
-            <select name="partner_tier_id" required>
-                <option value="">— Selecciona —</option>
-                <?php foreach ($tiers as $t): ?>
-                    <option value="<?= (int)$t['id'] ?>" <?= (int)($item['partner_tier_id'] ?? 0) === (int)$t['id'] ? 'selected' : '' ?>>
-                        <?= e($t['name']) ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-            <small class="muted">Se asigna el convenio vigente de ese nivel.</small>
-        </label>
+        <div class="admin-ficha-panel" data-tab-panel="datos" <?= $tab !== 'datos' ? 'hidden' : '' ?>>
+            <h3>Datos del partner</h3>
+            <div class="form-grid">
+                <label>Nombre
+                    <input name="first_name" required value="<?= e($item['first_name'] ?? '') ?>" autocomplete="given-name">
+                </label>
+                <label>Apellidos
+                    <input name="last_name" required value="<?= e($item['last_name'] ?? '') ?>" autocomplete="family-name">
+                </label>
+                <label>Correo
+                    <input type="email" name="email" required value="<?= e($item['email'] ?? '') ?>" autocomplete="email">
+                    <?php if ($isEdit && !empty($item['username'])): ?>
+                        <small class="muted">Usuario login: <code><?= e($item['username']) ?></code></small>
+                    <?php endif; ?>
+                </label>
+                <label>Teléfono
+                    <input name="phone" value="<?= e($item['phone'] ?? ($item['user_phone'] ?? '')) ?>" autocomplete="tel">
+                </label>
+                <label>Escuela / organización
+                    <input name="organization" value="<?= e($item['organization'] ?? '') ?>">
+                </label>
+                <label>Nivel TR
+                    <select name="partner_tier_id" required>
+                        <option value="">— Selecciona —</option>
+                        <?php foreach ($tiers as $t): ?>
+                            <option value="<?= (int)$t['id'] ?>" <?= (int)($item['partner_tier_id'] ?? 0) === (int)$t['id'] ? 'selected' : '' ?>>
+                                <?= e($t['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="muted">Se asigna el convenio vigente de ese nivel.</small>
+                </label>
+                <label class="field-wide">Notas
+                    <textarea name="notes" rows="3"><?= e($item['notes'] ?? '') ?></textarea>
+                </label>
+                <?php if ($isEdit): ?>
+                    <label class="field-wide">Motivo de cambio de nivel/convenio
+                        <input name="assignment_reason" placeholder="Renovación, cambio de nivel, etc.">
+                    </label>
+                <?php endif; ?>
+            </div>
+        </div>
 
-        <fieldset class="field-wide score-ranges-fieldset">
-            <legend>Dirección de paquetería</legend>
-            <div class="form-grid" style="margin:0">
+        <div class="admin-ficha-panel" data-tab-panel="envio" <?= $tab !== 'envio' ? 'hidden' : '' ?>>
+            <h3>Dirección de paquetería</h3>
+            <div class="form-grid">
                 <label class="field-wide">Calle y número
                     <input name="shipping_address_line" required value="<?= e($item['shipping_address_line'] ?? '') ?>">
                 </label>
@@ -73,82 +115,77 @@ $requiresInvoice = !empty($item['requires_invoice']);
                     <input name="shipping_country" value="<?= e($item['shipping_country'] ?? 'México') ?>">
                 </label>
             </div>
-        </fieldset>
+        </div>
 
-        <label class="field-wide">Convenio firmado (PDF)
-            <input type="file" name="signed_agreement" accept=".pdf,application/pdf" <?= $isEdit ? '' : 'required' ?>>
-            <?php if (!empty($item['signed_agreement_path'])): ?>
-                <small class="muted">
-                    Actual:
-                    <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
-                </small>
-            <?php endif; ?>
-        </label>
+        <div class="admin-ficha-panel" data-tab-panel="facturacion" <?= $tab !== 'facturacion' ? 'hidden' : '' ?>>
+            <h3>Documentos y facturación</h3>
+            <div class="form-grid">
+                <label class="field-wide">Convenio firmado (PDF)
+                    <input type="file" name="signed_agreement" accept=".pdf,application/pdf">
+                    <?php if (!empty($item['signed_agreement_path'])): ?>
+                        <small class="muted">
+                            Actual:
+                            <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
+                        </small>
+                    <?php endif; ?>
+                </label>
 
-        <label class="check field-wide">
-            <input type="checkbox" name="requires_invoice" id="requiresInvoice" <?= $requiresInvoice ? 'checked' : '' ?>>
-            Requiere factura
-        </label>
-        <label class="field-wide" id="taxStatusField">
-            Constancia de Situación Fiscal (PDF)
-            <input type="file" name="tax_status" accept=".pdf,application/pdf">
-            <?php if (!empty($item['tax_status_path'])): ?>
-                <small class="muted">
-                    Actual:
-                    <a href="/media?f=<?= e(rawurlencode($item['tax_status_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
-                </small>
-            <?php else: ?>
-                <small class="muted">Obligatoria si marca “Requiere factura”.</small>
-            <?php endif; ?>
-        </label>
+                <label class="check field-wide">
+                    <input type="checkbox" name="requires_invoice" id="requiresInvoice" <?= $requiresInvoice ? 'checked' : '' ?>>
+                    Requiere factura
+                </label>
+                <label class="field-wide" id="taxStatusField">
+                    Constancia de Situación Fiscal (PDF)
+                    <input type="file" name="tax_status" accept=".pdf,application/pdf">
+                    <?php if (!empty($item['tax_status_path'])): ?>
+                        <small class="muted">
+                            Actual:
+                            <a href="/media?f=<?= e(rawurlencode($item['tax_status_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
+                        </small>
+                    <?php else: ?>
+                        <small class="muted">Obligatoria si marca “Requiere factura”.</small>
+                    <?php endif; ?>
+                </label>
 
-        <label class="field-wide">Logo de la escuela (opcional)
-            <input type="file" name="logo" accept="image/*">
-            <?php if (!empty($item['logo_path'])): ?>
-                <small class="muted">
-                    Actual:
-                    <a href="/media?f=<?= e(rawurlencode($item['logo_path'])) ?>" target="_blank" rel="noopener">ver logo</a>
-                </small>
-            <?php endif; ?>
-        </label>
+                <label class="field-wide">Logo de la escuela (opcional)
+                    <input type="file" name="logo" accept="image/*">
+                    <?php if (!empty($item['logo_path'])): ?>
+                        <small class="muted">
+                            Actual:
+                            <a href="/media?f=<?= e(rawurlencode($item['logo_path'])) ?>" target="_blank" rel="noopener">ver logo</a>
+                        </small>
+                    <?php endif; ?>
+                </label>
+            </div>
+        </div>
 
-        <label class="field-wide">Notas
-            <textarea name="notes" rows="3"><?= e($item['notes'] ?? '') ?></textarea>
-        </label>
-        <?php if ($isEdit): ?>
-            <label>Motivo de cambio de nivel/convenio
-                <input name="assignment_reason" placeholder="Renovación, cambio de nivel, etc.">
-            </label>
-        <?php endif; ?>
-
-        <div class="actions">
+        <div class="admin-ficha-actions">
             <button class="btn" type="submit"><?= $isEdit ? 'Guardar cambios' : 'Crear partner' ?></button>
-            <a class="btn btn-ghost" href="/admin/partners">Volver</a>
         </div>
     </form>
-</section>
 
-<?php if (!empty($history)): ?>
-<section class="note">
-    <h3>Historial de convenios</h3>
-    <div class="table-wrap">
-        <table class="data-table">
-            <thead><tr><th>Convenio</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
-            <tbody>
-            <?php foreach ($history as $h): ?>
-                <tr>
-                    <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
-                    <td><?= e($h['assigned_at']) ?></td>
-                    <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
-                    <td><?= e($h['reason'] ?? '—') ?></td>
-                    <td><?= e($h['created_by_name'] ?? '—') ?></td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
+    <?php if ($isEdit && $history): ?>
+    <div class="admin-ficha-panel" data-tab-panel="historial" <?= $tab !== 'historial' ? 'hidden' : '' ?>>
+        <h3>Historial de convenios</h3>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Convenio</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
+                <tbody>
+                <?php foreach ($history as $h): ?>
+                    <tr>
+                        <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
+                        <td><?= e($h['assigned_at']) ?></td>
+                        <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
+                        <td><?= e($h['reason'] ?? '—') ?></td>
+                        <td><?= e($h['created_by_name'] ?? '—') ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
     </div>
+    <?php endif; ?>
 </section>
-<?php endif; ?>
 
 <script>
 (() => {
