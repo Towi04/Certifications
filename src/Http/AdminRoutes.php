@@ -3530,7 +3530,7 @@ final class AdminRoutes
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
-            header('Location: $redirect');
+            header('Location: ' . $redirect);
             exit;
         });
 

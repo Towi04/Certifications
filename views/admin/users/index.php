@@ -106,10 +106,15 @@ $iconTrash = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M
                         <div class="icon-actions">
                             <a class="icon-btn" href="/admin/users/edit?id=<?= (int)$item['id'] ?>" title="Editar" aria-label="Editar"><?= $iconEdit ?></a>
                             <form method="post" action="/admin/users/reset-password" class="inline-form"
-                                  onsubmit="return confirm(<?= json_encode('¿Restablecer la contraseña de “' . $display . '” a Doceo1234?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                                  onsubmit="return confirm(<?= json_encode(
+                                      (($item['role'] ?? '') === 'student')
+                                          ? ('¿Generar nueva contraseña temporal y enviarla por correo a “' . $display . '”?')
+                                          : ('¿Restablecer la contraseña de “' . $display . '” a Doceo1234?'),
+                                      JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
+                                  ) ?>);">
                                 <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
                                 <input type="hidden" name="redirect" value="/admin/users">
-                                <button type="submit" class="icon-btn" title="Restablecer contraseña" aria-label="Restablecer contraseña"><?= $iconKey ?></button>
+                                <button type="submit" class="icon-btn" title="<?= ($item['role'] ?? '') === 'student' ? 'Enviar nueva contraseña por correo' : 'Restablecer contraseña' ?>" aria-label="Restablecer contraseña"><?= $iconKey ?></button>
                             </form>
                             <?php if ($pending): ?>
                                 <form method="post" action="/admin/users/resend-activation" class="inline-form"
