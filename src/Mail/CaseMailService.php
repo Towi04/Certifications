@@ -120,26 +120,34 @@ final class CaseMailService
      */
     public function confirmPaymentAndRequestProvider(int $caseId, ?array $paymentFile, ?int $userId): array
     {
+        $this->repo->ensureUksFlowSchemaAndSeeds();
         $case = $this->repo->certificationCaseDetailed($caseId);
         if (!$case) {
             throw new \RuntimeException('Caso no encontrado.');
         }
 
+        if (empty($case['payment_confirmed_at'])) {
+            $this->repo->updateCertificationCase($caseId, [
+                'payment_confirmed_at' => date('Y-m-d H:i:s'),
+            ]);
+            $case['payment_confirmed_at'] = date('Y-m-d H:i:s');
+        }
+
+        // Si el protocolo pide solicitud al proveedor (UKS), el archivo es Doceo→proveedor.
+        // En otros flujos se trata como comprobante del alumno.
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
             $path = $this->storePaymentProof($paymentFile, $caseId);
-            $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
-            $this->repo->updateCertificationCase($caseId, [
-                'payment_proof_path' => $path,
-                'payment_confirmed_at' => date('Y-m-d H:i:s'),
-            ]);
+            $asProviderProof = $this->protocolNeedsProviderPaymentProof($case)
+                || trim((string) ($case['provider_request_template'] ?? '')) !== '';
+            if ($asProviderProof) {
+                $this->repo->addCaseAttachment($caseId, 'provider_payment', 'Comprobante Doceo → proveedor', $path, $userId);
+                $case['provider_payment_proof_path'] = $path;
+            } else {
+                $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
+                $this->repo->updateCertificationCase($caseId, ['payment_proof_path' => $path]);
+                $case['payment_proof_path'] = $path;
+            }
             $this->repo->persistCaseFileShareTokens($caseId);
-            $case['payment_proof_path'] = $path;
-            $case['payment_confirmed_at'] = date('Y-m-d H:i:s');
-        } elseif (empty($case['payment_confirmed_at'])) {
-            $this->repo->updateCertificationCase($caseId, [
-                'payment_confirmed_at' => date('Y-m-d H:i:s'),
-            ]);
-            $case['payment_confirmed_at'] = date('Y-m-d H:i:s');
         }
 
         try {
@@ -168,17 +176,23 @@ final class CaseMailService
         $mailSkip = null;
         $linksOnly = [];
         if ($templateCode !== '') {
-            $tpl = $this->repo->mailTemplateByCode($templateCode);
-            if (!$tpl || !(int) ($tpl['is_active'] ?? 0)) {
-                $mailSkip = 'La plantilla “' . $templateCode . '” no existe o está inactiva en Admin → Correos.';
+            $case = $this->repo->certificationCaseDetailed($caseId) ?? $case;
+            if ($this->protocolNeedsProviderPaymentProof($case)
+                && trim((string) ($case['provider_payment_proof_path'] ?? '')) === '') {
+                $mailSkip = 'Falta el comprobante Doceo → UKS. Súbelo al confirmar/solicitar (no uses el del alumno).';
             } else {
-                $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
-                $mailed = true;
-                $to = $result['to'];
-                $linksOnly = $result['links_only'] ?? [];
-                $this->repo->updateCertificationCase($caseId, [
-                    'provider_request_sent_at' => date('Y-m-d H:i:s'),
-                ]);
+                $tpl = $this->repo->mailTemplateByCode($templateCode);
+                if (!$tpl || !(int) ($tpl['is_active'] ?? 0)) {
+                    $mailSkip = 'La plantilla “' . $templateCode . '” no existe o está inactiva en Admin → Correos.';
+                } else {
+                    $result = $this->sendTemplate($caseId, $templateCode, $userId, true);
+                    $mailed = true;
+                    $to = $result['to'];
+                    $linksOnly = $result['links_only'] ?? [];
+                    $this->repo->updateCertificationCase($caseId, [
+                        'provider_request_sent_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
             }
         } else {
             $mailSkip = 'El protocolo no tiene “Plantilla solicitud a empresa”. Configúrala en Admin → Protocolos.';
@@ -212,33 +226,37 @@ final class CaseMailService
      */
     public function sendProviderRequest(int $caseId, ?array $paymentFile, ?int $userId, bool $regenerateExport = true): array
     {
+        $this->repo->ensureUksFlowSchemaAndSeeds();
         $case = $this->repo->certificationCaseDetailed($caseId);
         if (!$case) {
             throw new \RuntimeException('Caso no encontrado.');
         }
 
+        // Comprobante Doceo → proveedor (UKS), no el del alumno.
         if ($paymentFile && (int) ($paymentFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
             $path = $this->storePaymentProof($paymentFile, $caseId);
-            $this->repo->addCaseAttachment($caseId, 'payment', 'Comprobante de pago', $path, $userId);
-            $fields = ['payment_proof_path' => $path];
-            if (empty($case['payment_confirmed_at'])) {
-                $fields['payment_confirmed_at'] = date('Y-m-d H:i:s');
-            }
-            $this->repo->updateCertificationCase($caseId, $fields);
-            $case['payment_proof_path'] = $path;
+            $this->repo->addCaseAttachment($caseId, 'provider_payment', 'Comprobante Doceo → proveedor', $path, $userId);
+            $case['provider_payment_proof_path'] = $path;
+        }
+
+        $case = $this->repo->certificationCaseDetailed($caseId) ?? $case;
+        if ($this->protocolNeedsProviderPaymentProof($case)
+            && trim((string) ($case['provider_payment_proof_path'] ?? '')) === '') {
+            throw new \RuntimeException(
+                'Sube el comprobante de pago Doceo → UKS (el de nosotros al proveedor, no el del alumno).'
+            );
         }
 
         $export = null;
         $format = (string) ($case['export_format'] ?? 'none');
         if ($regenerateExport && $format !== '' && $format !== ProviderExportGenerator::FORMAT_NONE) {
-            // Recargar caso por si cambiaron fechas
-            $case = $this->repo->certificationCaseDetailed($caseId) ?? $case;
             $export = $this->exports->generate($format, $case);
             $this->repo->addCaseAttachment($caseId, 'export', $export['filename'], $export['relative'], $userId);
             $this->repo->updateCertificationCase($caseId, [
                 'provider_export_path' => $export['relative'],
             ]);
         }
+        $this->repo->persistCaseFileShareTokens($caseId);
 
         $templateCode = trim((string) ($case['provider_request_template'] ?? ''));
         if ($templateCode === '') {
@@ -251,6 +269,15 @@ final class CaseMailService
         $this->repo->updateCertificationCase($caseId, [
             'provider_request_sent_at' => date('Y-m-d H:i:s'),
         ]);
+        try {
+            $this->repo->markCaseStepDoneByKeywords(
+                $caseId,
+                ['solicitar', 'uks', 'proveedor', 'correo'],
+                $userId,
+                'Solicitud enviada al proveedor (' . $templateCode . ')'
+            );
+        } catch (\Throwable) {
+        }
 
         return [
             'export' => $export,
@@ -260,6 +287,61 @@ final class CaseMailService
             'links_only' => $result['links_only'] ?? [],
             'attachments' => $result['attachments'] ?? 0,
         ];
+    }
+
+    /**
+     * Agradecimiento post-examen UKS: cierra el contacto operativo del examen
+     * y deja abierta la puerta a dudas CENNI (monitoreo en UKS).
+     *
+     * @return array{ok: bool, to?: ?string, error?: string}
+     */
+    public function sendUksPostExamThanks(int $caseId, ?int $userId = null): array
+    {
+        $this->repo->ensureUksFlowSchemaAndSeeds();
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            return ['ok' => false, 'error' => 'Caso no encontrado'];
+        }
+        try {
+            $result = $this->sendTemplate($caseId, 'uks_post_examen', $userId, false);
+            $now = date('Y-m-d H:i:s');
+            $fields = [
+                'exam_presented_at' => $case['exam_presented_at'] ?? $now,
+                'post_exam_thanks_sent_at' => $now,
+            ];
+            if (empty($case['exam_presented_at'])) {
+                $fields['exam_presented_at'] = $now;
+            }
+            try {
+                $this->repo->updateCertificationCase($caseId, $fields + ['status' => 'examen_presentado']);
+            } catch (\Throwable) {
+                $this->repo->updateCertificationCase($caseId, $fields);
+            }
+            try {
+                $this->repo->markCaseStepDoneByKeywords(
+                    $caseId,
+                    ['agradec', 'constancia', 'post', 'finaliz'],
+                    $userId,
+                    'Correo post-examen (uks_post_examen) enviado'
+                );
+            } catch (\Throwable) {
+            }
+
+            return ['ok' => true, 'to' => $result['to'] ?? null];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** @param array<string, mixed> $case */
+    private function protocolNeedsProviderPaymentProof(array $case): bool
+    {
+        $code = strtoupper(trim((string) ($case['protocol_code'] ?? '')));
+        if ($code !== '' && str_starts_with($code, 'UKS') && $code !== 'UKS_CENNI') {
+            return true;
+        }
+
+        return (string) ($case['export_format'] ?? '') === 'uks_csv';
     }
 
     /**
@@ -442,8 +524,10 @@ final class CaseMailService
             ];
         }
         if ($isProviderRequest && trim((string) ($tokens['Comprobante URL'] ?? '')) !== '') {
+            $useProviderProof = trim((string) ($case['provider_payment_proof_path'] ?? '')) !== ''
+                || trim((string) ($case['provider_payment_proof_share_token'] ?? '')) !== '';
             $linkRows[] = [
-                'label' => 'Comprobante de pago',
+                'label' => $useProviderProof ? 'Comprobante Doceo → proveedor' : 'Comprobante de pago',
                 'url' => (string) $tokens['Comprobante URL'],
                 'name' => 'comprobante',
             ];
@@ -523,6 +607,10 @@ final class CaseMailService
         $caseId = (int) ($case['id'] ?? 0);
         if ($caseId < 1) {
             return;
+        }
+        $providerPayRel = trim((string) ($case['provider_payment_proof_path'] ?? ''));
+        if ($providerPayRel !== '') {
+            $this->repo->ensureCaseFileShare($caseId, 'provider_payment', $providerPayRel, 'Comprobante Doceo → proveedor');
         }
         $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
         if ($payRel !== '') {
@@ -665,29 +753,37 @@ final class CaseMailService
     private function cenniInstructionTokens(array $case, string $appUrl): array
     {
         $empty = ['url' => '', 'line' => ''];
+        $process = (string) ($case['cenni_process'] ?? 'none');
+        $uksLine = '';
+        if ($process === 'uks_external') {
+            $uksLine = '<p>El trámite CENNI continúa ante UKS/SEP (tú subes los docs en su plataforma, máx. 15 días). '
+                . 'Revisa también spam. Si tienes dudas o no te llega el aviso, contáctanos: podemos consultar el estatus en UKS.</p>';
+        }
+
         $certId = (int) ($case['certification_id'] ?? 0);
         if ($certId <= 0) {
-            return $empty;
+            return ['url' => '', 'line' => $uksLine];
         }
         try {
             $docs = $this->repo->certificationDocumentsByStage($certId, 'cenni');
         } catch (\Throwable) {
-            return $empty;
+            return ['url' => '', 'line' => $uksLine];
         }
         if ($docs === []) {
-            return $empty;
+            return ['url' => '', 'line' => $uksLine];
         }
         $doc = $docs[0];
         $path = trim((string) ($doc['file_path'] ?? ''));
         if ($path === '') {
-            return $empty;
+            return ['url' => '', 'line' => $uksLine];
         }
         $title = trim((string) ($doc['title'] ?? 'Instrucciones trámite CENNI')) ?: 'Instrucciones trámite CENNI';
         $url = $appUrl . '/media?f=' . rawurlencode($path) . '&download=1&name=' . rawurlencode($title);
+        $docLine = self::linkLine($title, $url);
 
         return [
             'url' => $url,
-            'line' => self::linkLine($title, $url),
+            'line' => trim($uksLine . $docLine),
         ];
     }
 
@@ -718,22 +814,46 @@ final class CaseMailService
             return $base . '/c/' . rawurlencode($token);
         };
 
-        $paymentUrl = $shareFromToken((string) ($case['payment_proof_share_token'] ?? ''));
+        // Preferir comprobante Doceo → proveedor (UKS); si no hay, el del alumno.
+        $paymentUrl = $shareFromToken((string) ($case['provider_payment_proof_share_token'] ?? ''));
+        $paymentLabel = 'Descargar comprobante Doceo → proveedor';
         if ($paymentUrl === '') {
-            $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
-            if ($payRel !== '') {
-                $att = $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+            $providerPayRel = trim((string) ($case['provider_payment_proof_path'] ?? ''));
+            if ($providerPayRel !== '') {
+                $att = $this->repo->ensureCaseFileShare($caseId, 'provider_payment', $providerPayRel, 'Comprobante Doceo → proveedor');
                 if ($att) {
                     $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
                     $token = trim((string) ($att['share_token'] ?? ''));
                     if ($token !== '') {
-                        $this->repo->updateCertificationCase($caseId, ['payment_proof_share_token' => $token]);
+                        $this->repo->updateCertificationCase($caseId, ['provider_payment_proof_share_token' => $token]);
                     }
                 }
             } else {
-                $att = $this->repo->latestCaseAttachment($caseId, 'payment');
+                $att = $this->repo->latestCaseAttachment($caseId, 'provider_payment');
                 if ($att) {
                     $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                }
+            }
+        }
+        if ($paymentUrl === '') {
+            $paymentLabel = 'Descargar comprobante de pago';
+            $paymentUrl = $shareFromToken((string) ($case['payment_proof_share_token'] ?? ''));
+            if ($paymentUrl === '') {
+                $payRel = trim((string) ($case['payment_proof_path'] ?? ''));
+                if ($payRel !== '') {
+                    $att = $this->repo->ensureCaseFileShare($caseId, 'payment', $payRel, 'Comprobante de pago');
+                    if ($att) {
+                        $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                        $token = trim((string) ($att['share_token'] ?? ''));
+                        if ($token !== '') {
+                            $this->repo->updateCertificationCase($caseId, ['payment_proof_share_token' => $token]);
+                        }
+                    }
+                } else {
+                    $att = $this->repo->latestCaseAttachment($caseId, 'payment');
+                    if ($att) {
+                        $paymentUrl = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+                    }
                 }
             }
         }
@@ -760,7 +880,7 @@ final class CaseMailService
 
         return [
             'payment_url' => $paymentUrl,
-            'payment_button' => self::linkButton('Descargar comprobante de pago', $paymentUrl),
+            'payment_button' => self::linkButton($paymentLabel, $paymentUrl),
             'export_url' => $exportUrl,
             'export_button' => self::linkButton('Descargar exportación / registro', $exportUrl),
         ];

@@ -86,13 +86,15 @@ $timeline = [
             : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
         'done' => $hasResults || $isInvalidated,
     ],
-    [
+];
+if ($cenniProcess !== 'none') {
+    $timeline[] = [
         'key' => 'cenni',
         'label' => 'Certificado / CENNI',
         'hint' => $cenni_statuses[$cenniStatus] ?? $cenniStatus,
         'done' => $cenniStatus === 'issued',
-    ],
-];
+    ];
+}
 
 $currentKey = 'datos';
 foreach ($timeline as $row) {
@@ -110,7 +112,7 @@ if ($needsSign) {
     $currentKey = 'examen';
 } elseif (!$hasResults && !$isInvalidated) {
     $currentKey = 'resultados';
-} elseif ($cenniStatus !== 'issued') {
+} elseif ($cenniProcess !== 'none' && $cenniStatus !== 'issued') {
     $currentKey = 'cenni';
 }
 ?>
@@ -702,18 +704,62 @@ foreach ($course_prorrogas as $pr) {
     </form>
 </section>
 
+<?php if ($cenniProcess !== 'none'): ?>
 <section class="note student-stage" id="cenni">
     <h2>Certificado y trámite CENNI</h2>
     <?php if ($cenniProcess === 'uks_external'): ?>
+        <?php
+        $examPresented = !empty($item['exam_presented_at']) || !empty($item['post_exam_thanks_sent_at']);
+        $lateCenniId = (int) ($item['cenni_late_certification_id'] ?? 0);
+        $lateCenni = $late_cenni_product ?? null;
+        $daysSinceExam = null;
+        if (!empty($item['exam_presented_at'])) {
+            try {
+                $daysSinceExam = (int) ((new DateTimeImmutable('now'))->diff(new DateTimeImmutable((string) $item['exam_presented_at']))->days);
+            } catch (Throwable) {
+                $daysSinceExam = null;
+            }
+        }
+        $showLateCenni = $lateCenni && $lateCenniId > 0 && $examPresented
+            && ($daysSinceExam === null || $daysSinceExam >= 15)
+            && !in_array($cenniStatus, ['issued', 'sep_pending'], true);
+        ?>
         <p>
-            Después de presentar el ELET recibirás tu constancia y un enlace/QR para subir INE, CURP y solicitud
-            <strong>en la plataforma UKS</strong>. Aquí verás el avance que monitoreamos.
+            Después de presentar el ELET, el trámite del examen con Instituto DOCEO concluye.
+            UKS te enviará (revisa también spam) la guía para subir INE, CURP y solicitud CENNI
+            <strong>en su plataforma</strong> (normalmente tienes <strong>15 días</strong>).
+            SEP también puede avisarte cuando el CENNI esté listo.
         </p>
+        <?php if ($examPresented): ?>
+            <p class="alert alert-ok">
+                Gracias por confiar en Instituto DOCEO. Quedamos a tu disposición si tienes dudas
+                o no te llegó el correo de UKS/SEP: podemos revisar el estatus en su plataforma y registrarlo aquí.
+            </p>
+        <?php endif; ?>
         <p>
-            Estatus actual:
+            Estatus actual (monitoreo Doceo):
             <strong><?= e($cenni_statuses[$cenniStatus] ?? $cenniStatus) ?></strong>
             <?php if (!empty($item['cenni_folio'])): ?> · Folio: <?= e($item['cenni_folio']) ?><?php endif; ?>
         </p>
+        <?php if (!empty($item['cenni_download_url'])): ?>
+            <p><a class="btn" href="<?= e((string)$item['cenni_download_url']) ?>" target="_blank" rel="noopener">Descargar tu CENNI</a></p>
+        <?php endif; ?>
+        <?php if (!empty($item['cenni_sep_url'])): ?>
+            <p><a href="<?= e((string)$item['cenni_sep_url']) ?>" target="_blank" rel="noopener">Consulta oficial SEP</a></p>
+        <?php endif; ?>
+        <?php if ($showLateCenni): ?>
+            <div class="note" style="margin-top:1rem">
+                <p>
+                    Si ya pasaron los 15 días y no entregaste la documentación a UKS a tiempo,
+                    puedes adquirir el <strong>trámite CENNI</strong> por separado (Doceo gestiona el envío).
+                </p>
+                <p>
+                    <a class="btn" href="/certificacion?slug=<?= e(rawurlencode((string)($lateCenni['slug'] ?? ''))) ?>">
+                        Ver producto CENNI — <?= e((string)($lateCenni['name'] ?? 'CENNI')) ?>
+                    </a>
+                </p>
+            </div>
+        <?php endif; ?>
     <?php elseif ($cenniProcess === 'doceo_managed'): ?>
         <p>Sube tus documentos para que Instituto Doceo gestione el trámite ante la SEP.</p>
         <p class="muted">Estatus: <strong><?= e($cenni_statuses[$cenniStatus] ?? $cenniStatus) ?></strong></p>

@@ -471,7 +471,27 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 <?php
                 $documents = $documents ?? [];
                 $cenniDocId = (int) ($cenni_instruction_doc_id ?? 0);
+                $cenniProductOptions = $cenni_product_options ?? [];
+                $lateCenniId = (int) ($item['cenni_late_certification_id'] ?? 0);
+                $selfCertId = (int) ($item['id'] ?? 0);
                 ?>
+                <label class="field-wide">Producto CENNI tardío (si pasan 15 días sin docs en UKS)
+                    <span class="muted" style="font-weight:400;display:block;margin:0.2rem 0 0.35rem">
+                        Solo aplica a ELET. El alumno puede adquirir este producto (protocolo <code>UKS_CENNI</code>)
+                        cuando venció el plazo gratuito en UKS.
+                    </span>
+                    <select name="cenni_late_certification_id">
+                        <option value="">— ninguno —</option>
+                        <?php foreach ($cenniProductOptions as $opt): ?>
+                            <?php if ($selfCertId > 0 && (int) $opt['id'] === $selfCertId) {
+                                continue;
+                            } ?>
+                            <option value="<?= (int)$opt['id'] ?>" <?= $lateCenniId === (int)$opt['id'] ? 'selected' : '' ?>>
+                                <?= e(($opt['code'] ?? '') . ' — ' . ($opt['name'] ?? '')) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
                 <label class="field-wide">PDF instrucciones solicitud CENNI
                     <span class="muted" style="font-weight:400;display:block;margin:0.2rem 0 0.35rem">
                         Documento del catálogo (Admin → Documentos) que el alumno descarga para llenar la solicitud.

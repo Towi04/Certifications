@@ -1741,6 +1741,16 @@ final class AdminRoutes
 
                     return $att ? $repo()->caseAttachmentShareUrl($att) : '';
                 })(),
+                'provider_payment_share_url' => (static function () use ($repo, $item, $id): string {
+                    $repo()->ensureUksFlowSchemaAndSeeds();
+                    $rel = trim((string) ($item['provider_payment_proof_path'] ?? ''));
+                    if ($rel === '') {
+                        return '';
+                    }
+                    $att = $repo()->ensureCaseFileShare($id, 'provider_payment', $rel, 'Comprobante Doceo → proveedor');
+
+                    return $att ? $repo()->caseAttachmentShareUrl($att) : '';
+                })(),
                 'export_share_url' => (static function () use ($repo, $item, $id): string {
                     $rel = trim((string) ($item['provider_export_path'] ?? ''));
                     if ($rel === '') {
@@ -2071,6 +2081,26 @@ final class AdminRoutes
                 flash('error', $e->getMessage());
             }
             header('Location: ' . $caseViewUrl($caseId));
+            exit;
+        });
+
+        $router->post('/admin/cases/uks-post-exam-thanks', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->sendUksPostExamThanks($caseId, $user ? (int) $user['id'] : null);
+                if (!empty($result['ok'])) {
+                    flash('info', 'Correo post-examen enviado'
+                        . (!empty($result['to']) ? ' a ' . $result['to'] : '') . '.');
+                } else {
+                    flash('error', $result['error'] ?? 'No se pudo enviar el correo post-examen.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId, 'operacion'));
             exit;
         });
 
@@ -2757,6 +2787,7 @@ final class AdminRoutes
                 'provider_available_fields' => [],
                 'provider_groups_map' => $providerGroupsMap,
                 'provider_fields_map' => $providerFieldsMap,
+                'cenni_product_options' => $repo()->certifications(null),
                 'error' => flash('error'),
             ]);
         });
@@ -2764,6 +2795,7 @@ final class AdminRoutes
         $router->get('/admin/certifications/edit', static function () use ($repo): void {
             Auth::requireAdmin();
             $id = (int) ($_GET['id'] ?? 0);
+            $repo()->ensureUksFlowSchemaAndSeeds();
             $item = $repo()->certification($id);
             if (!$item) {
                 flash('error', 'Certificación no encontrada.');
@@ -2790,6 +2822,7 @@ final class AdminRoutes
                 'assetTypes' => CatalogRepository::assetTypesFor('certification'),
                 'documents' => $repo()->documents(null, true),
                 'cenni_instruction_doc_id' => (int) (($repo()->certificationDocumentsByStage($id, 'cenni')[0]['id'] ?? 0)),
+                'cenni_product_options' => $repo()->certifications(null),
                 'provider_groups' => $providerId > 0 ? $repo()->providerGroups($providerId, true) : [],
                 'provider_available_fields' => $providerId > 0 ? $repo()->availableFieldsForCertification($providerId) : [],
                 'info' => flash('info'),
@@ -3006,6 +3039,7 @@ final class AdminRoutes
                             ? (string) $_POST['cenni_process']
                             : 'doceo_managed')
                         : 'none',
+                    'cenni_late_certification_id' => ((int) ($_POST['cenni_late_certification_id'] ?? 0)) ?: null,
                     'conocer_eligible' => $conocerEligible,
                     'conocer_fee' => $conocerFee,
                     'is_published' => $isPublished,

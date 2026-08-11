@@ -24,7 +24,17 @@ Las certificaciones y los cursos pueden tener un `protocol_id`. Al abrir un **ca
 
 ## Ejemplo: ELET (UKS)
 
-Seed: `sql/seed_protocol_elet.sql` — código `UKS_ELET` con 19 pasos (reglamento → registro → OpenPay → pago → correos UKS → CSV → ID/clave → aplicación → constancia → CENNI/SEP).
+Seed: `sql/seed_protocol_elet.sql` — código `UKS_ELET` (reglamento → registro → pago → solicitud UKS con CSV + reglamento + comprobante Doceo→UKS → folio/clave → examen → agradecimiento → monitoreo CENNI en UKS).
+
+También se siembran:
+
+| Código | Uso |
+|--------|-----|
+| `UKS_ELET` | Examen + monitoreo CENNI (alumno sube docs en UKS, 15 días) |
+| `UKS_EXAM` | Mismo flujo hasta el examen; sin CENNI |
+| `UKS_CENNI` | Producto aparte si venció el plazo de docs en UKS (Doceo gestiona) |
+
+En la certificación ELET puedes vincular el producto CENNI tardío (`cenni_late_certification_id`).
 
 ## Cómo usarlo en admin
 
