@@ -1,4 +1,6 @@
-<?php require __DIR__ . '/../_nav.php';
+<?php
+require __DIR__ . '/../_nav.php';
+$partnersTab = 'partners';
 $statusLabels = [
     'pending' => 'Pendiente firma',
     'submitted' => 'En revisión',
@@ -12,6 +14,7 @@ $statusLabels = [
         <h2 style="margin:0">Partners Teacher Referral</h2>
         <a class="btn" href="/admin/partners/create">Nuevo partner</a>
     </div>
+    <?php require __DIR__ . '/_tabs.php'; ?>
     <div class="table-wrap">
         <table class="data-table">
             <thead>

@@ -199,7 +199,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
-                <p class="muted">Aún no hay niveles TR activos. Créalos en Admin → Niveles TR.</p>
+                <p class="muted">Aún no hay niveles TR activos. Créalos en Admin → Partners TR → Niveles TR.</p>
             <?php endif; ?>
         </fieldset>
 
