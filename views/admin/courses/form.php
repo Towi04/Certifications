@@ -41,6 +41,8 @@ require __DIR__ . '/../_ficha_head.php';
             </label>
             <label class="field-wide">Descripción<textarea name="description" rows="4"><?= e($item['description'] ?? '') ?></textarea></label>
             <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>
+            <label class="check"><input type="checkbox" name="standalone" <?= (int)($item['standalone'] ?? 0) ? 'checked' : '' ?>> No requiere certificación</label>
+            <p class="muted" style="margin:0">Marca esta opción si el curso se vende o usa solo, sin vincularlo a una certificación.</p>
             </div>
         </div>
 
@@ -73,4 +75,12 @@ require __DIR__ . '/../_ficha_head.php';
             <a class="btn btn-ghost" href="/admin/courses">Volver</a>
         </div>
     </form>
+
+    <?php if ($item): ?>
+        <form method="post" action="/admin/courses/delete" style="margin-top:1rem"
+              onsubmit="return confirm(<?= json_encode('¿Eliminar el curso “' . ($item['name'] ?? '') . '”? Si tiene matrículas Moodle, solo se desactivará.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+            <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+            <button class="btn btn-ghost" type="submit">Eliminar curso</button>
+        </form>
+    <?php endif; ?>
 </section>

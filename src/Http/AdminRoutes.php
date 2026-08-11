@@ -2165,6 +2165,7 @@ final class AdminRoutes
 
         $router->get('/admin/courses/edit', static function () use ($repo): void {
             Auth::requireAdmin();
+            $repo()->ensureCourseAccessTables();
             $id = (int) ($_GET['id'] ?? 0);
             $item = $repo()->course($id);
             if (!$item) {
@@ -2193,7 +2194,8 @@ final class AdminRoutes
             try {
                 $moodleId = trim((string) ($_POST['moodle_course_id'] ?? ''));
                 $protocolId = (int) ($_POST['protocol_id'] ?? 0);
-                $repo()->saveCourse([
+                $standalone = isset($_POST['standalone']) ? 1 : 0;
+                $savedId = $repo()->saveCourse([
                     'protocol_id' => $protocolId > 0 ? $protocolId : null,
                     'code' => $code,
                     'name' => $name,
@@ -2207,7 +2209,11 @@ final class AdminRoutes
                     'access_notes' => trim((string) ($_POST['access_notes'] ?? '')) ?: null,
                     'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                    'standalone' => $standalone,
                 ], $id);
+                if ($standalone === 1) {
+                    $repo()->setCourseStandalone($savedId, true);
+                }
                 flash('info', 'Curso guardado.');
                 header('Location: /admin/courses');
                 exit;
@@ -2216,6 +2222,56 @@ final class AdminRoutes
                 header('Location: ' . ($id ? '/admin/courses/edit?id=' . $id : '/admin/courses/create'));
                 exit;
             }
+        });
+
+        $router->post('/admin/courses/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            if ($id < 1) {
+                flash('error', 'Curso inválido.');
+                header('Location: /admin/courses');
+                exit;
+            }
+            try {
+                $result = $repo()->deleteCourse($id);
+                if (!empty($result['deactivated'])) {
+                    flash(
+                        'info',
+                        'El curso tiene matrículas Moodle históricas: se desactivó y quedó marcado como sin certificación (no se eliminó el registro).'
+                    );
+                } else {
+                    flash('info', 'Curso eliminado.');
+                }
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo eliminar el curso: ' . $e->getMessage());
+            }
+            header('Location: /admin/courses');
+            exit;
+        });
+
+        $router->post('/admin/courses/mark-standalone', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $standalone = !isset($_POST['standalone']) || (int) $_POST['standalone'] === 1;
+            if ($id < 1) {
+                flash('error', 'Curso inválido.');
+                header('Location: /admin/courses');
+                exit;
+            }
+            try {
+                $repo()->setCourseStandalone($id, $standalone);
+                flash(
+                    'info',
+                    $standalone
+                        ? 'Curso marcado como sin certificación (no requiere vínculo).'
+                        : 'Curso vuelve a poder vincularse con una certificación.'
+                );
+            } catch (\Throwable $e) {
+                flash('error', 'No se pudo actualizar el curso: ' . $e->getMessage());
+            }
+            $back = trim((string) ($_POST['redirect'] ?? ''));
+            header('Location: ' . ($back !== '' ? $back : '/admin/courses'));
+            exit;
         });
 
         $router->get('/admin/tiers', static function (): void {

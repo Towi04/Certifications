@@ -8,7 +8,7 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
     <div class="page-head" style="margin:0">
         <div>
             <h2 style="margin:0">Cursos</h2>
-            <p class="muted" style="margin:0.35rem 0 0">Indica si cada curso ya está ligado a una certificación; si no, vincúlalo desde aquí.</p>
+            <p class="muted" style="margin:0.35rem 0 0">Puedes vincular un curso a una certificación, marcarlo como sin certificación o eliminarlo.</p>
         </div>
         <a class="btn" href="/admin/courses/create">Nuevo</a>
     </div>
@@ -34,10 +34,16 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
                 <?php
                 $links = $item['cert_links'] ?? [];
                 $linked = !empty($item['is_linked']);
+                $standalone = (int)($item['standalone'] ?? 0) === 1;
                 ?>
                 <tr>
                     <td><code><?= e($item['code']) ?></code></td>
-                    <td><?= e($item['name']) ?></td>
+                    <td>
+                        <?= e($item['name']) ?>
+                        <?php if (!(int)($item['is_active'] ?? 1)): ?>
+                            <br><span class="pill pill-muted">Inactivo</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= e($item['platform_type']) ?></td>
                     <td><?= e((string)($item['moodle_course_id'] ?? '—')) ?></td>
                     <td>
@@ -71,43 +77,104 @@ $relationTypes = $relationTypes ?? \App\Catalog\CatalogRepository::courseRelatio
                                         </form>
                                     </div>
                                 <?php endforeach; ?>
+                                <form method="post" action="/admin/courses/mark-standalone" class="inline-form" style="margin-top:0.25rem"
+                                      onsubmit="return confirm('¿Marcar este curso como sin certificación? Se quitarán los vínculos actuales.');">
+                                    <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                                    <input type="hidden" name="standalone" value="1">
+                                    <button type="submit" class="linkish">Marcar sin certificación</button>
+                                </form>
                             </div>
+                        <?php elseif ($standalone): ?>
+                            <span class="pill pill-ok">Sin certificación</span>
+                            <p class="muted" style="margin:0.35rem 0 0">No requiere vínculo.</p>
+                            <form method="post" action="/admin/courses/mark-standalone" class="inline-form" style="margin-top:0.35rem">
+                                <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                                <input type="hidden" name="standalone" value="0">
+                                <button type="submit" class="linkish">Permitir vincular de nuevo</button>
+                            </form>
+                            <?php if ($certifications): ?>
+                                <details style="margin-top:0.55rem">
+                                    <summary class="muted" style="cursor:pointer">Vincular a certificación (opcional)</summary>
+                                    <form method="post" action="/admin/courses/attach-certification" class="stack form-grid course-link-form" style="margin-top:0.55rem" data-course-link>
+                                        <input type="hidden" name="course_id" value="<?= (int)$item['id'] ?>">
+                                        <label>Certificación
+                                            <select name="certification_id" required>
+                                                <option value="">— Elegir —</option>
+                                                <?php foreach ($certifications as $cert): ?>
+                                                    <option value="<?= (int)$cert['id'] ?>">
+                                                        <?= e($cert['name']) ?> (<?= e($cert['code']) ?>) · <?= e($cert['provider_name'] ?? '') ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </label>
+                                        <label>Relación
+                                            <select name="relation_type" data-relation>
+                                                <?php foreach ($relationTypes as $value => $label): ?>
+                                                    <option value="<?= e($value) ?>"><?= e($label) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </label>
+                                        <label data-price-field style="display:none">Precio (MXN)
+                                            <input type="number" step="0.01" min="0" name="bundle_price" data-price-input>
+                                            <small class="muted" data-price-hint>Solo si se vende por separado.</small>
+                                        </label>
+                                        <div class="actions">
+                                            <button class="btn" type="submit">Vincular</button>
+                                        </div>
+                                    </form>
+                                </details>
+                            <?php endif; ?>
                         <?php else: ?>
                             <span class="pill pill-muted">Sin vincular</span>
+                            <form method="post" action="/admin/courses/mark-standalone" class="inline-form" style="margin-top:0.35rem">
+                                <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                                <input type="hidden" name="standalone" value="1">
+                                <button type="submit" class="btn btn-ghost">No tiene certificación</button>
+                            </form>
                             <?php if ($certifications): ?>
-                                <form method="post" action="/admin/courses/attach-certification" class="stack form-grid course-link-form" style="margin-top:0.55rem" data-course-link>
-                                    <input type="hidden" name="course_id" value="<?= (int)$item['id'] ?>">
-                                    <label>Certificación
-                                        <select name="certification_id" required>
-                                            <option value="">— Elegir —</option>
-                                            <?php foreach ($certifications as $cert): ?>
-                                                <option value="<?= (int)$cert['id'] ?>">
-                                                    <?= e($cert['name']) ?> (<?= e($cert['code']) ?>) · <?= e($cert['provider_name'] ?? '') ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </label>
-                                    <label>Relación
-                                        <select name="relation_type" data-relation>
-                                            <?php foreach ($relationTypes as $value => $label): ?>
-                                                <option value="<?= e($value) ?>"><?= e($label) ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </label>
-                                    <label data-price-field style="display:none">Precio (MXN)
-                                        <input type="number" step="0.01" min="0" name="bundle_price" data-price-input>
-                                        <small class="muted" data-price-hint>Solo si se vende por separado.</small>
-                                    </label>
-                                    <div class="actions">
-                                        <button class="btn" type="submit">Vincular</button>
-                                    </div>
-                                </form>
+                                <details style="margin-top:0.55rem">
+                                    <summary class="muted" style="cursor:pointer">Vincular a certificación (opcional)</summary>
+                                    <form method="post" action="/admin/courses/attach-certification" class="stack form-grid course-link-form" style="margin-top:0.55rem" data-course-link>
+                                        <input type="hidden" name="course_id" value="<?= (int)$item['id'] ?>">
+                                        <label>Certificación
+                                            <select name="certification_id" required>
+                                                <option value="">— Elegir —</option>
+                                                <?php foreach ($certifications as $cert): ?>
+                                                    <option value="<?= (int)$cert['id'] ?>">
+                                                        <?= e($cert['name']) ?> (<?= e($cert['code']) ?>) · <?= e($cert['provider_name'] ?? '') ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </label>
+                                        <label>Relación
+                                            <select name="relation_type" data-relation>
+                                                <?php foreach ($relationTypes as $value => $label): ?>
+                                                    <option value="<?= e($value) ?>"><?= e($label) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </label>
+                                        <label data-price-field style="display:none">Precio (MXN)
+                                            <input type="number" step="0.01" min="0" name="bundle_price" data-price-input>
+                                            <small class="muted" data-price-hint>Solo si se vende por separado.</small>
+                                        </label>
+                                        <div class="actions">
+                                            <button class="btn" type="submit">Vincular</button>
+                                        </div>
+                                    </form>
+                                </details>
                             <?php else: ?>
-                                <p class="muted" style="margin:0.35rem 0 0">Primero crea certificaciones en Proveedores.</p>
+                                <p class="muted" style="margin:0.35rem 0 0">Primero crea certificaciones en Proveedores, o marca el curso como sin certificación.</p>
                             <?php endif; ?>
                         <?php endif; ?>
                     </td>
-                    <td><a href="/admin/courses/edit?id=<?= (int)$item['id'] ?>">Editar</a></td>
+                    <td class="stack" style="gap:0.35rem">
+                        <a href="/admin/courses/edit?id=<?= (int)$item['id'] ?>">Editar</a>
+                        <form method="post" action="/admin/courses/delete" class="inline-form"
+                              onsubmit="return confirm(<?= json_encode('¿Eliminar el curso “' . ($item['name'] ?? '') . '”? Si tiene matrículas Moodle, solo se desactivará.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                            <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                            <button type="submit" class="linkish">Eliminar</button>
+                        </form>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
