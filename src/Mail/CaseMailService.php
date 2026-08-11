@@ -628,17 +628,12 @@ final class CaseMailService
     private function attachmentsLinkBlockHtml(array $rows, bool $oversizedNote): string
     {
         $html = '<hr style="border:none;border-top:1px solid #d7dde5;margin:24px 0 16px">'
-            . '<p style="margin:0 0 8px;font-size:14px;"><strong>Archivos de esta solicitud</strong></p>'
-            . '<p style="margin:0 0 12px;font-size:13px;color:#555;">'
-            . 'Descarga los archivos con estos enlaces (no van como adjunto del correo):</p>'
-            . '<ul style="margin:0;padding-left:18px;">';
+            . '<p style="margin:0 0 8px;font-size:14px;color:' . MailBranding::BRAND_BLUE . ';"><strong>Archivos de esta solicitud</strong></p>'
+            . '<p style="margin:0 0 12px;font-size:13px;color:' . MailBranding::BRAND_BLUE . ';">'
+            . 'Descarga los archivos con estos enlaces (no van como adjunto del correo):</p>';
         foreach ($rows as $row) {
-            $safeUrl = htmlspecialchars($row['url'], ENT_QUOTES, 'UTF-8');
-            $safeLabel = htmlspecialchars($row['label'], ENT_QUOTES, 'UTF-8');
-            $html .= '<li style="margin:0 0 8px;"><a href="' . $safeUrl . '" target="_blank" rel="noopener">'
-                . $safeLabel . '</a></li>';
+            $html .= MailBranding::button($row['label'], $row['url']);
         }
-        $html .= '</ul>';
         unset($oversizedNote);
 
         return $html;
@@ -720,7 +715,7 @@ final class CaseMailService
             'OpenPay Monto' => isset($case['openpay_amount']) ? number_format((float) $case['openpay_amount'], 2, '.', ',') : '',
             'OpenPay Beneficiario' => (string) (Env::get('OPENPAY_BENEFICIARY_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO'),
             'OpenPay SPEI URL' => $appUrl . '/pago/spei?id=' . (int) ($case['id'] ?? 0),
-            'Logo URL' => $appUrl . '/assets/brand/logo-doceo.png',
+            'Logo URL' => MailBranding::logoUrl(),
             'Escudo URL' => $appUrl . '/assets/brand/escudo.png',
             'CENNI Estatus' => $cenniLabel,
             'CENNI Folio Line' => $folio !== '' ? '<strong>Folio:</strong> ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . '<br>' : '',
@@ -948,18 +943,7 @@ final class CaseMailService
 
     private static function linkButton(string $label, string $url): string
     {
-        $url = trim($url);
-        if ($url === '') {
-            return '';
-        }
-        $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-        $safeLabel = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
-
-        return '<p style="margin:16px 0;">'
-            . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" '
-            . 'style="display:inline-block;background:#315285;color:#ffffff;text-decoration:none;'
-            . 'padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">'
-            . $safeLabel . '</a></p>';
+        return MailBranding::button($label, $url);
     }
 
     /**
@@ -1000,17 +984,7 @@ final class CaseMailService
         $primaryLabel = $signedUrl !== '' ? 'Descargar reglamento firmado' : 'Abrir reglamento';
 
         $button = static function (string $url, string $label): string {
-            if ($url === '') {
-                return '';
-            }
-            $safeUrl = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
-            $safeLabel = htmlspecialchars($label, ENT_QUOTES, 'UTF-8');
-
-            return '<p style="margin:16px 0;">'
-                . '<a href="' . $safeUrl . '" target="_blank" rel="noopener" '
-                . 'style="display:inline-block;background:#315285;color:#ffffff;text-decoration:none;'
-                . 'padding:12px 18px;border-radius:8px;font-weight:700;font-size:14px;">'
-                . $safeLabel . '</a></p>';
+            return MailBranding::button($label, $url);
         };
 
         return [
@@ -1534,25 +1508,17 @@ final class CaseMailService
     /** @param array<string, string> $tokens */
     private function wrapBrandedHtml(string $innerHtml, array $tokens): string
     {
-        $logo = htmlspecialchars((string) ($tokens['Logo URL'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $app = htmlspecialchars((string) ($tokens['App URL'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $brand = htmlspecialchars((string) (Env::get('APP_NAME', 'Instituto DOCEO') ?? 'Instituto DOCEO'), ENT_QUOTES, 'UTF-8');
+        $app = (string) ($tokens['App URL'] ?? MailBranding::appUrl());
 
-        return '<!DOCTYPE html><html lang="es"><body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">'
-            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 12px;">'
-            . '<tr><td align="center">'
-            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #d7dde5;border-radius:12px;overflow:hidden;">'
-            . '<tr><td style="padding:20px 24px;border-bottom:3px solid #315285;background:#ffffff;">'
-            . ($logo !== ''
-                ? '<a href="' . $app . '" style="text-decoration:none;"><img src="' . $logo . '" alt="' . $brand . '" width="220" style="display:block;border:0;max-width:220px;height:auto;"></a>'
-                : '<strong style="color:#315285;font-size:20px;">' . $brand . '</strong>')
-            . '<p style="margin:8px 0 0;font-size:11px;letter-spacing:0.08em;color:#315285;font-weight:700;">BE DIFFERENT, BE BETTER!</p>'
-            . '</td></tr>'
-            . '<tr><td style="padding:24px;font-size:15px;line-height:1.55;">' . $innerHtml . '</td></tr>'
-            . '<tr><td style="padding:16px 24px;background:#315285;color:#ffffff;font-size:12px;">'
-            . '<strong>' . $brand . '</strong><br>Certificaciones · ' . $app
-            . '</td></tr>'
-            . '</table></td></tr></table></body></html>';
+        // Normaliza color de texto del cuerpo a azul institucional si viene sin estilos.
+        $body = trim($innerHtml);
+        if ($body !== '' && !str_starts_with(strtolower($body), '<table role="presentation"')) {
+            $body = '<div style="color:' . MailBranding::BRAND_BLUE . ';font-family:Arial,sans-serif;font-size:15px;line-height:1.55;">'
+                . $body
+                . '</div>';
+        }
+
+        return MailBranding::wrap($body, $app);
     }
 
     /** @param array<string, mixed> $tpl @param array<string, mixed> $case */

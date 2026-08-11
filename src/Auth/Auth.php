@@ -302,8 +302,28 @@ final class Auth
         $body .= "Te recomendamos cambiar la contraseña al entrar (Perfil).\n\n";
         $body .= "Instituto DOCEO\n";
 
+        $htmlInner = '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">¡Hola '
+            . htmlspecialchars($display, ENT_QUOTES, 'UTF-8') . '!</h1>'
+            . '<p>Registramos tu solicitud de <strong>' . htmlspecialchars($certificationName, ENT_QUOTES, 'UTF-8') . '</strong>.</p>'
+            . '<p>Para entrar a la plataforma PDV usa estas credenciales:</p>'
+            . '<p><strong>Correo (usuario de acceso):</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '<br>'
+            . ($username !== '' ? '<strong>Usuario alternativo:</strong> ' . htmlspecialchars($username, ENT_QUOTES, 'UTF-8') . '<br>' : '')
+            . '<strong>Contraseña temporal:</strong> ' . htmlspecialchars($plainPassword, ENT_QUOTES, 'UTF-8') . '</p>'
+            . \App\Mail\MailBranding::button('Iniciar sesión', $appUrl . '/login')
+            . \App\Mail\MailBranding::button('Ver mi caso', $appUrl . '/alumno/caso?id=' . $caseId)
+            . '<p>En la pantalla de login escribe tu <strong>correo completo</strong>. '
+            . 'Si no te deja entrar, usa “Olvidé mi contraseña”.</p>'
+            . '<p><strong>Importante:</strong></p><ol>'
+            . '<li>Firma el reglamento (si aplica) y realiza el pago SPEI desde tu caso.</li>'
+            . '<li>Un día antes del examen te enviaremos el código de acceso.</li>'
+            . '<li>Después del examen podrás consultar el estado de tu certificado y el trámite CENNI.</li>'
+            . '</ol><p>Te recomendamos cambiar la contraseña al entrar (Perfil).</p>';
+
         try {
-            (new \App\Integrations\Mailer())->send($email, $subject, $body);
+            (new \App\Integrations\Mailer())->send($email, $subject, $body, [
+                'html' => true,
+                'body_html' => \App\Mail\MailBranding::wrap($htmlInner, $appUrl),
+            ]);
         } catch (\Throwable $e) {
             error_log('[PDV] Mail cuenta compra: ' . $e->getMessage());
         }
@@ -358,7 +378,22 @@ final class Auth
         $body .= "Entra con tu correo completo en el campo “Correo o usuario”.\n";
         $body .= "Instituto DOCEO\n";
 
-        (new \App\Integrations\Mailer())->send($email, $subject, $body);
+        $reasonHtml = ($reason !== null && trim($reason) !== '')
+            ? '<p>' . htmlspecialchars(trim($reason), ENT_QUOTES, 'UTF-8') . '</p>'
+            : '<p>Generamos una contraseña temporal nueva para tu cuenta.</p>';
+        $htmlInner = '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">¡Hola '
+            . htmlspecialchars($display, ENT_QUOTES, 'UTF-8') . '!</h1>'
+            . $reasonHtml
+            . '<p><strong>Correo:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '<br>'
+            . ($username !== '' ? '<strong>Usuario:</strong> ' . htmlspecialchars($username, ENT_QUOTES, 'UTF-8') . '<br>' : '')
+            . '<strong>Contraseña temporal:</strong> ' . htmlspecialchars($plain, ENT_QUOTES, 'UTF-8') . '</p>'
+            . \App\Mail\MailBranding::button('Iniciar sesión', $appUrl . '/login')
+            . '<p>Entra con tu correo completo en el campo “Correo o usuario”.</p>';
+
+        (new \App\Integrations\Mailer())->send($email, $subject, $body, [
+            'html' => true,
+            'body_html' => \App\Mail\MailBranding::wrap($htmlInner, $appUrl),
+        ]);
 
         return ['password' => $plain, 'email' => $email];
     }
@@ -507,7 +542,16 @@ final class Auth
         $body .= "Si no solicitaste este correo, puedes ignorarlo.\n\n";
         $body .= 'Saludos,\n' . (Env::get('APP_NAME', 'Instituto Doceo') ?? 'Instituto Doceo');
 
-        $mailer->send($normalizedEmail, $subject, $body);
+        $htmlInner = '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">¡Hola '
+            . htmlspecialchars((string) $user['name'], ENT_QUOTES, 'UTF-8') . '!</h1>'
+            . '<p>Recibimos una solicitud para restablecer tu contraseña.</p>'
+            . \App\Mail\MailBranding::button('Restablecer contraseña', $url)
+            . '<p>Si no solicitaste este correo, puedes ignorarlo.</p>';
+
+        $mailer->send($normalizedEmail, $subject, $body, [
+            'html' => true,
+            'body_html' => \App\Mail\MailBranding::wrap($htmlInner),
+        ]);
     }
 
     private static function buildPasswordResetUrl(string $token): string

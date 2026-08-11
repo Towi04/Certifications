@@ -517,8 +517,21 @@ final class UserRepository
         $body .= "El enlace vence en 7 días. Si no solicitaste esta cuenta, ignora este mensaje.\n\n";
         $body .= "Saludos,\nInstituto Doceo";
 
+        $htmlInner = '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">¡Hola '
+            . htmlspecialchars($display, ENT_QUOTES, 'UTF-8') . '!</h1>'
+            . '<p>Se creó tu cuenta en el sistema de certificaciones de Instituto Doceo.</p>'
+            . '<p><strong>Correo:</strong> ' . htmlspecialchars((string) $user['email'], ENT_QUOTES, 'UTF-8') . '<br>'
+            . '<strong>Usuario:</strong> ' . htmlspecialchars((string) ($user['username'] ?? ''), ENT_QUOTES, 'UTF-8') . '<br>'
+            . '<strong>Contraseña temporal:</strong> ' . htmlspecialchars(self::DEFAULT_PASSWORD, ENT_QUOTES, 'UTF-8') . '<br>'
+            . '<strong>Rol:</strong> ' . htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8') . '</p>'
+            . \App\Mail\MailBranding::button('Activar cuenta', $url)
+            . '<p>El enlace vence en 7 días. Si no solicitaste esta cuenta, ignora este mensaje.</p>';
+
         $mailer = new \App\Integrations\Mailer();
-        $mailer->send((string) $user['email'], $subject, $body);
+        $mailer->send((string) $user['email'], $subject, $body, [
+            'html' => true,
+            'body_html' => \App\Mail\MailBranding::wrap($htmlInner),
+        ]);
     }
 
     public static function statusLabel(array $user): string
