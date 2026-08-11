@@ -3511,9 +3511,22 @@ final class AdminRoutes
             if (!str_starts_with($redirect, '/admin/users')) {
                 $redirect = '/admin/users';
             }
+            $emailAccess = isset($_POST['email_access']);
             try {
-                $users()->resetToDefaultPassword($id);
-                flash('info', 'Contraseña restablecida a ' . UserRepository::DEFAULT_PASSWORD . '. El usuario deberá cambiarla al entrar.');
+                $item = $users()->find($id);
+                if (!$item) {
+                    throw new \RuntimeException('Usuario no encontrado.');
+                }
+                if ($emailAccess || ($item['role'] ?? '') === 'student') {
+                    $issued = Auth::issueTemporaryPasswordAndEmail(
+                        $id,
+                        'Restablecimos tu acceso a la plataforma Instituto DOCEO.'
+                    );
+                    flash('info', 'Nueva contraseña temporal enviada a ' . $issued['email'] . '.');
+                } else {
+                    $users()->resetToDefaultPassword($id);
+                    flash('info', 'Contraseña restablecida a ' . UserRepository::DEFAULT_PASSWORD . '. El usuario deberá cambiarla al entrar.');
+                }
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }

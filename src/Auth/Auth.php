@@ -280,14 +280,21 @@ final class Auth
         }
         $appUrl = rtrim((string) (\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
         $display = trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))) ?: (string) ($user['name'] ?? '');
+        $email = (string) $user['email'];
+        $username = trim((string) ($user['username'] ?? ''));
         $subject = 'Tu cuenta Doceo · ' . $certificationName;
         $body = "Hola {$display},\n\n";
         $body .= "Registramos tu solicitud de {$certificationName}.\n\n";
-        $body .= "Creamos tu acceso para dar seguimiento a tu examen:\n";
-        $body .= '- Correo: ' . $user['email'] . "\n";
+        $body .= "Para entrar a la plataforma PDV usa estas credenciales:\n";
+        $body .= '- Correo (usuario de acceso): ' . $email . "\n";
+        if ($username !== '') {
+            $body .= '- También puedes entrar con el usuario: ' . $username . "\n";
+        }
         $body .= '- Contraseña temporal: ' . $plainPassword . "\n";
         $body .= '- Enlace: ' . $appUrl . "/login\n";
         $body .= '- Tu caso: ' . $appUrl . '/alumno/caso?id=' . $caseId . "\n\n";
+        $body .= "Nota: en la pantalla de login el campo se llama “Correo o usuario”; escribe tu correo completo.\n";
+        $body .= "Si no te deja entrar, usa “Olvidé mi contraseña” en el mismo enlace.\n\n";
         $body .= "Importante:\n";
         $body .= "1) Firma el reglamento (si aplica) y realiza el pago SPEI desde tu caso.\n";
         $body .= "2) Un día antes del examen te enviaremos el código de acceso, o puedes entrar a tu cuenta para ver si ya está asignado.\n";
@@ -296,10 +303,64 @@ final class Auth
         $body .= "Instituto DOCEO\n";
 
         try {
-            (new \App\Integrations\Mailer())->send((string) $user['email'], $subject, $body);
+            (new \App\Integrations\Mailer())->send($email, $subject, $body);
         } catch (\Throwable $e) {
             error_log('[PDV] Mail cuenta compra: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Genera una contraseña temporal nueva, la guarda y la envía por correo (alumnos / recuperación admin).
+     *
+     * @return array{password:string,email:string}
+     */
+    public static function issueTemporaryPasswordAndEmail(int $userId, ?string $reason = null): array
+    {
+        $pdo = Connection::get();
+        $stmt = $pdo->prepare(
+            'SELECT id, email, username, name, first_name, last_name, role, is_active FROM users WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+        if (!$user) {
+            throw new \RuntimeException('Usuario no encontrado.');
+        }
+        if ((int) ($user['is_active'] ?? 0) !== 1) {
+            $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$userId]);
+        }
+
+        $plain = self::generateTemporaryPassword();
+        $hash = password_hash($plain, PASSWORD_DEFAULT);
+        if ($hash === false) {
+            throw new \RuntimeException('No se pudo generar la contraseña.');
+        }
+        // Alumnos de compra pública: no forzar cambio inmediato; sí recomendarlo en el correo.
+        $forceChange = in_array((string) ($user['role'] ?? ''), ['admin', 'assistant', 'manager', 'partner'], true) ? 1 : 0;
+        $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?')
+            ->execute([$hash, $forceChange, $userId]);
+
+        $appUrl = rtrim((string) (\App\Config\Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
+        $display = trim((string) (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))) ?: (string) ($user['name'] ?? '');
+        $email = (string) $user['email'];
+        $username = trim((string) ($user['username'] ?? ''));
+        $subject = 'Nuevo acceso temporal — Instituto DOCEO';
+        $body = "Hola {$display},\n\n";
+        $body .= ($reason !== null && trim($reason) !== '')
+            ? (trim($reason) . "\n\n")
+            : "Generamos una contraseña temporal nueva para tu cuenta.\n\n";
+        $body .= "Credenciales:\n";
+        $body .= '- Correo (usuario de acceso): ' . $email . "\n";
+        if ($username !== '') {
+            $body .= '- Usuario alternativo: ' . $username . "\n";
+        }
+        $body .= '- Contraseña temporal: ' . $plain . "\n";
+        $body .= '- Enlace: ' . $appUrl . "/login\n\n";
+        $body .= "Entra con tu correo completo en el campo “Correo o usuario”.\n";
+        $body .= "Instituto DOCEO\n";
+
+        (new \App\Integrations\Mailer())->send($email, $subject, $body);
+
+        return ['password' => $plain, 'email' => $email];
     }
 
     /** Inicia sesión de un usuario ya existente por id (tras registro). */
@@ -462,30 +523,59 @@ final class Auth
     public static function attempt(string $identifier, string $password): bool
     {
         $normalized = self::normalizeIdentifier($identifier);
+        // Contraseñas temporales del correo no tienen espacios; el copy-paste a veces agrega saltos.
+        $password = trim($password);
         self::writeDebugLog('login_attempt identifier=' . $normalized . ' password_len=' . strlen($password));
+
+        if ($normalized === '' || $password === '') {
+            return false;
+        }
 
         $pdo = Connection::get();
         $dbName = (string) $pdo->query('SELECT DATABASE()')->fetchColumn();
-        $quotedIdentifier = $pdo->quote($normalized);
-        $query = 'SELECT id, email, username, password_hash, role, name, is_active, must_change_password '
-            . "FROM users WHERE LOWER(TRIM(email)) = {$quotedIdentifier} OR LOWER(TRIM(username)) = {$quotedIdentifier} LIMIT 1";
-        $stmt = $pdo->query($query);
-        $user = $stmt ? $stmt->fetch() : false;
+
+        // Preferir correo si parece email (evita chocar con otro username homónimo).
+        $user = false;
+        if (str_contains($normalized, '@')) {
+            $stmt = $pdo->prepare(
+                'SELECT id, email, username, password_hash, role, name, is_active, must_change_password
+                 FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1'
+            );
+            $stmt->execute([$normalized]);
+            $user = $stmt->fetch();
+        }
+        if (!$user) {
+            $stmt = $pdo->prepare(
+                'SELECT id, email, username, password_hash, role, name, is_active, must_change_password
+                 FROM users WHERE LOWER(TRIM(username)) = ? LIMIT 1'
+            );
+            $stmt->execute([$normalized]);
+            $user = $stmt->fetch();
+        }
+        if (!$user && !str_contains($normalized, '@')) {
+            $stmt = $pdo->prepare(
+                'SELECT id, email, username, password_hash, role, name, is_active, must_change_password
+                 FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1'
+            );
+            $stmt->execute([$normalized]);
+            $user = $stmt->fetch();
+        }
 
         if (!$user) {
             self::writeDebugLog('db_name=' . $dbName . ' login_failed reason=user_not_found identifier=' . $normalized);
             return false;
         }
 
-        self::writeDebugLog('db_name=' . $dbName . ' row=' . json_encode($user, JSON_UNESCAPED_UNICODE));
-
-        if (!$user) {
-            self::writeDebugLog('login_failed reason=user_not_found identifier=' . $normalized);
-            return false;
-        }
+        self::writeDebugLog(
+            'db_name=' . $dbName . ' row_id=' . (int) $user['id']
+            . ' email=' . (string) $user['email']
+            . ' username=' . (string) ($user['username'] ?? '')
+            . ' role=' . (string) ($user['role'] ?? '')
+            . ' active=' . (int) ($user['is_active'] ?? 0)
+        );
 
         $hash = trim((string) $user['password_hash']);
-        if (!password_verify($password, $hash)) {
+        if ($hash === '' || !password_verify($password, $hash)) {
             self::writeDebugLog('login_failed reason=password_mismatch identifier=' . $normalized . ' user_id=' . ((int) $user['id']));
             return false;
         }
