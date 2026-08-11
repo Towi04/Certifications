@@ -833,3 +833,4 @@ foreach ($course_prorrogas as $pr) {
     <?php endif; ?>
 </section>
 <?php endif; ?>
+<?php endif; ?>
