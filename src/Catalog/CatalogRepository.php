@@ -2047,6 +2047,221 @@ final class CatalogRepository
             }
         }
         $this->ensureItepMailTemplatesAndPrepCourse();
+        $this->ensureUksFlowSchemaAndSeeds();
+        $done = true;
+    }
+
+    /**
+     * Columnas, plantillas y protocolos UKS/ELET (idempotente).
+     */
+    public function ensureUksFlowSchemaAndSeeds(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $caseCols = [
+            'provider_payment_proof_path' => 'VARCHAR(255) NULL',
+            'provider_payment_proof_share_token' => 'VARCHAR(64) NULL',
+            'exam_presented_at' => 'DATETIME NULL',
+            'post_exam_thanks_sent_at' => 'DATETIME NULL',
+        ];
+        foreach ($caseCols as $name => $def) {
+            try {
+                $stmt->execute(['certification_cases', $name]);
+                if ((int) $stmt->fetchColumn() === 0) {
+                    $this->pdo->exec('ALTER TABLE certification_cases ADD COLUMN ' . $name . ' ' . $def);
+                }
+            } catch (\Throwable) {
+            }
+        }
+        try {
+            $stmt->execute(['certifications', 'cenni_late_certification_id']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    'ALTER TABLE certifications
+                     ADD COLUMN cenni_late_certification_id BIGINT UNSIGNED NULL
+                     COMMENT \'Producto CENNI solo (si el alumno no entregó docs a UKS en 15 días)\''
+                );
+            }
+        } catch (\Throwable) {
+        }
+
+        $this->ensureMailTemplateAttachRegulationColumn();
+
+        // Plantillas UKS: insertar si faltan (no sobrescribir cuerpo editado)
+        $templates = [
+            [
+                'uks_solicitud',
+                'UKS — Solicitud de examen',
+                'provider',
+                'provider',
+                'relacionesconescuelas@uks.mx',
+                'Solicitud de {{Certificación}} — {{Fecha}} {{Hora}}',
+                '<p>¡Hola!</p><p>Solicito un examen <strong>{{Certificación}}</strong>.</p>'
+                . '<p><strong>Alumno:</strong> {{Nombre Completo}}<br>'
+                . '<strong>Correo:</strong> {{e-mail}}<br>'
+                . '<strong>Teléfono:</strong> {{Teléfono}}<br>'
+                . '<strong>Fecha:</strong> {{Fecha}}<br>'
+                . '<strong>Hora:</strong> {{Hora}}</p>'
+                . '<p>Adjunto (enlaces): CSV de registro, reglamento firmado y comprobante de pago Doceo→UKS.</p>'
+                . '<p>Instituto DOCEO</p>',
+                1,
+                1,
+            ],
+            [
+                'uks_data',
+                'UKS — Datos de acceso al alumno',
+                'student',
+                'student',
+                null,
+                'Datos de acceso — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p><p>Tu examen <strong>{{Certificación}}</strong> ya tiene acceso.</p>'
+                . '<p><strong>Folio / ID:</strong> {{Folio / ID}}<br><strong>Clave del día:</strong> {{Clave}}<br>'
+                . '<strong>Fecha:</strong> {{Fecha}} {{Hora}}</p>'
+                . '<p>Guía: <a href="{{TOKEN}}">{{TOKEN}}</a></p><p>Instituto DOCEO</p>',
+                0,
+                0,
+            ],
+            [
+                'uks_post_examen',
+                'UKS — Agradecimiento post examen',
+                'student',
+                'student',
+                null,
+                'Gracias por presentar {{Certificación}} — Instituto DOCEO',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>Gracias por confiar en Instituto DOCEO para tu certificación <strong>{{Certificación}}</strong>.</p>'
+                . '<p>El trámite del examen con nosotros concluye aquí. Si tu producto incluye CENNI ante UKS/SEP, '
+                . 'ellos te guiarán por correo (revisa también spam). Quedamos a tu disposición si tienes dudas '
+                . 'o necesitas que te confirmemos un estatus que veamos en la plataforma UKS.</p>'
+                . '<p>{{CENNI Tramite Line}}</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+                0,
+                0,
+            ],
+        ];
+        foreach ($templates as $tpl) {
+            try {
+                if ($this->mailTemplateByCode($tpl[0])) {
+                    // Asegura flags útiles en uks_solicitud sin tocar el cuerpo
+                    if ($tpl[0] === 'uks_solicitud') {
+                        $this->pdo->prepare(
+                            'UPDATE mail_templates SET attach_export = 1, attach_regulation = 1, is_active = 1
+                             WHERE code = ?'
+                        )->execute(['uks_solicitud']);
+                    }
+                    continue;
+                }
+                $this->saveMailTemplate([
+                    'code' => $tpl[0],
+                    'name' => $tpl[1],
+                    'audience' => $tpl[2],
+                    'to_mode' => $tpl[3],
+                    'to_fixed' => (string) ($tpl[4] ?? ''),
+                    'cc_mode' => $tpl[2] === 'student' ? 'case_cc' : 'none',
+                    'cc_fixed' => '',
+                    'subject' => $tpl[5],
+                    'body_html' => $tpl[6],
+                    'attach_export' => $tpl[7],
+                    'attach_regulation' => $tpl[8],
+                    'is_active' => 1,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+
+        // Protocolos UKS
+        try {
+            $uksProviderId = (int) $this->pdo->query(
+                "SELECT id FROM providers WHERE code = 'UKS' OR name LIKE '%UKS%' ORDER BY id ASC LIMIT 1"
+            )->fetchColumn();
+            if ($uksProviderId > 0) {
+                $protoStmt = $this->pdo->prepare(
+                    'INSERT INTO protocols
+                     (provider_id, code, name, modality, procedure_html,
+                      requires_regulation_signature, requires_software, requires_zoom, requires_vm,
+                      uses_inventory, export_format, provider_request_template, student_access_template, is_active)
+                     VALUES (?,?,?,?,?,?,0,0,0,0,?,?,?,1)
+                     ON DUPLICATE KEY UPDATE
+                       name = VALUES(name),
+                       procedure_html = VALUES(procedure_html),
+                       requires_regulation_signature = VALUES(requires_regulation_signature),
+                       export_format = VALUES(export_format),
+                       provider_request_template = VALUES(provider_request_template),
+                       student_access_template = VALUES(student_access_template),
+                       is_active = 1'
+                );
+                $protoStmt->execute([
+                    $uksProviderId,
+                    'UKS_ELET',
+                    'ELET — UKS (examen + monitoreo CENNI)',
+                    'online',
+                    '<p>Registro, firma de reglamento, pago, solicitud a UKS (CSV + reglamento + comprobante Doceo→UKS), '
+                    . 'folio/clave al alumno, agradecimiento post examen y monitoreo CENNI en UKS.</p>',
+                    1,
+                    'uks_csv',
+                    'uks_solicitud',
+                    'uks_data',
+                ]);
+                $protoStmt->execute([
+                    $uksProviderId,
+                    'UKS_EXAM',
+                    'UKS — Solo examen (sin CENNI)',
+                    'online',
+                    '<p>Mismo flujo operativo que ELET hasta el examen. No incluye trámite CENNI.</p>',
+                    1,
+                    'uks_csv',
+                    'uks_solicitud',
+                    'uks_data',
+                ]);
+                $protoStmt->execute([
+                    $uksProviderId,
+                    'UKS_CENNI',
+                    'CENNI solo — gestión Doceo (fuera de plazo UKS)',
+                    'online',
+                    '<p>Producto independiente cuando el alumno no entregó docs a UKS en 15 días. '
+                    . 'Paga solo el trámite CENNI; Doceo gestiona la documentación.</p>',
+                    0,
+                    'none',
+                    null,
+                    null,
+                ]);
+            }
+            $this->pdo->exec(
+                "UPDATE protocols
+                 SET export_format = 'uks_csv',
+                     provider_request_template = COALESCE(NULLIF(TRIM(provider_request_template), ''), 'uks_solicitud'),
+                     student_access_template = COALESCE(NULLIF(TRIM(student_access_template), ''), 'uks_data'),
+                     requires_regulation_signature = 1
+                 WHERE code LIKE 'UKS%' AND code <> 'UKS_CENNI'"
+            );
+
+            // Pasos mínimos UKS_CENNI si el protocolo quedó sin pasos
+            $cenniProtoId = (int) $this->pdo->query(
+                "SELECT id FROM protocols WHERE code = 'UKS_CENNI' LIMIT 1"
+            )->fetchColumn();
+            if ($cenniProtoId > 0) {
+                $stepCount = (int) $this->pdo->query(
+                    'SELECT COUNT(*) FROM protocol_steps WHERE protocol_id = ' . $cenniProtoId
+                )->fetchColumn();
+                if ($stepCount === 0) {
+                    $this->pdo->exec(
+                        "INSERT INTO protocol_steps (protocol_id, sort_order, phase, title, description, responsible, is_active) VALUES
+                         ({$cenniProtoId}, 1, 'pre_exam', 'Pago del trámite CENNI', 'El alumno paga el producto CENNI (fuera de plazo UKS).', 'student', 1),
+                         ({$cenniProtoId}, 2, 'pre_exam', 'Subir INE, CURP y solicitud', 'El alumno carga documentos en el portal Doceo.', 'student', 1),
+                         ({$cenniProtoId}, 3, 'post_exam', 'Revisión y envío a UKS/SEP', 'Doceo gestiona el trámite CENNI ante UKS.', 'admin', 1),
+                         ({$cenniProtoId}, 4, 'post_exam', 'Registrar folio CENNI emitido', 'Cuando SEP/UKS emitan, capturar folio y avisar al alumno.', 'admin', 1)"
+                    );
+                }
+            }
+        } catch (\Throwable) {
+        }
+
         $done = true;
     }
 
@@ -2418,10 +2633,12 @@ final class CatalogRepository
 
     public function certificationCaseDetailed(int $id): ?array
     {
+        $this->ensureUksFlowSchemaAndSeeds();
         $stmt = $this->pdo->prepare(
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
                     cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
                     cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
+                    cert.cenni_late_certification_id,
                     pr.code AS protocol_code, pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.requires_software, pr.requires_zoom, pr.requires_vm, pr.uses_inventory,
@@ -2582,8 +2799,10 @@ final class CatalogRepository
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
             'payment_method', 'payment_proof_share_token',
+            'provider_payment_proof_path', 'provider_payment_proof_share_token',
             'provider_export_path', 'provider_export_share_token', 'provider_request_sent_at', 'cancel_reason', 'results_url',
             'score_url', 'certificate_url', 'exam_outcome', 'invalidation_reason', 'inventory_code_id',
+            'exam_presented_at', 'post_exam_thanks_sent_at',
             'cc_email', 'notes', 'status', 'partner_id',
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
             'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
@@ -2622,12 +2841,17 @@ final class CatalogRepository
         $id = (int) $this->pdo->lastInsertId();
 
         // Guarda el token también en el registro del caso (para correos / plantillas)
-        if ($kind === 'payment' || $kind === 'export') {
+        if ($kind === 'payment' || $kind === 'export' || $kind === 'provider_payment') {
             (new \App\Workflow\ActionRepository($this->pdo))->ensureSchema();
             if ($kind === 'payment') {
                 $this->updateCertificationCase($caseId, [
                     'payment_proof_path' => $filePath,
                     'payment_proof_share_token' => $token,
+                ]);
+            } elseif ($kind === 'provider_payment') {
+                $this->updateCertificationCase($caseId, [
+                    'provider_payment_proof_path' => $filePath,
+                    'provider_payment_proof_share_token' => $token,
                 ]);
             } else {
                 $this->updateCertificationCase($caseId, [
@@ -2643,14 +2867,15 @@ final class CatalogRepository
     /**
      * Asegura tokens de comprobante/exportación en certification_cases a partir de paths/adjuntos.
      *
-     * @return array{payment_url:string,export_url:string}
+     * @return array{payment_url:string,export_url:string,provider_payment_url:string}
      */
     public function persistCaseFileShareTokens(int $caseId): array
     {
         (new \App\Workflow\ActionRepository($this->pdo))->ensureSchema();
+        $this->ensureUksFlowSchemaAndSeeds();
         $case = $this->certificationCase($caseId);
         if (!$case) {
-            return ['payment_url' => '', 'export_url' => ''];
+            return ['payment_url' => '', 'export_url' => '', 'provider_payment_url' => ''];
         }
 
         $paymentUrl = '';
@@ -2661,6 +2886,17 @@ final class CatalogRepository
             if ($token !== '') {
                 $this->updateCertificationCase($caseId, ['payment_proof_share_token' => $token]);
                 $paymentUrl = $this->caseAttachmentShareUrl($att ?? ['share_token' => $token]);
+            }
+        }
+
+        $providerPaymentUrl = '';
+        $providerPayRel = trim((string) ($case['provider_payment_proof_path'] ?? ''));
+        if ($providerPayRel !== '') {
+            $att = $this->ensureCaseFileShare($caseId, 'provider_payment', $providerPayRel, 'Comprobante Doceo → proveedor');
+            $token = $att ? trim((string) ($att['share_token'] ?? '')) : '';
+            if ($token !== '') {
+                $this->updateCertificationCase($caseId, ['provider_payment_proof_share_token' => $token]);
+                $providerPaymentUrl = $this->caseAttachmentShareUrl($att ?? ['share_token' => $token]);
             }
         }
 
@@ -2675,7 +2911,11 @@ final class CatalogRepository
             }
         }
 
-        return ['payment_url' => $paymentUrl, 'export_url' => $exportUrl];
+        return [
+            'payment_url' => $paymentUrl,
+            'export_url' => $exportUrl,
+            'provider_payment_url' => $providerPaymentUrl,
+        ];
     }
 
     /** @return list<array<string, mixed>> */
@@ -4547,23 +4787,40 @@ final class CatalogRepository
             $sql .= ' WHERE id=?';
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([...$fields, $id]);
-            return $id;
-        }
-
-        $columns = 'provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, registration_fields_json, description_html,
+            $savedId = $id;
+        } else {
+            $columns = 'provider_id, protocol_id, code, slug, name, modality, short_description, value_points_json, registration_fields_json, description_html,
                 syllabus_html, duration_label, audience, is_level_exam, skills_json, score_range, score_ranges_json,
                 public_price, cost_price, currency, cenni_eligible, cenni_doc_type,
                 cenni_included, cenni_fee, cenni_process, conocer_eligible, conocer_fee, is_published, is_featured, sort_order';
-        $placeholders = '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?';
-        if ($includeGroup) {
-            $columns .= ', provider_group_id';
-            $placeholders .= ',?';
+            $placeholders = '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?';
+            if ($includeGroup) {
+                $columns .= ', provider_group_id';
+                $placeholders .= ',?';
+            }
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO certifications ({$columns}) VALUES ({$placeholders})"
+            );
+            $stmt->execute($fields);
+            $savedId = (int) $this->pdo->lastInsertId();
         }
-        $stmt = $this->pdo->prepare(
-            "INSERT INTO certifications ({$columns}) VALUES ({$placeholders})"
-        );
-        $stmt->execute($fields);
-        return (int) $this->pdo->lastInsertId();
+
+        if (array_key_exists('cenni_late_certification_id', $data)) {
+            try {
+                $this->ensureUksFlowSchemaAndSeeds();
+                $lateId = $data['cenni_late_certification_id'];
+                $lateId = ($lateId !== null && $lateId !== '' && (int) $lateId > 0) ? (int) $lateId : null;
+                if ($lateId === $savedId) {
+                    $lateId = null;
+                }
+                $this->pdo->prepare(
+                    'UPDATE certifications SET cenni_late_certification_id = ? WHERE id = ?'
+                )->execute([$lateId, $savedId]);
+            } catch (\Throwable) {
+            }
+        }
+
+        return $savedId;
     }
 
     public function allocateCertificationCodeSlug(string $name, ?int $excludeId = null): array

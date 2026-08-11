@@ -408,6 +408,17 @@ final class PublicRoutes
                 'moodle_enrolments' => $repo()->caseMoodleEnrolments($id),
                 'course_prorrogas' => $repo()->courseProrrogasForCase($id),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
+                'late_cenni_product' => (static function () use ($repo, $item) {
+                    $lateId = (int) ($item['cenni_late_certification_id'] ?? 0);
+                    if ($lateId < 1) {
+                        return null;
+                    }
+                    try {
+                        return $repo()->certification($lateId);
+                    } catch (\Throwable) {
+                        return null;
+                    }
+                })(),
                 'phases' => CatalogRepository::protocolPhases(),
                 'responsibles' => CatalogRepository::protocolResponsibles(),
                 'user' => $user,

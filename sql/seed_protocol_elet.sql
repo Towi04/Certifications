@@ -36,19 +36,19 @@ CROSS JOIN (
     'Pago del examen (y CENNI si aplica) vía OpenPay.',
     'student', NULL
   UNION ALL SELECT 5, 'pre_exam', 'Solicitar el examen a UKS por correo',
-    'El administrador envía a UKS: datos del alumno, fecha del examen y el reglamento firmado.',
+    'El administrador envía a UKS: datos del alumno, fecha/hora, reglamento firmado y comprobante de pago Doceo→UKS (no el del alumno).',
     'admin', NULL
   UNION ALL SELECT 6, 'pre_exam', 'UKS habilita el examen en su plataforma',
     'La certificadora prepara el examen para la fecha solicitada.',
     'provider', NULL
   UNION ALL SELECT 7, 'pre_exam', 'Subir CSV del alumno a la plataforma UKS',
-    'El administrador llena el archivo CSV con los datos del alumno y lo sube al registro de UKS.',
+    'El administrador descarga la plantilla CSV, la llena y la sube al registro de UKS.',
     'admin', NULL
   UNION ALL SELECT 8, 'pre_exam', 'UKS genera ID único y clave del día',
     'La plataforma UKS emite las credenciales de acceso al examen.',
     'provider', NULL
   UNION ALL SELECT 9, 'pre_exam', 'Enviar ID y clave del día al alumno',
-    'Correo al alumno (con copia al TR si hay) incluyendo video tutorial y/o PDF de instrucciones.',
+    'Capturar folio/clave en el perfil del alumno; el sistema envía el correo de acceso.',
     'admin', NULL
   UNION ALL SELECT 10, 'during_exam', 'El alumno se conecta al examen',
     'Acceso en la fecha y hora acordadas con ID y clave del día.',
@@ -56,11 +56,11 @@ CROSS JOIN (
   UNION ALL SELECT 11, 'during_exam', 'Supervisar la aplicación y tomar capturas',
     'El administrador supervisa la sesión y documenta con capturas de pantalla.',
     'admin', NULL
-  UNION ALL SELECT 12, 'during_exam', 'Constancia al finalizar el examen',
-    'El alumno recibe su constancia al terminar la aplicación.',
-    'provider', NULL
+  UNION ALL SELECT 12, 'during_exam', 'Constancia y cierre con Doceo',
+    'Al terminar: agradecimiento al alumno (uks_post_examen). El contacto operativo del examen concluye; Doceo queda a disposición para dudas CENNI.',
+    'admin', NULL
   UNION ALL SELECT 13, 'post_exam', 'Subir documentos CENNI en plataforma UKS (si aplica)',
-    'Tras el ELET el alumno recibe constancia + enlace/QR. Sube INE, CURP y Solicitud CENNI en UKS (máx. 15 días). No se suben en Doceo. Doceo monitorea en UKS y puede informar avances.',
+    'Tras el ELET el alumno recibe constancia + enlace/QR. Sube INE, CURP y Solicitud CENNI en UKS (máx. 15 días). No se suben en Doceo. Doceo monitorea en UKS y puede informar avances. Si vence el plazo, puede adquirir el producto CENNI (UKS_CENNI).',
     'student', 15
   UNION ALL SELECT 14, 'post_exam', 'Recordatorio / monitoreo docs CENNI (UKS)',
     'Si a los 10 días no hay docs en UKS, el admin contacta al alumno o TR y actualiza el estatus en el caso Doceo.',

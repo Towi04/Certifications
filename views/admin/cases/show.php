@@ -556,11 +556,10 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         <p class="muted">
             La plantilla se configura en
             <strong>Admin → Protocolos → “Plantilla solicitud a empresa”</strong>.
-            Al subir el comprobante o generar la exportación se crea un <strong>enlace público</strong>
-            para pegar en la plantilla con
-            <code>{{Comprobante URL}}</code> / <code>{{Comprobante Boton}}</code> y
-            <code>{{Exportacion URL}}</code> / <code>{{Exportacion Boton}}</code>.
-            El correo <strong>no adjunta archivos</strong> (así llega); incluye esos links.
+            Para UKS/ELET el correo lleva: datos del alumno, fecha/hora, reglamento firmado,
+            CSV de registro y el <strong>comprobante Doceo → UKS</strong> (no el pago del alumno a Doceo).
+            El correo <strong>no adjunta archivos</strong>; incluye enlaces públicos
+            (<code>{{Comprobante URL}}</code>, <code>{{Exportacion URL}}</code>, reglamento).
         </p>
         <p class="muted">
             Plantilla del protocolo:
@@ -572,10 +571,13 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             · Formato exportación: <code><?= e((string)($item['export_format'] ?? 'none')) ?></code>
         </p>
         <p class="muted">
-            Pago confirmado:
+            Pago alumno confirmado:
             <?= !empty($item['payment_confirmed_at']) ? e($item['payment_confirmed_at']) : 'aún no' ?>
             <?php if (!empty($item['payment_proof_path'])): ?>
-                · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">ver comprobante</a>
+                · <a href="/media?f=<?= e(rawurlencode((string)$item['payment_proof_path'])) ?>" target="_blank" rel="noopener">comprobante alumno</a>
+            <?php endif; ?>
+            <?php if (!empty($item['provider_payment_proof_path'])): ?>
+                · <a href="/media?f=<?= e(rawurlencode((string)$item['provider_payment_proof_path'])) ?>" target="_blank" rel="noopener">comprobante Doceo→UKS</a>
             <?php endif; ?>
             <?php if (!empty($item['provider_request_sent_at'])): ?>
                 · Solicitud enviada: <?= e($item['provider_request_sent_at']) ?>
@@ -584,11 +586,21 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         <?php
         $payment_share_url = $payment_share_url ?? '';
         $export_share_url = $export_share_url ?? '';
+        $provider_payment_share_url = $provider_payment_share_url ?? '';
+        $isUksFlow = str_starts_with(strtoupper((string) ($item['protocol_code'] ?? '')), 'UKS')
+            && strtoupper((string) ($item['protocol_code'] ?? '')) !== 'UKS_CENNI';
         ?>
-        <?php if ($payment_share_url !== '' || $export_share_url !== ''): ?>
+        <?php if ($payment_share_url !== '' || $export_share_url !== '' || $provider_payment_share_url !== ''): ?>
             <div class="inline-form-panel" style="margin-bottom:1rem">
                 <h4 style="margin:0 0 0.5rem">Enlaces para la plantilla</h4>
-                <?php if ($payment_share_url !== ''): ?>
+                <?php if ($provider_payment_share_url !== ''): ?>
+                    <label class="field-wide">Comprobante Doceo→proveedor · <code>{{Comprobante URL}}</code>
+                        <div class="icon-actions" style="margin-top:0.35rem">
+                            <input type="text" class="share-url-input" readonly value="<?= e($provider_payment_share_url) ?>" style="width:100%;max-width:36rem;font-size:0.85rem">
+                            <button type="button" class="icon-btn js-copy-share" data-url="<?= e($provider_payment_share_url) ?>" title="Copiar">Copiar</button>
+                        </div>
+                    </label>
+                <?php elseif ($payment_share_url !== ''): ?>
                     <label class="field-wide">Comprobante · <code>{{Comprobante URL}}</code>
                         <div class="icon-actions" style="margin-top:0.35rem">
                             <input type="text" class="share-url-input" readonly value="<?= e($payment_share_url) ?>" style="width:100%;max-width:36rem;font-size:0.85rem">
@@ -624,16 +636,18 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         <form method="post" action="/admin/cases/confirm-payment" enctype="multipart/form-data" class="stack">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="pago">
-            <label>Comprobante de pago (PDF/imagen)<input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp"></label>
+            <label><?= $isUksFlow ? 'Comprobante Doceo → UKS (PDF/imagen)' : 'Comprobante de pago (PDF/imagen)' ?>
+                <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp" <?= $isUksFlow ? 'required' : '' ?>>
+            </label>
             <button class="btn" type="submit">Confirmar pago y solicitar al proveedor</button>
         </form>
         <?php if (!empty($item['provider_request_template'])): ?>
             <form method="post" action="/admin/cases/send-provider-request" enctype="multipart/form-data" class="stack" style="margin-top:1rem">
                 <input type="hidden" name="case_id" value="<?= $caseId ?>">
                 <input type="hidden" name="tab" value="pago">
-                <p class="muted">Reenvía la plantilla del protocolo (con links de exportación + comprobante). No adjunta archivos al correo.</p>
-                <label>Comprobante (opcional; reemplaza el actual)
-                    <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                <p class="muted">Reenvía la plantilla del protocolo (con links de exportación + comprobante Doceo→proveedor).</p>
+                <label><?= $isUksFlow ? 'Comprobante Doceo → UKS' : 'Comprobante (opcional; reemplaza el actual)' ?>
+                    <input type="file" name="payment_proof" accept=".pdf,.jpg,.jpeg,.png,.webp" <?= $isUksFlow && empty($item['provider_payment_proof_path']) ? 'required' : '' ?>>
                 </label>
                 <div class="admin-ficha-actions">
                     <button class="btn" type="submit">Enviar solicitud al proveedor</button>
@@ -642,7 +656,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         <?php endif; ?>
         <div class="admin-ficha-actions" style="margin-top:1rem">
             <?php if (!empty($item['provider_export_path'])): ?>
-                <a class="btn btn-ghost" href="/admin/cases/download-export?id=<?= $caseId ?>">Descargar exportación</a>
+                <a class="btn btn-ghost" href="/admin/cases/download-export?id=<?= $caseId ?>">Descargar exportación / CSV UKS</a>
             <?php endif; ?>
             <?php if (($item['export_format'] ?? 'none') !== 'none'): ?>
                 <form method="post" action="/admin/cases/regenerate-export">
@@ -697,6 +711,36 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             </label>
             <div class="admin-ficha-actions"><button class="btn" type="submit">Enviar ahora</button></div>
         </form>
+
+        <?php
+        $protoCodeUpper = strtoupper((string) ($item['protocol_code'] ?? ''));
+        $showUksPostExam = str_starts_with($protoCodeUpper, 'UKS') && $protoCodeUpper !== 'UKS_CENNI';
+        ?>
+        <?php if ($showUksPostExam): ?>
+            <h4 style="margin-top:1.5rem">Post-examen UKS</h4>
+            <p class="muted">
+                Al terminar el examen envía el agradecimiento (<code>uks_post_examen</code>):
+                cierra el contacto operativo del examen y deja abierta la puerta a dudas CENNI
+                (tú puedes registrar el avance desde la pestaña CENNI consultando UKS).
+            </p>
+            <?php if (!empty($item['exam_presented_at'])): ?>
+                <p class="muted">Examen marcado: <?= e((string)$item['exam_presented_at']) ?>
+                    <?php if (!empty($item['post_exam_thanks_sent_at'])): ?>
+                        · Agradecimiento enviado: <?= e((string)$item['post_exam_thanks_sent_at']) ?>
+                    <?php endif; ?>
+                </p>
+            <?php endif; ?>
+            <form method="post" action="/admin/cases/uks-post-exam-thanks" class="stack">
+                <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                <input type="hidden" name="tab" value="operacion">
+                <div class="admin-ficha-actions">
+                    <button class="btn" type="submit">
+                        <?= !empty($item['post_exam_thanks_sent_at']) ? 'Reenviar agradecimiento post-examen' : 'Marcar examen y enviar agradecimiento' ?>
+                    </button>
+                </div>
+            </form>
+        <?php endif; ?>
+
         <?php if ($mail_log): ?>
             <table class="table" style="margin-top:1rem">
                 <thead><tr><th>Cuándo</th><th>Plantilla</th><th>Para</th><th>Estado</th></tr></thead>
@@ -741,7 +785,8 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             Proceso:
             <strong><?= e($cenniProcesses[$proc] ?? $proc) ?></strong>
             <?php if ($proc === 'uks_external'): ?>
-                — el alumno sube docs en UKS; aquí puedes registrar el avance.
+                — el alumno sube docs en UKS; aquí registras el avance que consultes en su plataforma.
+                Si vencen los 15 días, puede adquirir el producto CENNI vinculado en la ficha de la certificación.
             <?php elseif ($proc === 'doceo_managed'): ?>
                 — el alumno sube INE, CURP y solicitud en el portal; aprueba o rechaza cada uno.
             <?php endif; ?>
