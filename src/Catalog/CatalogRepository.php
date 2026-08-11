@@ -1952,6 +1952,8 @@ final class CatalogRepository
             'exam_outcome' => "VARCHAR(32) NULL DEFAULT 'pending'",
             'invalidation_reason' => 'TEXT NULL',
             'inventory_code_id' => 'BIGINT UNSIGNED NULL',
+            'cenni_download_url' => 'VARCHAR(512) NULL',
+            'cenni_sep_url' => 'VARCHAR(512) NULL',
         ];
         foreach ($cols as $name => $def) {
             $stmt = $this->pdo->prepare(
@@ -1996,7 +1998,9 @@ final class CatalogRepository
                 'iTEP — Resultados / certificado',
                 'Resultados iTEP — {{Nombre}}',
                 '<p>¡Hola {{Nombre}}!</p><p>Ya están disponibles tus resultados de <strong>{{Certificación}}</strong>.</p>'
-                . '<p>{{Resultados Line}}{{Score Line}}{{Certificate Line}}</p><p>Instituto DOCEO</p>',
+                . '<p>{{Score Line}}{{Certificate Line}}{{Resultados Line}}</p>'
+                . '<p>Adjuntamos la guía del trámite CENNI. Descárgala, completa tu solicitud y súbela junto con tu INE y CURP en tu ficha de alumno.</p>'
+                . '<p>{{CENNI Tramite Line}}</p><p>Instituto DOCEO</p>',
             ],
             [
                 'itep_invalidado',
@@ -2005,6 +2009,28 @@ final class CatalogRepository
                 '<p>¡Hola {{Nombre}}!</p><p>Te informamos que tu examen <strong>{{Certificación}}</strong> fue marcado como invalidado.</p>'
                 . '<p><strong>Motivo:</strong> {{Canceled}}</p>'
                 . '<p>Si tienes dudas, responde a este correo o contacta a {{Contacto Doceo}}.</p><p>Instituto DOCEO</p>',
+            ],
+            [
+                'cenni_docs_rechazados',
+                'CENNI — documentos por corregir',
+                'Corrige tus documentos CENNI — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>Revisamos los documentos de tu trámite CENNI para <strong>{{Certificación}}</strong> y necesitamos que los corrijas.</p>'
+                . '<p><strong>Qué estuvo mal / qué debes cambiar:</strong><br>{{CENNI Notas Line}}</p>'
+                . '<p>Entra a tu ficha de alumno, vuelve a subir INE, CURP y solicitud CENNI corregidos, y te avisaremos cuando queden en orden.</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+            ],
+            [
+                'cenni_emitido',
+                'CENNI emitido — descarga y folio',
+                'Tu CENNI ya está listo — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>¡Excelentes noticias! Tu documento CENNI para <strong>{{Certificación}}</strong> ya fue emitido{{CENNI Folio Suffix}}.</p>'
+                . '<p>{{CENNI Folio Line}}'
+                . '<strong>CURP:</strong> {{CURP}}<br>'
+                . '{{CENNI Descarga Line}}{{CENNI SEP Line}}{{CENNI Notas Line}}</p>'
+                . '<p>Gracias por tu preferencia. Explora más certificaciones en <a href="{{App URL}}">{{App URL}}</a>.</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
             ],
         ];
         $stmt = $this->pdo->prepare(
@@ -2484,6 +2510,7 @@ final class CatalogRepository
             'openpay_charge_id', 'openpay_order_id', 'openpay_clabe', 'openpay_bank', 'openpay_agreement',
             'openpay_reference', 'openpay_amount', 'openpay_status', 'openpay_due_at', 'openpay_paid_at',
             'openpay_pdf_url', 'cenni_status', 'cenni_folio', 'cenni_notes', 'cenni_status_updated_at',
+            'cenni_download_url', 'cenni_sep_url',
             'regulation_document_id', 'regulation_signed_at', 'regulation_signer_name',
             'regulation_signed_pdf_path', 'regulation_signature_path', 'regulation_signature_mode',
         ];

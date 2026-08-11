@@ -557,7 +557,11 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                     </select>
                 </label>
                 <label>Folio CENNI<input name="cenni_folio" value="<?= e($item['cenni_folio'] ?? '') ?>"></label>
-                <label>Notas internas<textarea name="cenni_notes" rows="2"><?= e($item['cenni_notes'] ?? '') ?></textarea></label>
+                <label>Link de descarga CENNI<input name="cenni_download_url" value="<?= e($item['cenni_download_url'] ?? '') ?>" placeholder="https://…"></label>
+                <label>Página oficial SEP<input name="cenni_sep_url" value="<?= e($item['cenni_sep_url'] ?? '') ?>" placeholder="https://www.gob.mx/…"></label>
+                <label class="field-wide">Notas / indicaciones al alumno
+                    <textarea name="cenni_notes" rows="3" placeholder="Si rechazas docs: explica qué corregir. Si emitiste: CURP u otras notas."><?= e($item['cenni_notes'] ?? '') ?></textarea>
+                </label>
                 <label class="check"><input type="checkbox" name="notify_student" value="1" checked> Avisar al alumno por correo</label>
                 <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar estatus CENNI</button></div>
             </form>

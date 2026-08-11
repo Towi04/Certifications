@@ -53,7 +53,7 @@ final class Mailer
     public function send(string $to, string $subject, string $bodyText, array $options = []): void
     {
         $transport = strtolower(trim(Env::get('SMTP_TRANSPORT', 'auto') ?? 'auto'));
-        if (!in_array($transport, ['auto', 'smtp', 'mail'], true)) {
+        if (!in_array($transport, ['auto', 'smtp', 'mail', 'log'], true)) {
             $transport = 'auto';
         }
 
@@ -61,6 +61,13 @@ final class Mailer
         $hasAttachments = !empty($options['attachments']) && is_array($options['attachments']);
         // Con adjuntos, SMTP suele entregar mejor el MIME; mail() a veces “acepta” y el hosting descarta.
         $preferSmtp = $transport === 'auto' && $hasAttachments;
+
+        if ($transport === 'log') {
+            $this->sendViaLog($to, $subject, $bodyText, $options);
+            self::$lastEndpoint = ['transport' => 'log'];
+
+            return;
+        }
 
         if (($transport === 'mail' || $transport === 'auto') && !$preferSmtp) {
             try {
@@ -202,6 +209,33 @@ final class Mailer
                 'PHP mail() devolvió false. Revisa que From (' . $from
                 . ') sea un buzón del dominio en Neubox.'
             );
+        }
+    }
+
+    /**
+     * Sink de pruebas: escribe el correo en storage/logs/mail/ (sin SMTP).
+     *
+     * @param array<string, mixed> $options
+     */
+    private function sendViaLog(string $to, string $subject, string $bodyText, array $options = []): void
+    {
+        $dir = BASE_PATH . '/storage/logs/mail';
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException('No se pudo crear ' . $dir);
+        }
+        $stamp = date('Ymd-His') . '-' . bin2hex(random_bytes(3));
+        $path = $dir . '/' . $stamp . '.eml.json';
+        $payload = [
+            'to' => $to,
+            'cc' => $options['cc'] ?? null,
+            'subject' => $subject,
+            'body_text' => $bodyText,
+            'body_html' => $options['body_html'] ?? null,
+            'created_at' => date('c'),
+        ];
+        $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json === false || file_put_contents($path, $json) === false) {
+            throw new \RuntimeException('No se pudo escribir el log de correo en ' . $path);
         }
     }
 

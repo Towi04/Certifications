@@ -98,6 +98,12 @@ final class CaseMailService
             error_log('[PDV] Action triggers payment_confirmed #' . $caseId . ': ' . $e->getMessage());
         }
 
+        try {
+            $this->sendTemplate($caseId, 'pago_confirmado', $userId);
+        } catch (\Throwable $e) {
+            error_log('[PDV] pago_confirmado (mark payment) case #' . $caseId . ': ' . $e->getMessage());
+        }
+
         return [
             'payment_confirmed_at' => $now,
             'payment_method' => $method,
@@ -581,11 +587,14 @@ final class CaseMailService
         $cenniLabel = $cenniLabels[$cenniStatusCode] ?? $cenniStatusCode;
         $folio = trim((string) ($case['cenni_folio'] ?? ''));
         $cenniNotes = trim((string) ($case['cenni_notes'] ?? ''));
+        $cenniDownload = trim((string) ($case['cenni_download_url'] ?? ''));
+        $cenniSep = trim((string) ($case['cenni_sep_url'] ?? ''));
         $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? 'https://pdv.institutodoceo.com'), '/');
 
         $regUrls = $this->regulationUrlsForCase($case, $appUrl);
         $linkTokens = $this->providerLinkTokensForCase($case);
         $fileLinks = $this->caseFileLinkTokens($case, $appUrl);
+        $cenniDoc = $this->cenniInstructionTokens($case, $appUrl);
 
         return array_merge([
             'Nombre' => $nombre,
@@ -594,6 +603,7 @@ final class CaseMailService
             'Nombre Completo' => $completo,
             'e-mail' => (string) ($case['student_email'] ?? ''),
             'Teléfono' => (string) ($case['student_phone'] ?? ''),
+            'CURP' => (string) ($case['student_curp'] ?? ''),
             'Certificación' => (string) ($case['certification_name'] ?? ''),
             'Fecha' => $fecha,
             'Hora' => $hora,
@@ -608,7 +618,7 @@ final class CaseMailService
             'Score URL' => (string) ($case['score_url'] ?? ''),
             'Certificate URL' => (string) ($case['certificate_url'] ?? ''),
             'Resultados Line' => self::linkLine('Resultados', (string) ($case['results_url'] ?? '')),
-            'Score Line' => self::linkLine('Score result', (string) ($case['score_url'] ?? '')),
+            'Score Line' => self::linkLine('Score report', (string) ($case['score_url'] ?? '')),
             'Certificate Line' => self::linkLine('Certificate', (string) ($case['certificate_url'] ?? '')),
             'Canceled' => trim((string) ($case['invalidation_reason'] ?? '')) !== ''
                 ? (string) $case['invalidation_reason']
@@ -626,8 +636,16 @@ final class CaseMailService
             'Escudo URL' => $appUrl . '/assets/brand/escudo.png',
             'CENNI Estatus' => $cenniLabel,
             'CENNI Folio Line' => $folio !== '' ? '<strong>Folio:</strong> ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . '<br>' : '',
-            'CENNI Notas Line' => $cenniNotes !== '' ? '<strong>Detalle:</strong> ' . htmlspecialchars($cenniNotes, ENT_QUOTES, 'UTF-8') . '<br>' : '',
+            'CENNI Notas Line' => $cenniNotes !== ''
+                ? '<strong>Detalle:</strong> ' . nl2br(htmlspecialchars($cenniNotes, ENT_QUOTES, 'UTF-8')) . '<br>'
+                : '',
             'CENNI Folio Suffix' => $folio !== '' ? ' (folio ' . htmlspecialchars($folio, ENT_QUOTES, 'UTF-8') . ')' : '',
+            'CENNI Descarga URL' => $cenniDownload,
+            'CENNI Descarga Line' => self::linkLine('Descarga de tu CENNI', $cenniDownload),
+            'CENNI SEP URL' => $cenniSep,
+            'CENNI SEP Line' => self::linkLine('Consulta oficial SEP', $cenniSep),
+            'CENNI Doc URL' => $cenniDoc['url'],
+            'CENNI Tramite Line' => $cenniDoc['line'],
             'App URL' => $appUrl,
             'Reglamento URL' => $regUrls['original_url'],
             'Reglamento Firmado URL' => $regUrls['signed_url'],
@@ -638,6 +656,39 @@ final class CaseMailService
             'Exportacion URL' => $fileLinks['export_url'],
             'Exportacion Boton' => $fileLinks['export_button'],
         ], $linkTokens);
+    }
+
+    /**
+     * @param array<string, mixed> $case
+     * @return array{url:string,line:string}
+     */
+    private function cenniInstructionTokens(array $case, string $appUrl): array
+    {
+        $empty = ['url' => '', 'line' => ''];
+        $certId = (int) ($case['certification_id'] ?? 0);
+        if ($certId <= 0) {
+            return $empty;
+        }
+        try {
+            $docs = $this->repo->certificationDocumentsByStage($certId, 'cenni');
+        } catch (\Throwable) {
+            return $empty;
+        }
+        if ($docs === []) {
+            return $empty;
+        }
+        $doc = $docs[0];
+        $path = trim((string) ($doc['file_path'] ?? ''));
+        if ($path === '') {
+            return $empty;
+        }
+        $title = trim((string) ($doc['title'] ?? 'Instrucciones trámite CENNI')) ?: 'Instrucciones trámite CENNI';
+        $url = $appUrl . '/media?f=' . rawurlencode($path) . '&download=1&name=' . rawurlencode($title);
+
+        return [
+            'url' => $url,
+            'line' => self::linkLine($title, $url),
+        ];
     }
 
     /**
@@ -900,22 +951,52 @@ final class CaseMailService
         ?string $folio,
         ?string $notes,
         bool $notify,
-        ?int $userId
+        ?int $userId,
+        ?string $downloadUrl = null,
+        ?string $sepUrl = null
     ): array {
         $allowed = array_keys(\App\Payments\OpenPayPaymentService::cenniStatuses());
         if (!in_array($status, $allowed, true)) {
             throw new \InvalidArgumentException('Estatus CENNI inválido.');
         }
-        $this->repo->updateCertificationCase($caseId, [
+        $this->repo->ensureInventoryAndResultColumns();
+        $fields = [
             'cenni_status' => $status,
             'cenni_folio' => $folio,
             'cenni_notes' => $notes,
             'cenni_status_updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if ($downloadUrl !== null) {
+            $fields['cenni_download_url'] = trim($downloadUrl) !== '' ? trim($downloadUrl) : null;
+        }
+        if ($sepUrl !== null) {
+            $fields['cenni_sep_url'] = trim($sepUrl) !== '' ? trim($sepUrl) : null;
+        }
+        $this->repo->updateCertificationCase($caseId, $fields);
+
+        if ($status === 'issued') {
+            try {
+                $this->repo->markCaseStepDoneByKeywords(
+                    $caseId,
+                    ['cenni', 'sep', 'constancia', 'certificado'],
+                    $userId,
+                    'CENNI emitido'
+                );
+            } catch (\Throwable) {
+            }
+        }
 
         $mailed = false;
         if ($notify) {
-            $code = $status === 'issued' ? 'cenni_emitido' : 'cenni_seguimiento';
+            $code = match ($status) {
+                'issued' => 'cenni_emitido',
+                'docs_rejected' => 'cenni_docs_rechazados',
+                default => 'cenni_seguimiento',
+            };
+            // Fallback si aún no existe la plantilla de rechazo
+            if ($code === 'cenni_docs_rechazados' && !$this->repo->mailTemplateByCode($code)) {
+                $code = 'cenni_seguimiento';
+            }
             $this->sendTemplate($caseId, $code, $userId);
             $mailed = true;
         }
@@ -1069,6 +1150,13 @@ final class CaseMailService
             'CENNI Folio Line' => 'Línea HTML con folio CENNI',
             'CENNI Notas Line' => 'Línea HTML con notas CENNI',
             'CENNI Folio Suffix' => 'Sufijo con folio',
+            'CENNI Descarga URL' => 'URL de descarga del CENNI',
+            'CENNI Descarga Line' => 'Línea HTML con descarga del CENNI',
+            'CENNI SEP URL' => 'URL consulta oficial SEP',
+            'CENNI SEP Line' => 'Línea HTML con link SEP',
+            'CENNI Doc URL' => 'URL del PDF de instrucciones CENNI',
+            'CENNI Tramite Line' => 'Línea HTML con instrucciones CENNI',
+            'CURP' => 'CURP del alumno',
             'App URL' => 'URL del PDV',
             'Logo URL' => 'URL del logo Doceo',
             'Escudo URL' => 'URL del escudo',
@@ -1157,6 +1245,11 @@ final class CaseMailService
     /** @param array<string, mixed> $tpl @param array<string, mixed> $case */
     private function resolveTo(array $tpl, array $case, bool $forceProvider = false): string
     {
+        $override = trim((string) (Env::get('MAIL_OVERRIDE_TO', '') ?? ''));
+        if ($override !== '' && filter_var($override, FILTER_VALIDATE_EMAIL)) {
+            return $override;
+        }
+
         $mode = (string) ($tpl['to_mode'] ?? 'student');
         if ($mode === 'manual') {
             throw new \RuntimeException(
@@ -1216,6 +1309,11 @@ final class CaseMailService
     /** @param array<string, mixed> $tpl @param array<string, mixed> $case */
     private function resolveCc(array $tpl, array $case): ?string
     {
+        $override = trim((string) (Env::get('MAIL_OVERRIDE_TO', '') ?? ''));
+        if ($override !== '' && filter_var($override, FILTER_VALIDATE_EMAIL)) {
+            return null; // evita CC duplicado hacia la misma bandeja de prueba
+        }
+
         $mode = (string) ($tpl['cc_mode'] ?? 'none');
         return match ($mode) {
             'fixed' => trim((string) ($tpl['cc_fixed'] ?? '')) ?: null,

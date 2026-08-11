@@ -1921,7 +1921,13 @@ final class AdminRoutes
                     trim((string) ($_POST['cenni_folio'] ?? '')) ?: null,
                     trim((string) ($_POST['cenni_notes'] ?? '')) ?: null,
                     isset($_POST['notify_student']),
-                    $user ? (int) $user['id'] : null
+                    $user ? (int) $user['id'] : null,
+                    array_key_exists('cenni_download_url', $_POST)
+                        ? trim((string) $_POST['cenni_download_url'])
+                        : null,
+                    array_key_exists('cenni_sep_url', $_POST)
+                        ? trim((string) $_POST['cenni_sep_url'])
+                        : null
                 );
                 $msg = 'Estatus CENNI actualizado: ' . $result['status'] . '.';
                 if ($result['mailed']) {
