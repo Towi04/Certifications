@@ -941,9 +941,9 @@ final class CaseMailService
     }
 
     /**
-     * Actualiza estatus CENNI y opcionalmente notifica al alumno.
+     * Actualiza estatus CENNI y notifica al alumno (siempre envía correo).
      *
-     * @return array{status: string, mailed: bool}
+     * @return array{status: string, mailed: bool, template:?string, to:?string}
      */
     public function updateCenniStatus(
         int $caseId,
@@ -953,13 +953,15 @@ final class CaseMailService
         bool $notify,
         ?int $userId,
         ?string $downloadUrl = null,
-        ?string $sepUrl = null
+        ?string $sepUrl = null,
+        ?string $templateCode = null
     ): array {
         $allowed = array_keys(\App\Payments\OpenPayPaymentService::cenniStatuses());
         if (!in_array($status, $allowed, true)) {
             throw new \InvalidArgumentException('Estatus CENNI inválido.');
         }
         $this->repo->ensureInventoryAndResultColumns();
+        $this->ensureCenniMailTemplates();
         $fields = [
             'cenni_status' => $status,
             'cenni_folio' => $folio,
@@ -986,22 +988,144 @@ final class CaseMailService
             }
         }
 
-        $mailed = false;
-        if ($notify) {
+        $code = trim((string) $templateCode);
+        if ($code === '') {
             $code = match ($status) {
                 'issued' => 'cenni_emitido',
                 'docs_rejected' => 'cenni_docs_rechazados',
                 default => 'cenni_seguimiento',
             };
-            // Fallback si aún no existe la plantilla de rechazo
-            if ($code === 'cenni_docs_rechazados' && !$this->repo->mailTemplateByCode($code)) {
-                $code = 'cenni_seguimiento';
+        }
+        if ($code === 'cenni_docs_rechazados' && !$this->repo->mailTemplateByCode($code)) {
+            $code = 'cenni_seguimiento';
+        }
+        $sent = $this->sendTemplate($caseId, $code, $userId);
+
+        return [
+            'status' => $status,
+            'mailed' => true,
+            'template' => $code,
+            'to' => $sent['to'] ?? null,
+        ];
+    }
+
+    /**
+     * Avisa al alumno el resultado de la revisión de documentos CENNI.
+     *
+     * @return array{status:string,mailed:bool,template:?string,to:?string}
+     */
+    public function notifyCenniDocumentReview(int $caseId, ?int $userId): array
+    {
+        $this->ensureCenniMailTemplates();
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+        $docs = $this->repo->caseCenniDocuments($caseId);
+        if ($docs === []) {
+            throw new \RuntimeException('El alumno aún no ha subido documentos CENNI.');
+        }
+        $rejected = [];
+        $pending = [];
+        foreach ($docs as $doc) {
+            $st = (string) ($doc['review_status'] ?? '');
+            if ($st === '' || $st === 'pending') {
+                $pending[] = $doc;
+            } elseif ($st === 'rejected') {
+                $rejected[] = $doc;
             }
-            $this->sendTemplate($caseId, $code, $userId);
-            $mailed = true;
+        }
+        if ($pending !== []) {
+            throw new \RuntimeException('Revisa todos los documentos (aprobar o rechazar) antes de avisar al alumno.');
         }
 
-        return ['status' => $status, 'mailed' => $mailed];
+        if ($rejected !== []) {
+            $notes = [];
+            foreach ($rejected as $doc) {
+                $label = trim((string) ($doc['label'] ?? $doc['kind'] ?? 'Documento'));
+                $reason = trim((string) ($doc['review_notes'] ?? ''));
+                $notes[] = $label . ($reason !== '' ? ': ' . $reason : '');
+            }
+            return $this->updateCenniStatus(
+                $caseId,
+                'docs_rejected',
+                trim((string) ($case['cenni_folio'] ?? '')) ?: null,
+                implode("\n", $notes),
+                true,
+                $userId,
+                null,
+                null,
+                'cenni_docs_rechazados'
+            );
+        }
+
+        return $this->updateCenniStatus(
+            $caseId,
+            'sep_pending',
+            trim((string) ($case['cenni_folio'] ?? '')) ?: null,
+            trim((string) ($case['cenni_notes'] ?? '')) ?: 'Documentos aprobados. Continuamos el trámite.',
+            true,
+            $userId,
+            null,
+            null,
+            'cenni_seguimiento'
+        );
+    }
+
+    /** Crea plantillas CENNI si no existen (no sobrescribe ediciones). */
+    public function ensureCenniMailTemplates(): void
+    {
+        $defaults = [
+            [
+                'code' => 'cenni_seguimiento',
+                'name' => 'CENNI — actualización de estatus',
+                'subject' => 'Actualización de tu trámite CENNI — {{Certificación}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Avance de tu trámite CENNI para {{Certificación}}:</p>'
+                    . '<p>Estatus: {{CENNI Estatus}}<br>{{CENNI Folio Line}}{{CENNI Notas Line}}</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+            [
+                'code' => 'cenni_docs_rechazados',
+                'name' => 'CENNI — documentos por corregir',
+                'subject' => 'Corrige tus documentos CENNI — {{Certificación}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Revisamos tus documentos CENNI de {{Certificación}} y necesitamos correcciones.</p>'
+                    . '<p>{{CENNI Notas Line}}</p>'
+                    . '<p>Entra a tu ficha de alumno y vuelve a subirlos.</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+            [
+                'code' => 'cenni_emitido',
+                'name' => 'CENNI emitido — descarga y folio',
+                'subject' => 'Tu CENNI ya está listo — {{Certificación}}',
+                'body_html' => '<p>Hola {{Nombre}},</p>'
+                    . '<p>Tu CENNI para {{Certificación}} ya fue emitido{{CENNI Folio Suffix}}.</p>'
+                    . '<p>{{CENNI Folio Line}}{{CENNI Descarga Line}}{{CENNI SEP Line}}{{CENNI Notas Line}}</p>'
+                    . '<p>Instituto DOCEO</p>',
+            ],
+        ];
+        foreach ($defaults as $row) {
+            if ($this->repo->mailTemplateByCode($row['code'])) {
+                continue;
+            }
+            try {
+                $this->repo->saveMailTemplate([
+                    'code' => $row['code'],
+                    'name' => $row['name'],
+                    'audience' => 'student',
+                    'to_mode' => 'student',
+                    'to_fixed' => '',
+                    'cc_mode' => 'case_cc',
+                    'cc_fixed' => '',
+                    'subject' => $row['subject'],
+                    'body_html' => $row['body_html'],
+                    'attach_export' => 0,
+                    'is_active' => 1,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
     }
 
     private static function linkLine(string $label, string $url): string

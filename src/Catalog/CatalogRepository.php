@@ -2835,6 +2835,23 @@ final class CatalogRepository
         } catch (\Throwable) {
         }
         try {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute(['case_attachments', 'review_status']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    "ALTER TABLE case_attachments
+                     ADD COLUMN review_status ENUM('pending','approved','rejected') NULL DEFAULT NULL AFTER share_token,
+                     ADD COLUMN review_notes TEXT NULL AFTER review_status,
+                     ADD COLUMN reviewed_at DATETIME NULL AFTER review_notes,
+                     ADD COLUMN reviewed_by BIGINT UNSIGNED NULL AFTER reviewed_at"
+                );
+            }
+        } catch (\Throwable) {
+        }
+        try {
             $stmt = $this->pdo->query(
                 "SELECT id FROM case_attachments WHERE share_token IS NULL OR share_token = ''"
             );
@@ -2846,6 +2863,70 @@ final class CatalogRepository
         } catch (\Throwable) {
         }
         $done = true;
+    }
+
+    /**
+     * Últimos adjuntos CENNI del alumno (INE, CURP, solicitud).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function caseCenniDocuments(int $caseId): array
+    {
+        $this->ensureCaseAttachmentShareSchema();
+        $kinds = ['ine', 'curp', 'cenni'];
+        $out = [];
+        foreach ($kinds as $kind) {
+            $stmt = $this->pdo->prepare(
+                'SELECT * FROM case_attachments
+                 WHERE case_id = ? AND kind = ?
+                 ORDER BY id DESC LIMIT 1'
+            );
+            $stmt->execute([$caseId, $kind]);
+            $row = $stmt->fetch();
+            if ($row) {
+                if (trim((string) ($row['share_token'] ?? '')) === '') {
+                    $row['share_token'] = $this->ensureCaseAttachmentShareToken((int) $row['id']);
+                }
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    public function reviewCaseAttachment(
+        int $attachmentId,
+        string $status,
+        ?string $notes,
+        ?int $reviewedBy
+    ): array {
+        $this->ensureCaseAttachmentShareSchema();
+        if (!in_array($status, ['approved', 'rejected', 'pending'], true)) {
+            throw new \InvalidArgumentException('Estatus de revisión inválido.');
+        }
+        $att = $this->caseAttachment($attachmentId);
+        if (!$att) {
+            throw new \RuntimeException('Documento no encontrado.');
+        }
+        if (!in_array((string) ($att['kind'] ?? ''), ['ine', 'curp', 'cenni'], true)) {
+            throw new \RuntimeException('Solo se revisan documentos CENNI (INE, CURP, solicitud).');
+        }
+        $notes = $status === 'rejected' ? (trim((string) $notes) ?: null) : null;
+        if ($status === 'rejected' && ($notes === null || $notes === '')) {
+            throw new \InvalidArgumentException('Indica el motivo del rechazo.');
+        }
+        $this->pdo->prepare(
+            'UPDATE case_attachments
+             SET review_status = ?, review_notes = ?, reviewed_at = NOW(), reviewed_by = ?
+             WHERE id = ?'
+        )->execute([$status, $notes, $reviewedBy, $attachmentId]);
+
+        $fresh = $this->caseAttachment($attachmentId);
+        if (!$fresh) {
+            throw new \RuntimeException('No se pudo actualizar el documento.');
+        }
+
+        return $fresh;
     }
 
     /** @param array<string, mixed> $data */

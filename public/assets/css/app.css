@@ -1370,6 +1370,13 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   cursor: not-allowed;
   pointer-events: none;
 }
+.cenni-reject-box {
+  max-width: 28rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(180, 35, 24, 0.2);
+  border-radius: 12px;
+  background: rgba(180, 35, 24, 0.04);
+}
 .admin-only-hint { font-size: 0.78rem; opacity: 0.75; }
 .is-row-inactive { opacity: 0.55; }
 

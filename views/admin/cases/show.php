@@ -23,6 +23,7 @@ $tabLabels = [
     'resultados' => 'Resultados',
     'pago' => 'Pago',
     'operacion' => 'Operación',
+    'cenni' => 'CENNI',
     'adjuntos' => 'Adjuntos',
     'protocolo' => 'Protocolo',
 ];
@@ -678,44 +679,6 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar reagenda y avisar al proveedor</button></div>
         </form>
 
-        <h4 style="margin-top:1.5rem">Seguimiento CENNI</h4>
-        <?php
-        $cenniProcesses = $cenni_processes ?? [];
-        $cenniStatuses = $cenni_statuses ?? [];
-        $proc = (string) ($item['cenni_process'] ?? 'none');
-        ?>
-        <p class="muted">
-            Proceso del producto:
-            <strong><?= e($cenniProcesses[$proc] ?? $proc) ?></strong>
-            <?php if ($proc === 'uks_external'): ?>
-                — el alumno sube docs en UKS (constancia/QR). Aquí solo registras el avance que ves en la plataforma UKS / SEP.
-            <?php elseif ($proc === 'doceo_managed'): ?>
-                — el alumno sube docs en el portal alumno; Doceo gestiona ante la SEP.
-            <?php endif; ?>
-        </p>
-        <?php if ($proc !== 'none'): ?>
-            <form method="post" action="/admin/cases/cenni-status" class="stack form-grid">
-                <input type="hidden" name="case_id" value="<?= $caseId ?>">
-                <input type="hidden" name="tab" value="operacion">
-                <label>Estatus
-                    <select name="cenni_status">
-                        <?php foreach ($cenniStatuses as $code => $label): ?>
-                            <?php if ($code === 'none') continue; ?>
-                            <option value="<?= e($code) ?>" <?= ($item['cenni_status'] ?? '') === $code ? 'selected' : '' ?>><?= e($label) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Folio CENNI<input name="cenni_folio" value="<?= e($item['cenni_folio'] ?? '') ?>"></label>
-                <label>Link de descarga CENNI<input name="cenni_download_url" value="<?= e($item['cenni_download_url'] ?? '') ?>" placeholder="https://…"></label>
-                <label>Página oficial SEP<input name="cenni_sep_url" value="<?= e($item['cenni_sep_url'] ?? '') ?>" placeholder="https://www.gob.mx/…"></label>
-                <label class="field-wide">Notas / indicaciones al alumno
-                    <textarea name="cenni_notes" rows="3" placeholder="Si rechazas docs: explica qué corregir. Si emitiste: CURP u otras notas."><?= e($item['cenni_notes'] ?? '') ?></textarea>
-                </label>
-                <label class="check"><input type="checkbox" name="notify_student" value="1" checked> Avisar al alumno por correo</label>
-                <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar estatus CENNI</button></div>
-            </form>
-        <?php endif; ?>
-
         <h4 style="margin-top:1.5rem">Enviar plantilla de correo</h4>
         <p class="muted">Envío manual de cualquier plantilla. Si eliges una de proveedor y subes comprobante, se adjunta al correo.</p>
         <form method="post" action="/admin/cases/send-mail" enctype="multipart/form-data" class="stack form-grid">
@@ -750,6 +713,193 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             </table>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
+
+    <?php if ($tab === 'cenni'): ?>
+    <div class="admin-ficha-panel is-active">
+        <?php
+        $cenniProcesses = $cenni_processes ?? [];
+        $cenniStatuses = $cenni_statuses ?? [];
+        $proc = (string) ($item['cenni_process'] ?? 'none');
+        $cenniCaseDocs = $cenni_docs_case ?? [];
+        $docKindLabels = ['ine' => 'INE', 'curp' => 'CURP', 'cenni' => 'Solicitud CENNI'];
+        $reviewedCount = 0;
+        $rejectedCount = 0;
+        foreach ($cenniCaseDocs as $d) {
+            $rs = (string) ($d['review_status'] ?? '');
+            if ($rs === 'approved' || $rs === 'rejected') {
+                $reviewedCount++;
+            }
+            if ($rs === 'rejected') {
+                $rejectedCount++;
+            }
+        }
+        $allReviewed = $cenniCaseDocs !== [] && $reviewedCount === count($cenniCaseDocs);
+        ?>
+        <h3>Documentos del alumno</h3>
+        <p class="muted">
+            Proceso:
+            <strong><?= e($cenniProcesses[$proc] ?? $proc) ?></strong>
+            <?php if ($proc === 'uks_external'): ?>
+                — el alumno sube docs en UKS; aquí puedes registrar el avance.
+            <?php elseif ($proc === 'doceo_managed'): ?>
+                — el alumno sube INE, CURP y solicitud en el portal; aprueba o rechaza cada uno.
+            <?php endif; ?>
+        </p>
+
+        <?php if ($cenniCaseDocs): ?>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                    <tr>
+                        <th>Documento</th>
+                        <th>Subido</th>
+                        <th>Revisión</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($cenniCaseDocs as $doc): ?>
+                        <?php
+                        $docId = (int) ($doc['id'] ?? 0);
+                        $kind = (string) ($doc['kind'] ?? '');
+                        $review = (string) ($doc['review_status'] ?? '');
+                        $reviewLabel = match ($review) {
+                            'approved' => 'Aprobado',
+                            'rejected' => 'Rechazado',
+                            default => 'Pendiente',
+                        };
+                        $pillClass = match ($review) {
+                            'approved' => 'pill-ok',
+                            'rejected' => 'pill-warn',
+                            default => 'pill-muted',
+                        };
+                        ?>
+                        <tr>
+                            <td>
+                                <strong><?= e($docKindLabels[$kind] ?? ($doc['label'] ?? $kind)) ?></strong>
+                                <?php if ($review === 'rejected' && !empty($doc['review_notes'])): ?>
+                                    <br><small class="muted"><?= e((string)$doc['review_notes']) ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td><small class="muted"><?= e((string)($doc['created_at'] ?? '')) ?></small></td>
+                            <td><span class="pill <?= e($pillClass) ?>"><?= e($reviewLabel) ?></span></td>
+                            <td>
+                                <div class="icon-actions">
+                                    <a class="icon-btn" href="/media?f=<?= e(rawurlencode((string)$doc['file_path'])) ?>" target="_blank" rel="noopener" title="Ver documento">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    </a>
+                                    <form method="post" action="/admin/cases/cenni-doc-review" class="inline-form">
+                                        <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                                        <input type="hidden" name="attachment_id" value="<?= $docId ?>">
+                                        <input type="hidden" name="review_status" value="approved">
+                                        <button class="icon-btn icon-btn-wa" type="submit" title="Aprobar" <?= $review === 'approved' ? 'disabled' : '' ?>>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                                        </button>
+                                    </form>
+                                    <button type="button" class="icon-btn icon-btn-danger" title="Rechazar"
+                                            data-cenni-reject="<?= $docId ?>"
+                                            aria-expanded="false"
+                                            aria-controls="cenni-reject-<?= $docId ?>">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                                <form method="post" action="/admin/cases/cenni-doc-review" class="stack cenni-reject-box" id="cenni-reject-<?= $docId ?>" hidden style="margin-top:0.55rem">
+                                    <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                                    <input type="hidden" name="attachment_id" value="<?= $docId ?>">
+                                    <input type="hidden" name="review_status" value="rejected">
+                                    <label>Motivo del rechazo (<?= e($docKindLabels[$kind] ?? $kind) ?>)
+                                        <textarea name="review_notes" rows="2" required placeholder="Qué debe corregir el alumno"><?= e((string)($doc['review_notes'] ?? '')) ?></textarea>
+                                    </label>
+                                    <div class="actions">
+                                        <button class="btn btn-ghost" type="submit">Confirmar rechazo</button>
+                                    </div>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <form method="post" action="/admin/cases/cenni-notify-docs" class="admin-ficha-actions" style="margin-top:0.85rem"
+                  onsubmit="return confirm('¿Guardar el resultado de la revisión y avisar al alumno por correo?');">
+                <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                <button class="btn" type="submit" <?= $allReviewed ? '' : 'disabled' ?>
+                        title="<?= $allReviewed ? 'Guardar revisión y enviar correo' : 'Revisa todos los documentos primero' ?>">
+                    Avisar al alumno (revisión de documentos)
+                </button>
+            </form>
+            <?php if (!$allReviewed): ?>
+                <p class="muted">Aprueba o rechaza cada documento; luego usa el botón para notificar.</p>
+            <?php elseif ($rejectedCount > 0): ?>
+                <p class="muted">Hay documentos rechazados: al avisar se marcará “Documentos rechazados” y se enviará <code>cenni_docs_rechazados</code>.</p>
+            <?php else: ?>
+                <p class="muted">Todos aprobados: al avisar se marcará “En trámite ante la SEP” y se enviará <code>cenni_seguimiento</code>.</p>
+            <?php endif; ?>
+        <?php else: ?>
+            <p class="muted">Aún no hay documentos CENNI subidos por el alumno.</p>
+        <?php endif; ?>
+
+        <hr style="margin:1.5rem 0">
+        <h3>Seguimiento CENNI</h3>
+        <p class="muted">Actualiza folio, enlaces y estatus. El botón guarda en el sistema y envía el correo de la plantilla elegida.</p>
+        <form method="post" action="/admin/cases/cenni-status" class="stack form-grid">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="cenni">
+            <label>Estatus
+                <select name="cenni_status">
+                    <?php foreach ($cenniStatuses as $code => $label): ?>
+                        <?php if ($code === 'none') continue; ?>
+                        <option value="<?= e($code) ?>" <?= ($item['cenni_status'] ?? '') === $code ? 'selected' : '' ?>><?= e($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>Folio CENNI<input name="cenni_folio" value="<?= e($item['cenni_folio'] ?? '') ?>"></label>
+            <label>Link de descarga CENNI<input name="cenni_download_url" value="<?= e($item['cenni_download_url'] ?? '') ?>" placeholder="https://…"></label>
+            <label>Página oficial SEP<input name="cenni_sep_url" value="<?= e($item['cenni_sep_url'] ?? '') ?>" placeholder="https://www.gob.mx/…"></label>
+            <label class="field-wide">Notas / indicaciones al alumno
+                <textarea name="cenni_notes" rows="3" placeholder="Notas para el alumno o seguimiento interno"><?= e($item['cenni_notes'] ?? '') ?></textarea>
+            </label>
+            <label>Plantilla de correo
+                <select name="template_code">
+                    <?php
+                    $preferred = match ((string) ($item['cenni_status'] ?? '')) {
+                        'issued' => 'cenni_emitido',
+                        'docs_rejected' => 'cenni_docs_rechazados',
+                        default => 'cenni_seguimiento',
+                    };
+                    $cenniTplCodes = ['cenni_seguimiento', 'cenni_docs_rechazados', 'cenni_emitido'];
+                    ?>
+                    <?php foreach ($cenniTplCodes as $code): ?>
+                        <option value="<?= e($code) ?>" <?= $preferred === $code ? 'selected' : '' ?>><?= e($code) ?></option>
+                    <?php endforeach; ?>
+                    <?php foreach ($mail_templates as $tpl): ?>
+                        <?php if (($tpl['audience'] ?? '') !== 'student') continue; ?>
+                        <?php if (in_array(($tpl['code'] ?? ''), $cenniTplCodes, true)) continue; ?>
+                        <option value="<?= e($tpl['code']) ?>"><?= e($tpl['code']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <div class="admin-ficha-actions">
+                <button class="btn" type="submit">Guardar y avisar al alumno</button>
+            </div>
+        </form>
+    </div>
+    <script>
+    (() => {
+      document.querySelectorAll('[data-cenni-reject]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-cenni-reject');
+          const box = document.getElementById('cenni-reject-' + id);
+          if (!box) return;
+          const open = box.hasAttribute('hidden');
+          box.toggleAttribute('hidden', !open);
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) box.querySelector('textarea')?.focus();
+        });
+      });
+    })();
+    </script>
     <?php endif; ?>
 
     <?php if ($tab === 'adjuntos'): ?>
