@@ -1691,14 +1691,27 @@ final class AdminRoutes
                 $regulationDoc = $repo()->document($regDocId);
             }
             $tab = trim((string) ($_GET['tab'] ?? 'alumno'));
-            $allowedCaseTabs = ['alumno', 'reglamento', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
+            $requiresRegulation = !empty($item['requires_regulation_signature']);
+            $allowedCaseTabs = ['alumno', 'accesos', 'resultados', 'pago', 'operacion', 'adjuntos', 'protocolo'];
+            if ($requiresRegulation) {
+                array_splice($allowedCaseTabs, 1, 0, ['reglamento']);
+            }
             if (!in_array($tab, $allowedCaseTabs, true)) {
                 $tab = 'alumno';
             }
+            $providerId = (int) ($item['provider_id'] ?? 0);
+            $providerFields = $providerId > 0 ? $repo()->availableFieldsForCertification($providerId) : [];
+            $studentFields = CatalogRepository::caseAdminVisibleStudentFields(
+                $item['registration_fields_json'] ?? null,
+                $providerFields
+            );
             view('admin/cases/show', [
                 'title' => 'Caso #' . $id,
                 'tab' => $tab,
                 'item' => $item,
+                'case_tabs' => $allowedCaseTabs,
+                'student_fields' => $studentFields,
+                'requires_regulation' => $requiresRegulation,
                 'regulation_doc' => $regulationDoc,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
