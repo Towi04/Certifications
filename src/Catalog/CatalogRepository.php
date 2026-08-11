@@ -2115,8 +2115,7 @@ final class CatalogRepository
             'INSERT INTO mail_templates
              (code, name, audience, to_mode, to_fixed, cc_mode, cc_fixed, subject, body_html, attach_export, is_active)
              VALUES (?, ?, \'student\', \'student\', NULL, \'case_cc\', NULL, ?, ?, 0, 1)
-             ON DUPLICATE KEY UPDATE name = VALUES(name), subject = VALUES(subject),
-               body_html = VALUES(body_html), is_active = 1'
+             ON DUPLICATE KEY UPDATE is_active = 1'
         );
         foreach ($templates as $tpl) {
             try {

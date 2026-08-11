@@ -61,7 +61,6 @@ $requiresRegulation = isset($requires_regulation)
     ? !empty($requires_regulation)
     : !empty($item['requires_regulation_signature']);
 $requiresZoom = !empty($item['requires_zoom']);
-$requiresSoftware = !empty($item['requires_software']);
 
 $fichaTitle = 'Caso #' . $caseId;
 $fichaSubtitle = e($item['certification_code']) . ' · ' . e($item['certification_name'])
@@ -209,74 +208,114 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
     <?php if ($tab === 'accesos'): ?>
     <div class="admin-ficha-panel is-active">
         <h3>Credenciales y links operativos</h3>
-        <form method="post" action="/admin/cases/update" class="stack form-grid">
+        <?php
+        $moodleDefaultPass = \App\Integrations\MoodleEnrolService::defaultPassword();
+        $moodleUserVal = trim((string) ($item['moodle_user'] ?? ''));
+        if ($moodleUserVal === '') {
+            $emailLocal = strtolower((string) strstr((string) ($item['student_email'] ?? ''), '@', true));
+            $moodleUserVal = \App\Integrations\MoodleClient::sanitizeUsername(
+                $emailLocal !== '' ? $emailLocal : ('alumno' . $caseId)
+            );
+        }
+        $moodlePassVal = trim((string) ($item['moodle_password'] ?? ''));
+        if ($moodlePassVal === '') {
+            $moodlePassVal = $moodleDefaultPass;
+        }
+        $hasExamCreds = trim((string) ($item['folio_id'] ?? '')) !== ''
+            && trim((string) ($item['access_key'] ?? '')) !== '';
+        $hasInventoryAssigned = !empty($item['inventory_code_id']) || $hasExamCreds;
+        $isLinguaskillCase = (bool) preg_match('/linguaskill/i', (string) (
+            ($item['protocol_code'] ?? '') . ' '
+            . ($item['protocol_name'] ?? '') . ' '
+            . ($item['certification_code'] ?? '') . ' '
+            . ($item['certification_name'] ?? '') . ' '
+            . ($item['provider_code'] ?? '') . ' '
+            . ($item['provider_name'] ?? '')
+        ));
+        ?>
+
+        <form id="caseAccessSaveForm" method="post" action="/admin/cases/update" class="hidden-form">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
-            <label>Folio / ID<input name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
-            <label>Clave<input name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
-            <?php if ($requiresZoom): ?>
-                <label>Zoom<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
-            <?php endif; ?>
-            <?php if ($requiresSoftware): ?>
-                <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
-                <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>
-            <?php endif; ?>
-            <?php
-            $moodleDefaultPass = \App\Integrations\MoodleEnrolService::defaultPassword();
-            $moodleUserVal = trim((string) ($item['moodle_user'] ?? ''));
-            if ($moodleUserVal === '') {
-                $emailLocal = strtolower((string) strstr((string) ($item['student_email'] ?? ''), '@', true));
-                $moodleUserVal = \App\Integrations\MoodleClient::sanitizeUsername(
-                    $emailLocal !== '' ? $emailLocal : ('alumno' . $caseId)
-                );
-            }
-            $moodlePassVal = trim((string) ($item['moodle_password'] ?? ''));
-            if ($moodlePassVal === '') {
-                $moodlePassVal = $moodleDefaultPass;
-            }
-            ?>
-            <label>Moodle user<input name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
-            <label>Moodle password
-                <input name="moodle_password" value="<?= e($moodlePassVal) ?>">
-                <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
-            </label>
-            <label class="field-wide">Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
-            <div class="admin-ficha-actions">
-                <button class="btn" type="submit">Guardar credenciales</button>
-            </div>
+        </form>
+        <form id="caseAssignInventoryForm" method="post" action="/admin/cases/assign-inventory" class="hidden-form">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="accesos">
+        </form>
+        <form id="caseResendAccessForm" method="post" action="/admin/cases/resend-access" class="hidden-form">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="accesos">
+        </form>
+        <form id="caseMoodleEnrolForm" method="post" action="/admin/cases/moodle-enrol" class="hidden-form">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="accesos">
+        </form>
+        <form id="caseMoodleResetForm" method="post" action="/admin/cases/moodle-reset-password" class="hidden-form">
+            <input type="hidden" name="case_id" value="<?= $caseId ?>">
+            <input type="hidden" name="tab" value="accesos">
         </form>
 
-        <div class="case-access-toolbar">
-            <form method="post" action="/admin/cases/moodle-enrol"
-                  onsubmit="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>?');">
-                <input type="hidden" name="case_id" value="<?= $caseId ?>">
-                <input type="hidden" name="tab" value="accesos">
-                <button class="btn btn-ghost" type="submit">Sincronizar Moodle</button>
-            </form>
-            <form method="post" action="/admin/cases/moodle-reset-password"
-                  onsubmit="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y forzar cambio al entrar?');">
-                <input type="hidden" name="case_id" value="<?= $caseId ?>">
-                <input type="hidden" name="tab" value="accesos">
-                <label class="check case-access-notify">
-                    <input type="checkbox" name="notify_student" value="1" checked> Avisar por correo
-                </label>
-                <button class="btn btn-ghost" type="submit">Restablecer password Moodle</button>
-            </form>
-            <form method="post" action="/admin/cases/fulfill"
-                  onsubmit="return confirm('¿Ejecutar fulfillment: Moodle + asignar código de inventario + correo de acceso?');">
-                <input type="hidden" name="case_id" value="<?= $caseId ?>">
-                <input type="hidden" name="tab" value="accesos">
-                <button class="btn btn-ghost" type="submit">Asignar código / reenviar acceso</button>
-            </form>
+        <div class="case-access-row">
+            <label>Folio / ID<input form="caseAccessSaveForm" name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
+            <label>Clave<input form="caseAccessSaveForm" name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
+            <div class="case-inline-actions">
+                <?php if (!empty($item['uses_inventory']) && !$hasInventoryAssigned): ?>
+                    <button class="btn btn-ghost" type="submit" form="caseAssignInventoryForm"
+                            onclick="return confirm('¿Asignar un código de inventario y enviar acceso al alumno?');">
+                        Asignar código
+                    </button>
+                <?php endif; ?>
+                <button class="btn btn-ghost" type="submit" form="caseResendAccessForm"
+                        onclick="return confirm('¿Reenviar al alumno el correo con folio/clave actuales?');">
+                    Reenviar acceso
+                </button>
+            </div>
         </div>
+
+        <?php if ($requiresZoom): ?>
+            <div class="case-access-row">
+                <label class="field-wide">Zoom<input form="caseAccessSaveForm" name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
+            </div>
+        <?php endif; ?>
+        <?php if ($isLinguaskillCase): ?>
+            <div class="case-access-row">
+                <label>Doc prep (sin acceso)<input form="caseAccessSaveForm" name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+                <label>Doc con acceso / token<input form="caseAccessSaveForm" name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+            </div>
+        <?php endif; ?>
+
+        <div class="case-access-row">
+            <label>Moodle user<input form="caseAccessSaveForm" name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
+            <label>Moodle password
+                <input form="caseAccessSaveForm" name="moodle_password" value="<?= e($moodlePassVal) ?>">
+                <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
+            </label>
+            <div class="case-inline-actions">
+                <button class="btn btn-ghost" type="submit" form="caseMoodleEnrolForm"
+                        onclick="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>? Se avisará al alumno por correo.');">
+                    Sincronizar Moodle
+                </button>
+                <button class="btn btn-ghost" type="submit" form="caseMoodleResetForm"
+                        onclick="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y avisar al alumno por correo?');">
+                    Restablecer contraseña
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-ficha-actions">
+            <button class="btn" type="submit" form="caseAccessSaveForm">Guardar credenciales</button>
+        </div>
+
         <?php if (!empty($item['uses_inventory'])): ?>
             <p class="muted" style="margin-top:0.75rem">
                 Protocolo con inventario.
                 <?php if (!empty($item['inventory_code_id'])): ?>
                     Código asignado #<?= (int)$item['inventory_code_id'] ?>
                     (folio <code><?= e($item['folio_id'] ?? '') ?></code>).
+                <?php elseif ($hasExamCreds): ?>
+                    Folio/clave capturados manualmente. Usa <strong>Reenviar acceso</strong> para notificar.
                 <?php else: ?>
-                    Aún sin código — carga stock en <a href="/admin/inventory">Inventario</a> y usa el botón de arriba.
+                    Aún sin código — carga stock en <a href="/admin/inventory">Inventario</a> y usa <strong>Asignar código</strong>.
                 <?php endif; ?>
             </p>
         <?php else: ?>
@@ -397,7 +436,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                 <input name="certificate_url" value="<?= e($item['certificate_url'] ?? '') ?>" placeholder="https://…">
                 <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">Pega la URL completa del certificado.</span>
             </label>
-            <label>Plantilla (solo si notificas por correo)
+            <label>Plantilla de correo
                 <select name="template_code">
                     <option value="itep_resultados">itep_resultados</option>
                     <?php foreach (($mail_templates ?? []) as $tpl): ?>
@@ -407,13 +446,12 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                     <?php endforeach; ?>
                 </select>
             </label>
-            <label class="check field-wide"><input type="checkbox" name="notify_student" value="1"> Notificar al alumno por correo</label>
-            <p class="muted field-wide" style="margin:0">Por defecto solo se publican los enlaces en la ficha del alumno. Marca la casilla si también quieres enviar el correo.</p>
-            <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar resultados</button></div>
+            <p class="muted field-wide" style="margin:0">Al guardar se publican los enlaces en la ficha del alumno y se envía el correo automáticamente.</p>
+            <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar y enviar por correo</button></div>
         </form>
         <hr>
         <form method="post" action="/admin/cases/exam-results" class="stack form-grid"
-              onsubmit="return confirm('¿Marcar el examen como invalidado?');">
+              onsubmit="return confirm('¿Marcar el examen como invalidado y avisar al alumno por correo?');">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="resultados">
             <input type="hidden" name="action" value="invalidate">
@@ -421,8 +459,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                 <textarea name="invalidation_reason" rows="3" required placeholder="Describe por qué se invalidó el examen"><?= e($item['invalidation_reason'] ?? '') ?></textarea>
             </label>
             <input type="hidden" name="template_code" value="itep_invalidado">
-            <label class="check field-wide"><input type="checkbox" name="notify_student" value="1" checked> Notificar al alumno</label>
-            <div class="admin-ficha-actions"><button class="btn btn-ghost" type="submit">Invalidar examen</button></div>
+            <div class="admin-ficha-actions"><button class="btn btn-ghost" type="submit">Invalidar y enviar por correo</button></div>
         </form>
     </div>
     <?php endif; ?>

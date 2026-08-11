@@ -1705,6 +1705,10 @@ final class AdminRoutes
                 $item['registration_fields_json'] ?? null,
                 $providerFields
             );
+            try {
+                (new \App\Mail\CaseMailService($repo()))->ensureItepStudentResultTemplates();
+            } catch (\Throwable) {
+            }
             view('admin/cases/show', [
                 'title' => 'Caso #' . $id,
                 'tab' => $tab,
@@ -3562,15 +3566,63 @@ final class AdminRoutes
             try {
                 $result = (new \App\Integrations\MoodleEnrolService($repo()))->resetPasswordForCase(
                     $caseId,
-                    isset($_POST['notify_student']),
+                    true,
                     $user ? (int) $user['id'] : null
                 );
                 $msg = 'Contraseña Moodle restablecida a ' . $result['password']
                     . ' (usuario ' . $result['username'] . '). El alumno deberá cambiarla al entrar.';
                 if (!empty($result['mailed'])) {
                     $msg .= ' Correo moodle_acceso enviado.';
+                } else {
+                    $msg .= ' No se pudo enviar el correo moodle_acceso.';
                 }
                 flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId));
+            exit;
+        });
+
+        $router->post('/admin/cases/assign-inventory', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $result = (new \App\Services\ExamFulfillmentService($repo()))->assignInventoryCode(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                $inv = $result['inventory'] ?? [];
+                $mail = $result['access_mail'] ?? null;
+                $msg = 'Código asignado: ' . ($inv['exam_id'] ?? '');
+                if (is_array($mail) && !empty($mail['sent'])) {
+                    $msg .= ' · Correo “' . ($mail['template'] ?? '') . '” a ' . ($mail['to'] ?? '');
+                } elseif (is_array($mail) && !empty($mail['error'])) {
+                    $msg .= ' · Correo: ' . $mail['error'];
+                }
+                flash('info', $msg);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId));
+            exit;
+        });
+
+        $router->post('/admin/cases/resend-access', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $mail = (new \App\Services\ExamFulfillmentService($repo()))->resendAccessMail(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                flash(
+                    'info',
+                    'Acceso reenviado (“' . ($mail['template'] ?? '') . '”)'
+                    . (!empty($mail['to']) ? ' a ' . $mail['to'] : '') . '.'
+                );
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
@@ -3623,11 +3675,12 @@ final class AdminRoutes
             $action = trim((string) ($_POST['action'] ?? 'deliver'));
             try {
                 $svc = new \App\Mail\CaseMailService($repo());
+                $svc->ensureItepStudentResultTemplates();
                 if ($action === 'invalidate') {
                     $result = $svc->invalidateExam(
                         $caseId,
                         (string) ($_POST['invalidation_reason'] ?? ''),
-                        isset($_POST['notify_student']),
+                        true,
                         $user ? (int) $user['id'] : null,
                         trim((string) ($_POST['template_code'] ?? 'itep_invalidado')) ?: 'itep_invalidado'
                     );
@@ -3638,7 +3691,7 @@ final class AdminRoutes
                         (string) ($_POST['results_url'] ?? ''),
                         (string) ($_POST['score_url'] ?? ''),
                         (string) ($_POST['certificate_url'] ?? ''),
-                        isset($_POST['notify_student']),
+                        true,
                         $user ? (int) $user['id'] : null,
                         trim((string) ($_POST['template_code'] ?? 'itep_resultados')) ?: 'itep_resultados'
                     );
