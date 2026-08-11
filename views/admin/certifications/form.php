@@ -288,7 +288,7 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
             <h3 class="reg-subtitle">Campos del proveedor</h3>
             <p class="muted">
                 Solo puedes elegir entre los campos definidos en <strong>Proveedores → Campos</strong>.
-                Si dejas “No pedir”, el admin los completará más adelante (no se piden al alumno en la adquisición).
+                Si dejas “No pedir”, el campo no se pide al alumno ni aparece en la ficha del caso.
             </p>
             <div class="reg-fields-grid" id="certBaseFieldsGrid">
                 <?php

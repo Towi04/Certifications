@@ -1068,6 +1068,84 @@ final class CatalogRepository
     }
 
     /**
+     * Campos de alumno/agenda visibles en la ficha admin del caso.
+     * Solo incluye built-ins disponibles en el proveedor y activos (optional|required) en la certificación.
+     * No rellena con defaults del catálogo campos que el proveedor no ofrece.
+     *
+     * @param list<array{key?:string,source?:string,locked?:bool}> $providerAvailableFields
+     * @return array<string, string> fieldKey => optional|required
+     */
+    public static function caseAdminVisibleStudentFields(
+        mixed $certRegistrationJson,
+        array $providerAvailableFields
+    ): array {
+        $availableKeys = [];
+        foreach ($providerAvailableFields as $af) {
+            if (!is_array($af)) {
+                continue;
+            }
+            $key = (string) ($af['key'] ?? '');
+            if ($key === '' || ($af['source'] ?? 'builtin') === 'custom') {
+                continue;
+            }
+            $availableKeys[$key] = true;
+        }
+        foreach (self::registrationFieldCatalog() as $key => $meta) {
+            if (!empty($meta['locked'])) {
+                $availableKeys[$key] = true;
+            }
+        }
+
+        $decoded = [];
+        if (is_string($certRegistrationJson) && $certRegistrationJson !== '') {
+            $tmp = json_decode($certRegistrationJson, true);
+            if (is_array($tmp)) {
+                $decoded = $tmp;
+            }
+        } elseif (is_array($certRegistrationJson)) {
+            $decoded = $certRegistrationJson;
+        }
+
+        $modesRaw = [];
+        if (isset($decoded['modes']) && is_array($decoded['modes'])) {
+            $modesRaw = $decoded['modes'];
+        } elseif ($decoded !== [] && !isset($decoded['custom']) && !isset($decoded['schedule'])) {
+            $modesRaw = $decoded;
+        }
+
+        $hasExplicitModes = $modesRaw !== [];
+        $out = [];
+        foreach (array_keys(self::registrationFieldCatalog()) as $key) {
+            if (!isset($availableKeys[$key])) {
+                continue;
+            }
+            $meta = self::registrationFieldCatalog()[$key];
+            if (!empty($meta['locked'])) {
+                $out[$key] = 'required';
+                continue;
+            }
+            if ($hasExplicitModes) {
+                if (!array_key_exists($key, $modesRaw)) {
+                    continue;
+                }
+                $mode = strtolower(trim((string) $modesRaw[$key]));
+            } else {
+                // Sin config de certificación: mostrar lo habilitado en proveedor con default del catálogo
+                $mode = (string) ($meta['default'] ?? 'optional');
+            }
+            if (!in_array($mode, ['off', 'optional', 'required'], true)) {
+                $mode = 'optional';
+            }
+            if ($mode === 'off') {
+                continue;
+            }
+            $out[$key] = $mode;
+        }
+
+        return $out;
+    }
+
+    /**
      * @param mixed $raw
      * @return list<array{min: string, max: string, label: string}>
      */
@@ -2347,7 +2425,8 @@ final class CatalogRepository
                     cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
                     pr.code AS protocol_code, pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
-                    pr.uses_inventory,
+                    pr.requires_software, pr.requires_zoom, pr.requires_vm, pr.uses_inventory,
+                    cert.registration_fields_json,
                     prov.code AS provider_code, prov.name AS provider_name,
                     prov.contact_email AS provider_contact_email,
                     pu.email AS partner_email, p.organization AS partner_organization

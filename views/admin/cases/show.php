@@ -16,8 +16,7 @@ $statusLabels = [
 $exportLabel = $export_formats[$item['export_format'] ?? 'none'] ?? ($item['export_format'] ?? 'none');
 $caseId = (int) $item['id'];
 
-$tab = $tab ?? (string) ($_GET['tab'] ?? 'alumno');
-$allowed = [
+$tabLabels = [
     'alumno' => 'Alumno',
     'reglamento' => 'Reglamento',
     'accesos' => 'Accesos',
@@ -27,9 +26,42 @@ $allowed = [
     'adjuntos' => 'Adjuntos',
     'protocolo' => 'Protocolo',
 ];
+$caseTabs = $case_tabs ?? array_keys($tabLabels);
+$allowed = [];
+foreach ($caseTabs as $tabKey) {
+    if (isset($tabLabels[$tabKey])) {
+        $allowed[$tabKey] = $tabLabels[$tabKey];
+    }
+}
+if ($allowed === []) {
+    $allowed = $tabLabels;
+}
+$tab = $tab ?? (string) ($_GET['tab'] ?? 'alumno');
 if (!isset($allowed[$tab])) {
     $tab = array_key_first($allowed);
 }
+
+$studentFields = $student_fields ?? null;
+$showStudentField = static function (string $key) use ($studentFields): bool {
+    if ($studentFields === null) {
+        return true;
+    }
+
+    return isset($studentFields[$key]);
+};
+$studentFieldRequired = static function (string $key) use ($studentFields): bool {
+    if ($studentFields === null) {
+        return in_array($key, ['first_name', 'last_name_p', 'email'], true);
+    }
+
+    return ($studentFields[$key] ?? '') === 'required';
+};
+
+$requiresRegulation = isset($requires_regulation)
+    ? !empty($requires_regulation)
+    : !empty($item['requires_regulation_signature']);
+$requiresZoom = !empty($item['requires_zoom']);
+$requiresSoftware = !empty($item['requires_software']);
 
 $fichaTitle = 'Caso #' . $caseId;
 $fichaSubtitle = e($item['certification_code']) . ' · ' . e($item['certification_name'])
@@ -63,37 +95,62 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
     <?php if ($tab === 'alumno'): ?>
     <div class="admin-ficha-panel is-active">
         <h3>Datos del alumno y agenda</h3>
+        <p class="muted">Solo se muestran los campos activos en la certificación / proveedor.</p>
         <form method="post" action="/admin/cases/update" class="stack form-grid">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="alumno">
-            <label>Nombre(s)<input name="student_name" required value="<?= e($item['student_name'] ?? '') ?>"></label>
-            <label>Apellido paterno<input name="student_last_name_p" value="<?= e($item['student_last_name_p'] ?? '') ?>"></label>
-            <label>Apellido materno<input name="student_last_name_m" value="<?= e($item['student_last_name_m'] ?? '') ?>"></label>
-            <label>E-mail<input type="email" name="student_email" required value="<?= e($item['student_email'] ?? '') ?>"></label>
-            <label>Teléfono<input name="student_phone" value="<?= e($item['student_phone'] ?? '') ?>"></label>
+            <?php if ($showStudentField('first_name')): ?>
+                <label>Nombre(s)<input name="student_name" <?= $studentFieldRequired('first_name') ? 'required' : '' ?> value="<?= e($item['student_name'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('last_name_p')): ?>
+                <label>Apellido paterno<input name="student_last_name_p" <?= $studentFieldRequired('last_name_p') ? 'required' : '' ?> value="<?= e($item['student_last_name_p'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('last_name_m')): ?>
+                <label>Apellido materno<input name="student_last_name_m" <?= $studentFieldRequired('last_name_m') ? 'required' : '' ?> value="<?= e($item['student_last_name_m'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('email')): ?>
+                <label>E-mail<input type="email" name="student_email" <?= $studentFieldRequired('email') ? 'required' : '' ?> value="<?= e($item['student_email'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('phone')): ?>
+                <label>Teléfono<input name="student_phone" <?= $studentFieldRequired('phone') ? 'required' : '' ?> value="<?= e($item['student_phone'] ?? '') ?>"></label>
+            <?php endif; ?>
             <label>CC (TR)<input type="email" name="cc_email" value="<?= e($item['cc_email'] ?? $item['partner_email'] ?? '') ?>" placeholder="correo del TR"></label>
-            <label>CURP<input name="student_curp" value="<?= e($item['student_curp'] ?? '') ?>"></label>
-            <label>Fecha nacimiento<input type="date" name="student_birth_date" value="<?= e($item['student_birth_date'] ?? '') ?>"></label>
-            <label>Sexo
-                <select name="student_sex">
-                    <?php $sx = (string)($item['student_sex'] ?? ''); ?>
-                    <option value="">—</option>
-                    <option value="F" <?= $sx === 'F' || str_starts_with(strtolower($sx), 'f') ? 'selected' : '' ?>>Femenino</option>
-                    <option value="M" <?= $sx === 'M' || str_starts_with(strtolower($sx), 'm') ? 'selected' : '' ?>>Masculino</option>
-                </select>
-            </label>
-            <label>Nacionalidad<input name="student_nationality" value="<?= e($item['student_nationality'] ?? 'MEX') ?>"></label>
-            <label>Fecha examen<input type="date" name="exam_date" value="<?= e($item['exam_date'] ?? '') ?>"></label>
-            <label>Hora examen<input name="exam_time" value="<?= e($item['exam_time'] ?? '') ?>" placeholder="11:00"></label>
-            <label>Reagenda fecha<input type="date" name="reschedule_date" value="<?= e($item['reschedule_date'] ?? '') ?>"><small class="muted">Solo guarda; para avisar al proveedor usa la pestaña Operación.</small></label>
-            <label>Reagenda hora<input name="reschedule_time" value="<?= e($item['reschedule_time'] ?? '') ?>"></label>
-            <label>Notas<textarea name="notes" rows="2"><?= e($item['notes'] ?? '') ?></textarea></label>
+            <?php if ($showStudentField('curp')): ?>
+                <label>CURP<input name="student_curp" <?= $studentFieldRequired('curp') ? 'required' : '' ?> value="<?= e($item['student_curp'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('birth_date')): ?>
+                <label>Fecha nacimiento<input type="date" name="student_birth_date" <?= $studentFieldRequired('birth_date') ? 'required' : '' ?> value="<?= e($item['student_birth_date'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('sex')): ?>
+                <label>Sexo
+                    <select name="student_sex" <?= $studentFieldRequired('sex') ? 'required' : '' ?>>
+                        <?php $sx = (string)($item['student_sex'] ?? ''); ?>
+                        <option value="">—</option>
+                        <option value="F" <?= $sx === 'F' || str_starts_with(strtolower($sx), 'f') ? 'selected' : '' ?>>Femenino</option>
+                        <option value="M" <?= $sx === 'M' || str_starts_with(strtolower($sx), 'm') ? 'selected' : '' ?>>Masculino</option>
+                    </select>
+                </label>
+            <?php endif; ?>
+            <?php if ($showStudentField('nationality')): ?>
+                <label>Nacionalidad<input name="student_nationality" <?= $studentFieldRequired('nationality') ? 'required' : '' ?> value="<?= e($item['student_nationality'] ?? 'MEX') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('exam_date')): ?>
+                <label>Fecha examen<input type="date" name="exam_date" <?= $studentFieldRequired('exam_date') ? 'required' : '' ?> value="<?= e($item['exam_date'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('exam_time')): ?>
+                <label>Hora examen<input name="exam_time" <?= $studentFieldRequired('exam_time') ? 'required' : '' ?> value="<?= e($item['exam_time'] ?? '') ?>" placeholder="11:00"></label>
+            <?php endif; ?>
+            <?php if ($showStudentField('exam_date') || $showStudentField('exam_time')): ?>
+                <label>Reagenda fecha<input type="date" name="reschedule_date" value="<?= e($item['reschedule_date'] ?? '') ?>"><small class="muted">Solo guarda; para avisar al proveedor usa la pestaña Operación.</small></label>
+                <label>Reagenda hora<input name="reschedule_time" value="<?= e($item['reschedule_time'] ?? '') ?>"></label>
+            <?php endif; ?>
+            <label class="field-wide">Notas<textarea name="notes" rows="2"><?= e($item['notes'] ?? '') ?></textarea></label>
             <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar datos</button></div>
         </form>
     </div>
     <?php endif; ?>
 
-    <?php if ($tab === 'reglamento'): ?>
+    <?php if ($tab === 'reglamento' && $requiresRegulation): ?>
     <div class="admin-ficha-panel is-active">
         <h3>Reglamento firmado</h3>
         <?php
@@ -157,9 +214,13 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <input type="hidden" name="tab" value="accesos">
             <label>Folio / ID<input name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
             <label>Clave<input name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
-            <label>Zoom (TOEFL)<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>"></label>
-            <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>"></label>
-            <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>"></label>
+            <?php if ($requiresZoom): ?>
+                <label>Zoom<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
+            <?php endif; ?>
+            <?php if ($requiresSoftware): ?>
+                <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+                <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+            <?php endif; ?>
             <?php
             $moodleDefaultPass = \App\Integrations\MoodleEnrolService::defaultPassword();
             $moodleUserVal = trim((string) ($item['moodle_user'] ?? ''));
@@ -179,34 +240,37 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                 <input name="moodle_password" value="<?= e($moodlePassVal) ?>">
                 <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
             </label>
-            <label>Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
+            <label class="field-wide">Motivo cancelación<textarea name="cancel_reason" rows="2"><?= e($item['cancel_reason'] ?? '') ?></textarea></label>
             <div class="admin-ficha-actions">
                 <button class="btn" type="submit">Guardar credenciales</button>
             </div>
         </form>
-        <form method="post" action="/admin/cases/moodle-enrol" class="admin-ficha-actions" style="margin-top:0.75rem"
-              onsubmit="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>?');">
-            <input type="hidden" name="case_id" value="<?= $caseId ?>">
-            <input type="hidden" name="tab" value="accesos">
-            <button class="btn btn-ghost" type="submit">Sincronizar Moodle (crear usuario + enrol)</button>
-        </form>
-        <form method="post" action="/admin/cases/moodle-reset-password" class="admin-ficha-actions" style="margin-top:0.5rem"
-              onsubmit="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y forzar cambio al entrar?');">
-            <input type="hidden" name="case_id" value="<?= $caseId ?>">
-            <input type="hidden" name="tab" value="accesos">
-            <label class="check" style="margin-right:0.75rem">
-                <input type="checkbox" name="notify_student" value="1" checked> Avisar al alumno por correo
-            </label>
-            <button class="btn btn-ghost" type="submit">Restablecer password Moodle a <?= e($moodleDefaultPass) ?></button>
-        </form>
-        <form method="post" action="/admin/cases/fulfill" class="admin-ficha-actions" style="margin-top:0.5rem"
-              onsubmit="return confirm('¿Ejecutar fulfillment: Moodle + asignar código de inventario + correo de acceso?');">
-            <input type="hidden" name="case_id" value="<?= $caseId ?>">
-            <input type="hidden" name="tab" value="accesos">
-            <button class="btn btn-ghost" type="submit">Asignar código / reenviar acceso (iTEP)</button>
-        </form>
+
+        <div class="case-access-toolbar">
+            <form method="post" action="/admin/cases/moodle-enrol"
+                  onsubmit="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>?');">
+                <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                <input type="hidden" name="tab" value="accesos">
+                <button class="btn btn-ghost" type="submit">Sincronizar Moodle</button>
+            </form>
+            <form method="post" action="/admin/cases/moodle-reset-password"
+                  onsubmit="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y forzar cambio al entrar?');">
+                <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                <input type="hidden" name="tab" value="accesos">
+                <label class="check case-access-notify">
+                    <input type="checkbox" name="notify_student" value="1" checked> Avisar por correo
+                </label>
+                <button class="btn btn-ghost" type="submit">Restablecer password Moodle</button>
+            </form>
+            <form method="post" action="/admin/cases/fulfill"
+                  onsubmit="return confirm('¿Ejecutar fulfillment: Moodle + asignar código de inventario + correo de acceso?');">
+                <input type="hidden" name="case_id" value="<?= $caseId ?>">
+                <input type="hidden" name="tab" value="accesos">
+                <button class="btn btn-ghost" type="submit">Asignar código / reenviar acceso</button>
+            </form>
+        </div>
         <?php if (!empty($item['uses_inventory'])): ?>
-            <p class="muted">
+            <p class="muted" style="margin-top:0.75rem">
                 Protocolo con inventario.
                 <?php if (!empty($item['inventory_code_id'])): ?>
                     Código asignado #<?= (int)$item['inventory_code_id'] ?>
@@ -216,7 +280,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                 <?php endif; ?>
             </p>
         <?php else: ?>
-            <p class="muted">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente Moodle si hay cursos vinculados.</p>
+            <p class="muted" style="margin-top:0.75rem">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente Moodle si hay cursos vinculados.</p>
         <?php endif; ?>
 
         <h4 style="margin-top:1.5rem">Acceso Moodle (6 meses) y prórrogas</h4>
