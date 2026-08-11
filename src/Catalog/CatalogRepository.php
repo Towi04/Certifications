@@ -3257,6 +3257,7 @@ final class CatalogRepository
             $id = (int) $course['id'];
             $course['cert_links'] = $byCourse[$id] ?? [];
             $course['is_linked'] = $course['cert_links'] !== [];
+            $course['standalone'] = (int) ($course['standalone'] ?? 0);
         }
         unset($course);
 
@@ -3304,22 +3305,66 @@ final class CatalogRepository
             $data['code'], $data['name'], $data['platform_type'], $data['external_url'],
             $data['moodle_course_id'], $accessMonths, $prorroga,
             $data['access_notes'], $data['description'], $data['is_active'],
+            (int) ($data['standalone'] ?? 0) ? 1 : 0,
         ];
         if ($id) {
             $stmt = $this->pdo->prepare(
                 'UPDATE courses SET protocol_id=?, code=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
-                 access_months=?, prorroga_price=?, access_notes=?, description=?, is_active=? WHERE id=?'
+                 access_months=?, prorroga_price=?, access_notes=?, description=?, is_active=?, standalone=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
         }
         $stmt = $this->pdo->prepare(
             'INSERT INTO courses (protocol_id, code, name, platform_type, external_url, moodle_course_id,
-             access_months, prorroga_price, access_notes, description, is_active)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             access_months, prorroga_price, access_notes, description, is_active, standalone)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Elimina un curso del catálogo. Si tiene matrículas Moodle históricas, solo desactiva.
+     *
+     * @return array{deleted:bool,deactivated:bool}
+     */
+    public function deleteCourse(int $id): array
+    {
+        $this->ensureCourseAccessTables();
+        $course = $this->course($id);
+        if (!$course) {
+            throw new \RuntimeException('Curso no encontrado.');
+        }
+
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM case_moodle_enrolments WHERE course_id = ?');
+        $stmt->execute([$id]);
+        $enrolCount = (int) $stmt->fetchColumn();
+
+        // Siempre quita vínculos a certificaciones
+        $this->pdo->prepare('DELETE FROM certification_courses WHERE course_id = ?')->execute([$id]);
+
+        if ($enrolCount > 0) {
+            $this->pdo->prepare(
+                'UPDATE courses SET is_active = 0, standalone = 1, updated_at = NOW() WHERE id = ?'
+            )->execute([$id]);
+
+            return ['deleted' => false, 'deactivated' => true];
+        }
+
+        $this->pdo->prepare('DELETE FROM courses WHERE id = ?')->execute([$id]);
+
+        return ['deleted' => true, 'deactivated' => false];
+    }
+
+    public function setCourseStandalone(int $id, bool $standalone): void
+    {
+        $this->ensureCourseAccessTables();
+        if ($standalone) {
+            $this->pdo->prepare('DELETE FROM certification_courses WHERE course_id = ?')->execute([$id]);
+        }
+        $this->pdo->prepare('UPDATE courses SET standalone = ?, updated_at = NOW() WHERE id = ?')
+            ->execute([$standalone ? 1 : 0, $id]);
     }
 
     public function ensureCourseAccessTables(): void
@@ -3345,6 +3390,15 @@ final class CatalogRepository
                 $this->pdo->exec(
                     'ALTER TABLE courses
                      ADD COLUMN prorroga_price DECIMAL(12,2) NULL AFTER access_months'
+                );
+            }
+            $stmt->execute(['courses', 'standalone']);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->pdo->exec(
+                    "ALTER TABLE courses
+                     ADD COLUMN standalone TINYINT(1) NOT NULL DEFAULT 0
+                     COMMENT '1=no requiere vínculo a certificación'
+                     AFTER is_active"
                 );
             }
         } catch (\Throwable) {
@@ -4567,6 +4621,11 @@ final class CatalogRepository
                bundle_price = VALUES(bundle_price), notes = VALUES(notes)'
         );
         $stmt->execute([$certificationId, $courseId, $relationType, $bundlePrice, $notes]);
+        try {
+            $this->pdo->prepare('UPDATE courses SET standalone = 0, updated_at = NOW() WHERE id = ?')
+                ->execute([$courseId]);
+        } catch (\Throwable) {
+        }
     }
 
     public function detachCertificationCourse(int $certificationId, int $courseId): void
