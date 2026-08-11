@@ -2144,14 +2144,10 @@ final class AdminRoutes
             }
         });
 
-        $router->get('/admin/tiers', static function () use ($repo): void {
+        $router->get('/admin/tiers', static function (): void {
             Auth::requireAdmin();
-            view('admin/tiers/index', [
-                'title' => 'Convenios (niveles)',
-                'items' => $repo()->partnerTiers(),
-                'info' => flash('info'),
-                'error' => flash('error'),
-            ]);
+            header('Location: /admin/partners?tab=niveles');
+            exit;
         });
 
         $router->get('/admin/tiers/create', static function (): void {
@@ -2169,7 +2165,7 @@ final class AdminRoutes
             $item = $repo()->partnerTierById($id);
             if (!$item) {
                 flash('error', 'Nivel no encontrado.');
-                header('Location: /admin/tiers');
+                header('Location: /admin/partners?tab=niveles');
                 exit;
             }
             view('admin/tiers/form', [
@@ -2197,8 +2193,8 @@ final class AdminRoutes
                     'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
                 ], $id);
-                flash('info', 'Nivel guardado.');
-                header('Location: /admin/tiers');
+                flash('info', 'Nivel TR guardado.');
+                header('Location: /admin/partners?tab=niveles');
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
@@ -2885,6 +2881,16 @@ final class AdminRoutes
 
         $router->get('/admin/partners', static function () use ($repo): void {
             Auth::requireAdmin();
+            $tab = trim((string) ($_GET['tab'] ?? 'partners'));
+            if ($tab === 'niveles') {
+                view('admin/tiers/index', [
+                    'title' => 'Partners TR · Niveles',
+                    'items' => $repo()->partnerTiers(),
+                    'info' => flash('info'),
+                    'error' => flash('error'),
+                ]);
+                return;
+            }
             view('admin/partners/index', [
                 'title' => 'Partners TR',
                 'items' => $repo()->partners(),
