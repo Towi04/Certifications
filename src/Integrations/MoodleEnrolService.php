@@ -180,7 +180,7 @@ final class MoodleEnrolService
         $fields = [
             'moodle_user' => $username,
         ];
-        if ($created && $password !== null) {
+        if ($created && $password !== null && $password !== '') {
             $fields['moodle_password'] = $password;
         }
         $this->repo->updateCertificationCase($caseId, $fields);
@@ -188,7 +188,9 @@ final class MoodleEnrolService
         $note = $created
             ? 'Usuario Moodle creado (' . $username . ') y matriculado en ' . count($enrolled) . ' curso(s) (acceso 6 meses).'
             : 'Usuario Moodle existente (' . $username . ') matriculado en ' . count($enrolled) . ' curso(s) (acceso limitado).';
-        try {
+        if ($created && ($password === null || $password === '')) {
+            $note .= ' Contraseña generada por Moodle (revisa correo del alumno o restablécela en campus).';
+        } try {
             $this->repo->markCaseStepDoneByKeywords(
                 $caseId,
                 ['moodle', 'acceso al curso', 'plataforma', 'campus'],
