@@ -301,9 +301,11 @@ final class PublicRoutes
                     Auth::loginById($created['id']);
                 }
 
-                $user = Auth::user();
-                if ($user === null) {
-                    throw new \RuntimeException('No se pudo autenticar.');
+                $user = Auth::refreshUserFromDatabase() ?? Auth::user();
+                if ($user === null || (int) ($user['id'] ?? 0) < 1) {
+                    throw new \RuntimeException(
+                        'No se pudo autenticar. Cierra sesión, inicia de nuevo e intenta adquirir otra vez.'
+                    );
                 }
 
                 if (empty($item['protocol_id'])) {

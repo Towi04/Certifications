@@ -1642,6 +1642,33 @@ final class CatalogRepository
             };
 
             $firstStepId = (int) $steps[0]['id'];
+            $studentUserId = array_key_exists('student_user_id', $data) && $data['student_user_id'] !== null && $data['student_user_id'] !== ''
+                ? (int) $data['student_user_id']
+                : 0;
+            if ($studentUserId > 0) {
+                $userChk = $this->pdo->prepare('SELECT id FROM users WHERE id = ? LIMIT 1');
+                $userChk->execute([$studentUserId]);
+                if (!(int) $userChk->fetchColumn()) {
+                    throw new \RuntimeException(
+                        'La cuenta de alumno no existe o tu sesión expiró. Cierra sesión e inicia de nuevo para adquirir.'
+                    );
+                }
+            } else {
+                $studentUserId = null;
+            }
+            $partnerId = array_key_exists('partner_id', $data) && $data['partner_id'] !== null && $data['partner_id'] !== ''
+                ? (int) $data['partner_id']
+                : 0;
+            if ($partnerId > 0) {
+                $partnerChk = $this->pdo->prepare('SELECT id FROM partners WHERE id = ? LIMIT 1');
+                $partnerChk->execute([$partnerId]);
+                if (!(int) $partnerChk->fetchColumn()) {
+                    $partnerId = null;
+                }
+            } else {
+                $partnerId = null;
+            }
+
             $stmt = $this->pdo->prepare(
                 'INSERT INTO certification_cases
                  (certification_id, protocol_id, student_user_id, partner_id, student_email, student_name,
@@ -1654,8 +1681,8 @@ final class CatalogRepository
             $stmt->execute([
                 $certId,
                 $protocolId,
-                $data['student_user_id'] ?? null,
-                $data['partner_id'] ?? null,
+                $studentUserId,
+                $partnerId,
                 $data['student_email'],
                 $data['student_name'],
                 $data['student_last_name_p'] ?? null,
