@@ -18,6 +18,7 @@
      - `core_course_get_courses`
      - `core_user_get_users_by_field`
      - `core_user_create_users`
+     - `core_user_update_users` (recomendado: fijar contraseña si Moodle la genera)
      - `enrol_manual_enrol_users` (con `timestart` / `timeend` / `suspend` para 6 meses y prórrogas)
 
 3. **Usuario del token** (cuenta de servicio, no un alumno):
