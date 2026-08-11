@@ -68,7 +68,16 @@ Para ver el campo exacto: Moodle → Desarrollo → Mensajes de depuración = **
 
 Tras corregir: **Sincronizar Moodle** en el caso.
 
-## Alta automática tras el pago
+## Contraseña estándar
+
+Por defecto el PDV usa **`Doceo*1234`** (`MOODLE_DEFAULT_PASSWORD` en `.env`):
+
+- Al **Sincronizar Moodle** crea o actualiza el usuario con esa clave y rellena `moodle_user` / `moodle_password` en el caso.
+- Si el usuario ya existía, también **restablece** la clave a esa estándar.
+- Activa `auth_forcepasswordchange` para que el alumno la cambie al entrar.
+- Botón admin: **Restablecer password Moodle a Doceo*1234** (+ correo opcional).
+
+Asegúrate de que la política de contraseñas de Moodle acepte esa clave, y que el servicio tenga `core_user_update_users`.
 
 Cuando OpenPay confirma el pago (o el admin usa “Confirmar pago” / “Marcar pago”):
 
