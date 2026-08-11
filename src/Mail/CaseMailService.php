@@ -1006,7 +1006,7 @@ final class CaseMailService
 
     private static function linkLine(string $label, string $url): string
     {
-        $url = trim($url);
+        $url = \App\Support\Str::externalUrl($url);
         if ($url === '') {
             return '';
         }
@@ -1036,10 +1036,32 @@ final class CaseMailService
         if (!$case) {
             throw new \RuntimeException('Caso no encontrado.');
         }
+
+        $normalized = [
+            'results_url' => \App\Support\Str::externalUrl($resultsUrl),
+            'score_url' => \App\Support\Str::externalUrl($scoreUrl),
+            'certificate_url' => \App\Support\Str::externalUrl($certificateUrl),
+        ];
+        $raw = [
+            'results_url' => trim($resultsUrl),
+            'score_url' => trim($scoreUrl),
+            'certificate_url' => trim($certificateUrl),
+        ];
+        foreach ($raw as $key => $rawValue) {
+            if ($rawValue !== '' && $normalized[$key] === '') {
+                throw new \InvalidArgumentException(
+                    'La URL debe ser completa (https://…). No uses textos como “enlace_score_report”.'
+                );
+            }
+        }
+        if ($normalized['score_url'] === '' && $normalized['certificate_url'] === '' && $normalized['results_url'] === '') {
+            throw new \InvalidArgumentException('Indica al menos la URL de Score report o Certificate.');
+        }
+
         $fields = [
-            'results_url' => trim($resultsUrl) ?: null,
-            'score_url' => trim($scoreUrl) ?: null,
-            'certificate_url' => trim($certificateUrl) ?: null,
+            'results_url' => $normalized['results_url'] !== '' ? $normalized['results_url'] : null,
+            'score_url' => $normalized['score_url'] !== '' ? $normalized['score_url'] : null,
+            'certificate_url' => $normalized['certificate_url'] !== '' ? $normalized['certificate_url'] : null,
             'exam_outcome' => 'delivered',
             'invalidation_reason' => null,
         ];

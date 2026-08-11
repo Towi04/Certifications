@@ -299,6 +299,14 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             'invalidated' => 'Invalidado',
             default => 'Pendiente',
         };
+        $isItepCase = (bool) preg_match('/itep/i', (string) (
+            ($item['protocol_code'] ?? '') . ' '
+            . ($item['protocol_name'] ?? '') . ' '
+            . ($item['certification_code'] ?? '') . ' '
+            . ($item['certification_name'] ?? '') . ' '
+            . ($item['provider_code'] ?? '') . ' '
+            . ($item['provider_name'] ?? '')
+        ));
         ?>
         <p>Estatus: <strong><?= e($outcomeLabel) ?></strong>
             <?php if ($outcome === 'invalidated' && !empty($item['invalidation_reason'])): ?>
@@ -309,10 +317,23 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="resultados">
             <input type="hidden" name="action" value="deliver">
-            <label>URL resultados<input name="results_url" value="<?= e($item['results_url'] ?? '') ?>" placeholder="https://…"></label>
-            <label>URL Score result<input name="score_url" value="<?= e($item['score_url'] ?? '') ?>" placeholder="https://…"></label>
-            <label>URL Certificate<input name="certificate_url" value="<?= e($item['certificate_url'] ?? '') ?>" placeholder="https://…"></label>
-            <label>Plantilla
+            <?php if (!$isItepCase): ?>
+                <label>URL resultados
+                    <input name="results_url" value="<?= e($item['results_url'] ?? '') ?>" placeholder="https://…">
+                </label>
+            <?php else: ?>
+                <input type="hidden" name="results_url" value="">
+                <p class="muted field-wide" style="margin:0">iTEP: registra solo Score report y Certificate (URLs completas con https://).</p>
+            <?php endif; ?>
+            <label>URL Score report
+                <input name="score_url" value="<?= e($item['score_url'] ?? '') ?>" placeholder="https://…">
+                <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">Pega la URL completa, p. ej. https://www.itepexam.com/…</span>
+            </label>
+            <label>URL Certificate
+                <input name="certificate_url" value="<?= e($item['certificate_url'] ?? '') ?>" placeholder="https://…">
+                <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">Pega la URL completa del certificado.</span>
+            </label>
+            <label>Plantilla (solo si notificas por correo)
                 <select name="template_code">
                     <option value="itep_resultados">itep_resultados</option>
                     <?php foreach (($mail_templates ?? []) as $tpl): ?>
@@ -322,8 +343,9 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                     <?php endforeach; ?>
                 </select>
             </label>
-            <label class="check field-wide"><input type="checkbox" name="notify_student" value="1" checked> Notificar al alumno por correo</label>
-            <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar resultados y notificar</button></div>
+            <label class="check field-wide"><input type="checkbox" name="notify_student" value="1"> Notificar al alumno por correo</label>
+            <p class="muted field-wide" style="margin:0">Por defecto solo se publican los enlaces en la ficha del alumno. Marca la casilla si también quieres enviar el correo.</p>
+            <div class="admin-ficha-actions"><button class="btn" type="submit">Guardar resultados</button></div>
         </form>
         <hr>
         <form method="post" action="/admin/cases/exam-results" class="stack form-grid"

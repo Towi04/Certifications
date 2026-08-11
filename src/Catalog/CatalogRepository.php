@@ -1998,7 +1998,7 @@ final class CatalogRepository
                 'iTEP — Resultados / certificado',
                 'Resultados iTEP — {{Nombre}}',
                 '<p>¡Hola {{Nombre}}!</p><p>Ya están disponibles tus resultados de <strong>{{Certificación}}</strong>.</p>'
-                . '<p>{{Score Line}}{{Certificate Line}}{{Resultados Line}}</p>'
+                . '<p>{{Score Line}}{{Certificate Line}}</p>'
                 . '<p>Adjuntamos la guía del trámite CENNI. Descárgala, completa tu solicitud y súbela junto con tu INE y CURP en tu ficha de alumno.</p>'
                 . '<p>{{CENNI Tramite Line}}</p><p>Instituto DOCEO</p>',
             ],
@@ -2345,7 +2345,7 @@ final class CatalogRepository
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
                     cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
                     cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
-                    pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
+                    pr.code AS protocol_code, pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.uses_inventory,
                     prov.code AS provider_code, prov.name AS provider_name,
@@ -4883,7 +4883,7 @@ final class CatalogRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code, cert.slug AS certification_slug,
-                    pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order,
+                    pr.code AS protocol_code, pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order,
                     ps.phase AS current_step_phase
              FROM certification_cases c
              JOIN certifications cert ON cert.id = c.certification_id
