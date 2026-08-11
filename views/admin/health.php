@@ -35,6 +35,16 @@
 </div>
 
 <section class="note">
+    <h2>Moodle y “Excepción al control de acceso”</h2>
+    <p>
+        Si el pago asignó inventario pero no creó el usuario Moodle, el token suele poder
+        listar cursos pero no <code>core_user_create_users</code> / <code>enrol_manual_enrol_users</code>.
+        Revisa el semáforo Moodle arriba (lista de funciones). Guía:
+        <code>docs/setup-moodle.md</code>. Luego en el caso: <strong>Sincronizar Moodle</strong>.
+    </p>
+</section>
+
+<section class="note">
     <h2>Correo y error 535</h2>
     <p>
         Entrar a <strong>webmail</strong> valida IMAP (Dovecot), no SMTP AUTH de Exim.
