@@ -79,6 +79,8 @@ Por defecto el PDV usa **`Doceo*1234`** (`MOODLE_DEFAULT_PASSWORD` en `.env`):
 
 Asegúrate de que la política de contraseñas de Moodle acepte esa clave, y que el servicio tenga `core_user_update_users`.
 
+## Alta automática tras el pago
+
 Cuando OpenPay confirma el pago (o el admin usa “Confirmar pago” / “Marcar pago”):
 
 1. Busca cursos ligados a la certificación (`certification_courses`) con `platform_type=moodle` y `moodle_course_id`.
