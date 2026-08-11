@@ -49,21 +49,53 @@ $iconEye = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 
 $iconEyeOff = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3.2 3.2 0 0 0 13.4 13.5M9.9 5.2C10.6 5.1 11.3 5 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-4.2 4.8M6.1 6.1A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.3 0 2.5-.3 3.6-.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 ?>
-<section class="note certification-edit">
-    <h2><?= e($title) ?></h2>
-    <?php if ($item): ?>
-        <p class="muted">
-            Certificaciones de <strong><?= e($item['provider_name'] ?? '') ?></strong>
-            · código <code><?= e($item['code']) ?></code>
-            · slug <code><?= e($item['slug']) ?></code>
-            <span class="admin-only-hint">(asignados automáticamente)</span>
-        </p>
-    <?php else: ?>
-        <p class="muted">Preferible crearlas desde Proveedores → Certificaciones. Aquí el código y slug se generan solos.</p>
-    <?php endif; ?>
+<?php
+$tab = $tab ?? (string) ($_GET['tab'] ?? 'general');
+$allowed = $item
+    ? [
+        'general' => 'General',
+        'contenido' => 'Contenido',
+        'nivel' => 'Nivel / puntaje',
+        'precios' => 'Precios',
+        'adquisicion' => 'Adquisición',
+        'elegibilidad' => 'Elegibilidad',
+        'cursos' => 'Cursos',
+        'assets' => 'Archivos',
+    ]
+    : [
+        'general' => 'General',
+        'contenido' => 'Contenido',
+        'nivel' => 'Nivel / puntaje',
+        'precios' => 'Precios',
+        'adquisicion' => 'Adquisición',
+        'elegibilidad' => 'Elegibilidad',
+    ];
+if (!isset($allowed[$tab])) {
+    $tab = array_key_first($allowed);
+}
+$certId = $item ? (int) $item['id'] : 0;
+$fichaTitle = $item ? (string) ($item['name'] ?? 'Certificación') : 'Nueva certificación';
+$fichaSubtitle = $item
+    ? 'Certificaciones de <strong>' . e($item['provider_name'] ?? '') . '</strong> · <code>' . e($item['code']) . '</code> · <code>' . e($item['slug']) . '</code>'
+    : 'Preferible crearlas desde Proveedores → Certificaciones. Código y slug se generan solos.';
+$fichaBackUrl = '/admin/certifications';
+$fichaTabBase = $certId > 0 ? '/admin/certifications/edit?id=' . $certId : '';
+$fichaMode = 'js';
+$tabs = $allowed;
+$fichaInitial = mb_substr($fichaTitle, 0, 1);
+?>
+<section class="admin-ficha certification-edit" data-admin-ficha data-tab="<?= e($tab) ?>">
+    <?php require __DIR__ . '/../_ficha_head.php'; ?>
+    <?php if (!empty($info)): ?><p class="alert alert-ok"><?= e($info) ?></p><?php endif; ?>
+    <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
 
-    <form method="post" action="/admin/certifications/save" class="stack form-grid" id="certForm">
+    <form method="post" action="/admin/certifications/save" class="stack" id="certForm">
         <?php if ($item): ?><input type="hidden" name="id" value="<?= (int)$item['id'] ?>"><?php endif; ?>
+        <input type="hidden" name="tab" value="<?= e($tab) ?>">
+
+        <div class="admin-ficha-panel" data-tab-panel="general" <?= $tab !== 'general' ? 'hidden' : '' ?>>
+            <h3>Datos generales</h3>
+            <div class="form-grid">
 
         <?php if (!$item): ?>
             <label>Proveedor
@@ -105,6 +137,12 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </select>
         </label>
 
+            </div>
+        </div>
+
+        <div class="admin-ficha-panel" data-tab-panel="contenido" <?= $tab !== 'contenido' ? 'hidden' : '' ?>>
+            <h3>Contenido de la ficha</h3>
+            <div class="form-grid">
         <div class="field-wide html-field" data-html-field>
             <div class="html-field-head">
                 <span class="html-field-title">Resumen (HTML)</span>
@@ -137,6 +175,12 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
         <label>Duración<input name="duration_label" value="<?= e($item['duration_label'] ?? '') ?>" placeholder="Ej. 2 h 30 min"></label>
         <label>Audiencia<input name="audience" value="<?= e($item['audience'] ?? '') ?>"></label>
 
+            </div>
+        </div>
+
+        <div class="admin-ficha-panel" data-tab-panel="nivel" <?= $tab !== 'nivel' ? 'hidden' : '' ?>>
+            <h3>Examen de nivel y rangos</h3>
+            <div class="form-grid">
         <label class="check field-wide">
             <input type="checkbox" name="is_level_exam" id="isLevelExam" <?= $isLevel ? 'checked' : '' ?>>
             Es un examen de nivel (evalúa habilidades)
@@ -176,6 +220,12 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <button type="button" class="btn btn-ghost" id="addScoreRange">+ Agregar rango</button>
         </fieldset>
 
+            </div>
+        </div>
+
+        <div class="admin-ficha-panel" data-tab-panel="precios" <?= $tab !== 'precios' ? 'hidden' : '' ?>>
+            <h3>Precios</h3>
+            <div class="form-grid">
         <label>Precio público (MXN)
             <input type="number" step="0.01" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>">
         </label>
@@ -203,6 +253,12 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <?php endif; ?>
         </fieldset>
 
+            </div>
+        </div>
+
+        <div class="admin-ficha-panel" data-tab-panel="adquisicion" <?= $tab !== 'adquisicion' ? 'hidden' : '' ?>>
+            <h3>Formulario de adquisición</h3>
+            <div class="form-grid">
         <fieldset class="field-wide">
             <legend>Campos del formulario de adquisición</legend>
             <p class="muted">
@@ -375,6 +431,12 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             </p>
         </fieldset>
 
+            </div>
+        </div>
+
+        <div class="admin-ficha-panel" data-tab-panel="elegibilidad" <?= $tab !== 'elegibilidad' ? 'hidden' : '' ?>>
+            <h3>CENNI / CONOCER y publicación</h3>
+            <div class="form-grid">
         <div class="eligibility-row">
             <label class="check">
                 <input type="checkbox" name="cenni_eligible" id="cenniEligible" <?= $cenniOn ? 'checked' : '' ?>>
@@ -444,7 +506,10 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             Producto estrella (aparece arriba en la vitrina pública)
         </label>
 
-        <div class="actions">
+            </div>
+        </div>
+
+        <div class="admin-ficha-actions">
             <button class="btn" type="submit" name="intent" value="save">Guardar</button>
             <?php if ($item && !$published): ?>
                 <button class="btn" type="submit" name="intent" value="publish">Publicar</button>
@@ -457,6 +522,7 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
     </form>
 
     <?php if ($item): ?>
+        <div class="admin-ficha-panel" data-tab-panel="cursos" <?= $tab !== 'cursos' ? 'hidden' : '' ?>>
         <h3>Cursos vinculados</h3>
         <?php if ($linkedCourses): ?>
             <div class="table-wrap">
@@ -515,8 +581,8 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
             <label>Notas<input name="notes"></label>
             <div class="actions"><button class="btn" type="submit">Vincular curso</button></div>
         </form>
+        </div>
     <?php endif; ?>
-</section>
 
 <script>
 (() => {
@@ -763,12 +829,16 @@ $iconEdit = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4
 <?php endif; ?>
 
 <?php if ($item): ?>
+<div class="admin-ficha-panel" data-tab-panel="assets" <?= $tab !== 'assets' ? 'hidden' : '' ?>>
+<h3>Archivos de la certificación</h3>
 <?php
 $assets = $assets ?? [];
 $assetTypes = $assetTypes ?? \App\Catalog\CatalogRepository::assetTypesFor('certification');
 $ownerType = 'certification';
 $ownerId = (int) $item['id'];
-$redirect = '/admin/certifications/edit?id=' . $ownerId;
+$redirect = '/admin/certifications/edit?id=' . $ownerId . '&tab=assets';
 require __DIR__ . '/../_assets.php';
 ?>
+</div>
 <?php endif; ?>
+</section>

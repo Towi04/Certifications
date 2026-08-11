@@ -82,5 +82,6 @@
       });
     })();
     </script>
+    <script src="/assets/js/admin-ficha-tabs.js?v=<?= e((string) (@filemtime(BASE_PATH . '/public/assets/js/admin-ficha-tabs.js') ?: time())) ?>" defer></script>
 </body>
 </html>
