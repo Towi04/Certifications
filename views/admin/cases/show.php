@@ -130,7 +130,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <p class="admin-ficha-actions">
                 <?php if (!empty($item['regulation_signed_pdf_path'])): ?>
                     <a class="btn" href="/media?f=<?= e(rawurlencode((string)$item['regulation_signed_pdf_path'])) ?>" target="_blank" rel="noopener">
-                        Descargar PDF firmado (enviar al proveedor)
+                        Descargar reglamento + hoja de firma
                     </a>
                 <?php endif; ?>
                 <?php if (!empty($item['regulation_signature_path'])): ?>
@@ -142,12 +142,11 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                     </a>
                 <?php endif; ?>
             </p>
-            <p class="muted">El PDF firmado es la evidencia que puedes adjuntar al correo del proveedor.</p>
+            <p class="muted">El PDF incluye el reglamento original más una hoja final con la firma digital y los datos del sistema (para enviar al proveedor).</p>
         <?php else: ?>
             <p class="muted">El alumno aún no ha firmado el reglamento de esta certificación.</p>
         <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <?php if ($tab === 'accesos'): ?>
     <div class="admin-ficha-panel is-active">

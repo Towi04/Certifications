@@ -34,6 +34,9 @@
                     <?php if ($u && in_array($role, ['partner', 'admin', 'assistant', 'manager'], true)): ?>
                         <?php if ($role === 'partner' || \App\Auth\Auth::isStaffRole($role)): ?>
                             <a href="/partner">Catálogo TR</a>
+                            <?php if ($role === 'partner'): ?>
+                                <a href="/partner/convenio">Mi convenio</a>
+                            <?php endif; ?>
                         <?php endif; ?>
                     <?php endif; ?>
                     <?php if ($u && \App\Auth\Auth::isStaffRole($role)): ?>

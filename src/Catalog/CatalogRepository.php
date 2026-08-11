@@ -3510,11 +3510,58 @@ final class CatalogRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    public function ensureAgreementSignatureSchema(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+
+        $add = function (string $table, string $column, string $definition) : void {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute([$table, $column]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                try {
+                    $this->pdo->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+                } catch (\Throwable) {
+                }
+            }
+        };
+
+        $add('agreements', 'published_at', 'DATETIME NULL AFTER is_current');
+        $add('agreements', 'sign_deadline_days', 'INT UNSIGNED NOT NULL DEFAULT 15 AFTER published_at');
+        $add('partners', 'access_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER signed_agreement_path');
+        $add('partners', 'restriction_reason', 'VARCHAR(255) NULL AFTER access_restricted');
+        $add(
+            'partner_agreement_assignments',
+            'signature_status',
+            "ENUM('pending','submitted','approved','rejected','expired') NOT NULL DEFAULT 'pending' AFTER reason"
+        );
+        $add('partner_agreement_assignments', 'deadline_at', 'DATETIME NULL AFTER signature_status');
+        $add('partner_agreement_assignments', 'signed_path', 'VARCHAR(255) NULL AFTER deadline_at');
+        $add('partner_agreement_assignments', 'submitted_at', 'DATETIME NULL AFTER signed_path');
+        $add('partner_agreement_assignments', 'approved_at', 'DATETIME NULL AFTER submitted_at');
+        $add('partner_agreement_assignments', 'approved_by', 'BIGINT UNSIGNED NULL AFTER approved_at');
+        $add('partner_agreement_assignments', 'reject_reason', 'TEXT NULL AFTER approved_by');
+        $add('partner_agreement_assignments', 'notified_at', 'DATETIME NULL AFTER reject_reason');
+    }
+
     /** @return list<array<string, mixed>> */
     public function agreements(): array
     {
+        $this->ensureAgreementSignatureSchema();
+
         return $this->pdo->query(
-            'SELECT a.*, t.name AS tier_name FROM agreements a
+            'SELECT a.*, t.name AS tier_name,
+                    (SELECT COUNT(*) FROM partners p WHERE p.partner_tier_id = a.partner_tier_id) AS partners_in_tier,
+                    (SELECT COUNT(*) FROM partner_agreement_assignments paa
+                     WHERE paa.agreement_id = a.id AND paa.ended_at IS NULL
+                       AND paa.signature_status IN (\'pending\',\'submitted\',\'rejected\',\'expired\')) AS pending_signatures
+             FROM agreements a
              JOIN partner_tiers t ON t.id = a.partner_tier_id
              ORDER BY a.year DESC, t.sort_order, a.name'
         )->fetchAll();
@@ -3522,7 +3569,13 @@ final class CatalogRepository
 
     public function agreement(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM agreements WHERE id = ?');
+        $this->ensureAgreementSignatureSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT a.*, t.name AS tier_name
+             FROM agreements a
+             JOIN partner_tiers t ON t.id = a.partner_tier_id
+             WHERE a.id = ?'
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch();
         return $row ?: null;
@@ -3530,31 +3583,327 @@ final class CatalogRepository
 
     public function saveAgreement(array $data, ?int $id = null): int
     {
-        if (!empty($data['is_current'])) {
+        $this->ensureAgreementSignatureSchema();
+
+        // is_current solo se marca al publicar (publishVersion). Aquí se puede guardar borrador.
+        $markCurrent = !empty($data['is_current']) ? 1 : 0;
+        if ($markCurrent) {
             $this->pdo->prepare(
                 'UPDATE agreements SET is_current = 0 WHERE partner_tier_id = ?'
             )->execute([$data['partner_tier_id']]);
         }
 
         $fields = [
-            $data['partner_tier_id'], $data['name'], $data['year'], $data['valid_from'],
-            $data['valid_to'], $data['notes'], $data['is_current'],
+            $data['partner_tier_id'],
+            $data['name'],
+            $data['year'],
+            $data['valid_from'],
+            $data['valid_to'],
+            $data['pdf_path'] ?? null,
+            $data['notes'],
+            $markCurrent,
+            max(1, (int) ($data['sign_deadline_days'] ?? 15)),
         ];
 
         if ($id) {
+            $existing = $this->agreement($id);
+            $pdfPath = $data['pdf_path'] ?? ($existing['pdf_path'] ?? null);
+            $fields[5] = $pdfPath;
             $stmt = $this->pdo->prepare(
-                'UPDATE agreements SET partner_tier_id=?, name=?, year=?, valid_from=?, valid_to=?, notes=?, is_current=? WHERE id=?'
+                'UPDATE agreements
+                 SET partner_tier_id=?, name=?, year=?, valid_from=?, valid_to=?, pdf_path=?, notes=?,
+                     is_current=?, sign_deadline_days=?
+                 WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO agreements (partner_tier_id, name, year, valid_from, valid_to, notes, is_current)
-             VALUES (?,?,?,?,?,?,?)'
+            'INSERT INTO agreements
+             (partner_tier_id, name, year, valid_from, valid_to, pdf_path, notes, is_current, sign_deadline_days)
+             VALUES (?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function partnersByTier(int $tierId): array
+    {
+        $this->ensureAgreementSignatureSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT p.*, u.email, u.name AS user_name, u.first_name, u.last_name,
+                    t.name AS tier_name
+             FROM partners p
+             JOIN users u ON u.id = p.user_id
+             LEFT JOIN partner_tiers t ON t.id = p.partner_tier_id
+             WHERE p.partner_tier_id = ?
+             ORDER BY u.name, u.email'
+        );
+        $stmt->execute([$tierId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Asigna (o reasigna) un convenio a un partner y aplica soft-block si $restrict.
+     */
+    public function assignAgreementToPartner(
+        int $partnerId,
+        int $agreementId,
+        ?string $deadlineAt,
+        string $reason,
+        ?int $createdBy,
+        bool $restrict
+    ): void {
+        $this->ensureAgreementSignatureSchema();
+
+        $this->pdo->prepare(
+            'UPDATE partner_agreement_assignments SET ended_at = NOW()
+             WHERE partner_id = ? AND ended_at IS NULL AND agreement_id <> ?'
+        )->execute([$partnerId, $agreementId]);
+
+        $open = $this->pdo->prepare(
+            'SELECT id FROM partner_agreement_assignments
+             WHERE partner_id = ? AND agreement_id = ? AND ended_at IS NULL
+             LIMIT 1'
+        );
+        $open->execute([$partnerId, $agreementId]);
+        $existingId = (int) ($open->fetchColumn() ?: 0);
+
+        if ($existingId > 0) {
+            $this->pdo->prepare(
+                'UPDATE partner_agreement_assignments
+                 SET signature_status = \'pending\', deadline_at = ?, signed_path = NULL,
+                     submitted_at = NULL, approved_at = NULL, approved_by = NULL,
+                     reject_reason = NULL, reason = ?, notified_at = NULL
+                 WHERE id = ?'
+            )->execute([$deadlineAt, $reason, $existingId]);
+        } else {
+            $this->pdo->prepare(
+                'INSERT INTO partner_agreement_assignments
+                 (partner_id, agreement_id, reason, signature_status, deadline_at, created_by)
+                 VALUES (?,?,?,?,?,?)'
+            )->execute([$partnerId, $agreementId, $reason, 'pending', $deadlineAt, $createdBy]);
+        }
+
+        $this->pdo->prepare(
+            'UPDATE partners
+             SET current_agreement_id = ?,
+                 access_restricted = ?,
+                 restriction_reason = ?,
+                 signed_agreement_path = CASE WHEN ? = 1 THEN NULL ELSE signed_agreement_path END
+             WHERE id = ?'
+        )->execute([
+            $agreementId,
+            $restrict ? 1 : 0,
+            $restrict ? 'Convenio pendiente de firma / confirmación' : null,
+            $restrict ? 1 : 0,
+            $partnerId,
+        ]);
+    }
+
+    public function markAssignmentNotified(int $partnerId, int $agreementId): void
+    {
+        $this->ensureAgreementSignatureSchema();
+        $this->pdo->prepare(
+            'UPDATE partner_agreement_assignments SET notified_at = NOW()
+             WHERE partner_id = ? AND agreement_id = ? AND ended_at IS NULL'
+        )->execute([$partnerId, $agreementId]);
+    }
+
+    public function openAssignmentForPartner(int $partnerId): ?array
+    {
+        $this->ensureAgreementSignatureSchema();
+        $this->expireOverdueAssignments();
+        $stmt = $this->pdo->prepare(
+            'SELECT paa.*, a.name AS agreement_name, a.year, a.pdf_path AS blank_pdf_path,
+                    a.sign_deadline_days, t.name AS tier_name
+             FROM partner_agreement_assignments paa
+             JOIN agreements a ON a.id = paa.agreement_id
+             JOIN partner_tiers t ON t.id = a.partner_tier_id
+             WHERE paa.partner_id = ? AND paa.ended_at IS NULL
+             ORDER BY paa.assigned_at DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$partnerId]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function agreementAssignments(int $agreementId): array
+    {
+        $this->ensureAgreementSignatureSchema();
+        $this->expireOverdueAssignments($agreementId);
+        $stmt = $this->pdo->prepare(
+            'SELECT paa.*, u.name AS partner_name, u.email, p.organization, p.access_restricted
+             FROM partner_agreement_assignments paa
+             JOIN partners p ON p.id = paa.partner_id
+             JOIN users u ON u.id = p.user_id
+             WHERE paa.agreement_id = ? AND paa.ended_at IS NULL
+             ORDER BY
+               FIELD(paa.signature_status, \'submitted\', \'pending\', \'rejected\', \'expired\', \'approved\'),
+               paa.deadline_at, u.name'
+        );
+        $stmt->execute([$agreementId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function pendingSignatureReviews(?int $agreementId = null): array
+    {
+        $this->ensureAgreementSignatureSchema();
+        $sql = 'SELECT paa.*, u.name AS partner_name, u.email, p.organization,
+                       a.name AS agreement_name, a.year, t.name AS tier_name
+                FROM partner_agreement_assignments paa
+                JOIN partners p ON p.id = paa.partner_id
+                JOIN users u ON u.id = p.user_id
+                JOIN agreements a ON a.id = paa.agreement_id
+                JOIN partner_tiers t ON t.id = a.partner_tier_id
+                WHERE paa.ended_at IS NULL AND paa.signature_status = \'submitted\'';
+        $params = [];
+        if ($agreementId) {
+            $sql .= ' AND paa.agreement_id = ?';
+            $params[] = $agreementId;
+        }
+        $sql .= ' ORDER BY paa.submitted_at ASC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll();
+    }
+
+    public function submitPartnerSignedAgreement(int $partnerId, int $assignmentId, string $signedPath): void
+    {
+        $this->ensureAgreementSignatureSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM partner_agreement_assignments
+             WHERE id = ? AND partner_id = ? AND ended_at IS NULL'
+        );
+        $stmt->execute([$assignmentId, $partnerId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new \RuntimeException('Asignación de convenio no encontrada.');
+        }
+        $status = (string) ($row['signature_status'] ?? '');
+        if (!in_array($status, ['pending', 'rejected', 'expired', 'submitted'], true)) {
+            throw new \RuntimeException('Esta versión ya fue confirmada por Doceo.');
+        }
+
+        $this->pdo->prepare(
+            'UPDATE partner_agreement_assignments
+             SET signed_path = ?, submitted_at = NOW(), signature_status = \'submitted\', reject_reason = NULL
+             WHERE id = ?'
+        )->execute([$signedPath, $assignmentId]);
+
+        $this->pdo->prepare(
+            'UPDATE partners
+             SET access_restricted = 1,
+                 restriction_reason = \'Convenio firmado en revisión por Doceo\'
+             WHERE id = ?'
+        )->execute([$partnerId]);
+    }
+
+    public function approvePartnerSignature(int $assignmentId, int $adminUserId): void
+    {
+        $this->ensureAgreementSignatureSchema();
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM partner_agreement_assignments WHERE id = ? AND ended_at IS NULL'
+        );
+        $stmt->execute([$assignmentId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new \RuntimeException('Asignación no encontrada.');
+        }
+        if ((string) ($row['signature_status'] ?? '') !== 'submitted') {
+            throw new \RuntimeException('Solo se confirman convenios ya subidos por el partner.');
+        }
+        if (empty($row['signed_path'])) {
+            throw new \RuntimeException('No hay PDF firmado para confirmar.');
+        }
+
+        $this->pdo->prepare(
+            'UPDATE partner_agreement_assignments
+             SET signature_status = \'approved\', approved_at = NOW(), approved_by = ?
+             WHERE id = ?'
+        )->execute([$adminUserId, $assignmentId]);
+
+        $this->pdo->prepare(
+            'UPDATE partners
+             SET current_agreement_id = ?,
+                 signed_agreement_path = ?,
+                 access_restricted = 0,
+                 restriction_reason = NULL
+             WHERE id = ?'
+        )->execute([(int) $row['agreement_id'], $row['signed_path'], (int) $row['partner_id']]);
+    }
+
+    public function rejectPartnerSignature(int $assignmentId, int $adminUserId, string $reason): void
+    {
+        $this->ensureAgreementSignatureSchema();
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \RuntimeException('Indica el motivo del rechazo.');
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM partner_agreement_assignments WHERE id = ? AND ended_at IS NULL'
+        );
+        $stmt->execute([$assignmentId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new \RuntimeException('Asignación no encontrada.');
+        }
+
+        $this->pdo->prepare(
+            'UPDATE partner_agreement_assignments
+             SET signature_status = \'rejected\', reject_reason = ?, approved_by = ?, approved_at = NULL
+             WHERE id = ?'
+        )->execute([$reason, $adminUserId, $assignmentId]);
+
+        $this->pdo->prepare(
+            'UPDATE partners
+             SET access_restricted = 1,
+                 restriction_reason = ?
+             WHERE id = ?'
+        )->execute(['Convenio rechazado: ' . $reason, (int) $row['partner_id']]);
+    }
+
+    public function expireOverdueAssignments(?int $agreementId = null): void
+    {
+        $this->ensureAgreementSignatureSchema();
+        $sql = "UPDATE partner_agreement_assignments paa
+                JOIN partners p ON p.id = paa.partner_id
+                SET paa.signature_status = 'expired',
+                    p.access_restricted = 1,
+                    p.restriction_reason = 'Plazo de firma de convenio vencido'
+                WHERE paa.ended_at IS NULL
+                  AND paa.signature_status IN ('pending', 'rejected')
+                  AND paa.deadline_at IS NOT NULL
+                  AND paa.deadline_at < NOW()";
+        $params = [];
+        if ($agreementId) {
+            $sql .= ' AND paa.agreement_id = ?';
+            $params[] = $agreementId;
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+    }
+
+    public function partnerCanRegisterStudents(int $partnerId): bool
+    {
+        $this->ensureAgreementSignatureSchema();
+        $this->expireOverdueAssignments();
+        $stmt = $this->pdo->prepare(
+            'SELECT access_restricted FROM partners WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$partnerId]);
+        $restricted = (int) ($stmt->fetchColumn() ?: 0);
+
+        return $restricted === 0;
     }
 
     /** @return list<array<string, mixed>> */
@@ -4045,27 +4394,39 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function partners(): array
     {
+        $this->ensureAgreementSignatureSchema();
+        $this->expireOverdueAssignments();
+
         return $this->pdo->query(
-            'SELECT p.*, u.email, u.name AS user_name, u.role, u.is_active AS user_active,
-                    t.name AS tier_name, a.name AS agreement_name
+            'SELECT p.*, u.email, u.name AS user_name, u.first_name, u.last_name, u.username, u.role,
+                    u.phone AS user_phone, u.is_active AS user_active,
+                    t.name AS tier_name, a.name AS agreement_name,
+                    paa.signature_status, paa.deadline_at AS signature_deadline_at
              FROM partners p
              JOIN users u ON u.id = p.user_id
              LEFT JOIN partner_tiers t ON t.id = p.partner_tier_id
              LEFT JOIN agreements a ON a.id = p.current_agreement_id
+             LEFT JOIN partner_agreement_assignments paa
+               ON paa.partner_id = p.id AND paa.agreement_id = p.current_agreement_id AND paa.ended_at IS NULL
              ORDER BY u.name, u.email'
         )->fetchAll();
     }
 
     public function partner(int $id): ?array
     {
+        $this->ensureAgreementSignatureSchema();
         $stmt = $this->pdo->prepare(
             'SELECT p.*, u.email, u.name AS user_name, u.first_name, u.last_name, u.username, u.role,
                     u.phone AS user_phone, u.is_active AS user_active,
-                    t.name AS tier_name, a.name AS agreement_name
+                    t.name AS tier_name, a.name AS agreement_name,
+                    paa.id AS open_assignment_id, paa.signature_status, paa.deadline_at AS signature_deadline_at,
+                    paa.signed_path AS assignment_signed_path, paa.reject_reason
              FROM partners p
              JOIN users u ON u.id = p.user_id
              LEFT JOIN partner_tiers t ON t.id = p.partner_tier_id
              LEFT JOIN agreements a ON a.id = p.current_agreement_id
+             LEFT JOIN partner_agreement_assignments paa
+               ON paa.partner_id = p.id AND paa.agreement_id = p.current_agreement_id AND paa.ended_at IS NULL
              WHERE p.id = ?'
         );
         $stmt->execute([$id]);
@@ -4088,6 +4449,7 @@ final class CatalogRepository
 
     public function savePartner(array $data, ?int $id = null, ?int $createdBy = null): int
     {
+        $this->ensureAgreementSignatureSchema();
         $this->pdo->beginTransaction();
         try {
             $userId = (int) $data['user_id'];
@@ -4096,15 +4458,31 @@ final class CatalogRepository
             )->execute([$userId]);
 
             $previousAgreementId = null;
+            $existing = null;
             if ($id) {
                 $existing = $this->partner($id);
                 $previousAgreementId = $existing['current_agreement_id'] ?? null;
             }
 
+            // El convenio vigente se asigna vía assignAgreementToPartner / publish.
+            // Aquí solo se guarda el id si viene; en alta nueva suele quedar null hasta assign.
+            $agreementId = array_key_exists('current_agreement_id', $data)
+                ? ($data['current_agreement_id'] !== null && $data['current_agreement_id'] !== ''
+                    ? (int) $data['current_agreement_id']
+                    : null)
+                : ($existing['current_agreement_id'] ?? null);
+
+            $accessRestricted = array_key_exists('access_restricted', $data)
+                ? (int) !empty($data['access_restricted'])
+                : (int) ($existing['access_restricted'] ?? 0);
+            $restrictionReason = array_key_exists('restriction_reason', $data)
+                ? ($data['restriction_reason'] ?? null)
+                : ($existing['restriction_reason'] ?? null);
+
             $fields = [
                 $userId,
                 $data['partner_tier_id'],
-                $data['current_agreement_id'],
+                $agreementId,
                 $data['organization'] ?? null,
                 $data['phone'] ?? null,
                 $data['shipping_address_line'] ?? null,
@@ -4114,10 +4492,12 @@ final class CatalogRepository
                 $data['shipping_state'] ?? null,
                 $data['shipping_postal_code'] ?? null,
                 $data['shipping_country'] ?? 'México',
-                $data['signed_agreement_path'] ?? null,
+                $data['signed_agreement_path'] ?? ($existing['signed_agreement_path'] ?? null),
+                $accessRestricted,
+                $restrictionReason,
                 (int) ($data['requires_invoice'] ?? 0),
-                $data['tax_status_path'] ?? null,
-                $data['logo_path'] ?? null,
+                $data['tax_status_path'] ?? ($existing['tax_status_path'] ?? null),
+                $data['logo_path'] ?? ($existing['logo_path'] ?? null),
                 $data['notes'] ?? null,
             ];
 
@@ -4127,7 +4507,8 @@ final class CatalogRepository
                      organization=?, phone=?,
                      shipping_address_line=?, shipping_address_line2=?, shipping_neighborhood=?,
                      shipping_city=?, shipping_state=?, shipping_postal_code=?, shipping_country=?,
-                     signed_agreement_path=?, requires_invoice=?, tax_status_path=?, logo_path=?,
+                     signed_agreement_path=?, access_restricted=?, restriction_reason=?,
+                     requires_invoice=?, tax_status_path=?, logo_path=?,
                      notes=? WHERE id=?'
                 );
                 $stmt->execute([...$fields, $id]);
@@ -4137,15 +4518,23 @@ final class CatalogRepository
                         user_id, partner_tier_id, current_agreement_id, organization, phone,
                         shipping_address_line, shipping_address_line2, shipping_neighborhood,
                         shipping_city, shipping_state, shipping_postal_code, shipping_country,
-                        signed_agreement_path, requires_invoice, tax_status_path, logo_path, notes
-                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                        signed_agreement_path, access_restricted, restriction_reason,
+                        requires_invoice, tax_status_path, logo_path, notes
+                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
                 );
                 $stmt->execute($fields);
                 $id = (int) $this->pdo->lastInsertId();
             }
 
-            $newAgreementId = $data['current_agreement_id'] ?? null;
-            if ($newAgreementId && (int) $newAgreementId !== (int) ($previousAgreementId ?? 0)) {
+            // Cambio de nivel/convenio manual: historial simple sin reabrir firma
+            // (la publicación de versión usa assignAgreementToPartner).
+            $skipAssignment = !empty($data['skip_assignment_history']);
+            $newAgreementId = $agreementId;
+            if (
+                !$skipAssignment
+                && $newAgreementId
+                && (int) $newAgreementId !== (int) ($previousAgreementId ?? 0)
+            ) {
                 if ($previousAgreementId) {
                     $this->pdo->prepare(
                         'UPDATE partner_agreement_assignments SET ended_at = NOW()
@@ -4153,12 +4542,14 @@ final class CatalogRepository
                     )->execute([$id, $previousAgreementId]);
                 }
                 $this->pdo->prepare(
-                    'INSERT INTO partner_agreement_assignments (partner_id, agreement_id, reason, created_by)
-                     VALUES (?,?,?,?)'
+                    'INSERT INTO partner_agreement_assignments
+                     (partner_id, agreement_id, reason, signature_status, created_by)
+                     VALUES (?,?,?,?,?)'
                 )->execute([
                     $id,
                     $newAgreementId,
                     $data['assignment_reason'] ?? 'Asignación admin',
+                    (string) ($data['signature_status'] ?? 'approved'),
                     $createdBy,
                 ]);
             }
@@ -4174,6 +4565,7 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function partnerAssignmentHistory(int $partnerId): array
     {
+        $this->ensureAgreementSignatureSchema();
         $stmt = $this->pdo->prepare(
             'SELECT paa.*, a.name AS agreement_name, a.year, t.name AS tier_name, u.name AS created_by_name
              FROM partner_agreement_assignments paa
@@ -4248,8 +4640,13 @@ final class CatalogRepository
 
     public function findPartnerByUserId(int $userId): ?array
     {
+        $this->ensureAgreementSignatureSchema();
+        $this->expireOverdueAssignments();
         $stmt = $this->pdo->prepare(
-            'SELECT p.*, t.name AS tier_name, t.code AS tier_code, a.id AS agreement_id, a.name AS agreement_name
+            'SELECT p.*, t.name AS tier_name, t.code AS tier_code,
+                    a.id AS agreement_id, a.name AS agreement_name, a.pdf_path AS agreement_pdf_path,
+                    paa.id AS open_assignment_id, paa.signature_status, paa.deadline_at AS signature_deadline_at,
+                    paa.signed_path AS assignment_signed_path, paa.reject_reason
              FROM partners p
              LEFT JOIN partner_tiers t ON t.id = p.partner_tier_id
              LEFT JOIN agreements a ON a.id = COALESCE(
@@ -4258,6 +4655,8 @@ final class CatalogRepository
                   WHERE ag.partner_tier_id = p.partner_tier_id AND ag.is_current = 1
                   ORDER BY ag.year DESC LIMIT 1)
              )
+             LEFT JOIN partner_agreement_assignments paa
+               ON paa.partner_id = p.id AND paa.agreement_id = a.id AND paa.ended_at IS NULL
              WHERE p.user_id = ?
              LIMIT 1'
         );

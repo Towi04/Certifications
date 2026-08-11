@@ -412,7 +412,7 @@ if ($needsSign) {
                 <a class="btn btn-ghost" href="/media?f=<?= e(rawurlencode((string)$regulation['file_path'])) ?>" target="_blank" rel="noopener">Reglamento original</a>
             <?php endif; ?>
         </p>
-        <p class="muted">El PDF firmado es la constancia con tu firma. El “reglamento original” sigue siendo el documento en blanco para lectura.</p>
+        <p class="muted">El PDF incluye el reglamento que leíste más una hoja final con tu firma digital y los datos del sistema.</p>
     <?php else: ?>
         <p class="alert alert-warn">La firma quedó registrada, pero no hay PDF de evidencia. Contacta a Doceo para regenerarlo.</p>
     <?php endif; ?>

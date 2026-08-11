@@ -4,6 +4,13 @@ $item = $item ?? null;
 $isEdit = $item !== null;
 $requiresInvoice = !empty($item['requires_invoice']);
 $history = $history ?? [];
+$statusLabels = [
+    'pending' => 'Pendiente de firma',
+    'submitted' => 'Firmado — en revisión',
+    'approved' => 'Confirmado',
+    'rejected' => 'Rechazado',
+    'expired' => 'Plazo vencido',
+];
 
 $tab = $tab ?? (string) ($_GET['tab'] ?? 'datos');
 $allowed = $isEdit
@@ -19,7 +26,8 @@ $fichaTitle = $isEdit
     : 'Nuevo partner TR';
 $fichaSubtitle = $isEdit && !empty($item['organization'])
     ? e((string) $item['organization'])
-    : 'El usuario Partner TR se crea aquí (no en Usuarios). Contraseña temporal: <code>' . e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) . '</code>';
+    : 'El usuario Partner TR se crea aquí (no en Usuarios). Contraseña temporal: <code>'
+        . e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) . '</code>';
 $fichaBackUrl = '/admin/partners';
 $fichaTabBase = $partnerId > 0 ? '/admin/partners/edit?id=' . $partnerId : '';
 $fichaMode = 'js';
@@ -34,12 +42,23 @@ $fichaInitial = mb_substr(trim((string) ($item['first_name'] ?? 'P')), 0, 1);
     <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
 
     <p class="muted">
-        El convenio vigente se toma automáticamente del nivel TR.
+        El convenio vigente del nivel se asigna automáticamente; el TR lo firma en el portal
+        (<code>/partner/convenio</code>) y Doceo lo confirma en Convenios TR.
         <?php if (!$isEdit): ?>
             Contraseña temporal: <code><?= e(\App\Users\UserRepository::PARTNER_DEFAULT_PASSWORD) ?></code>
             — deberán cambiarla en el primer acceso.
         <?php endif; ?>
     </p>
+
+    <?php if ($isEdit && !empty($item['access_restricted'])): ?>
+        <p class="error">
+            Acceso restringido: puede entrar al portal pero no registrar alumnos.
+            <?= e($item['restriction_reason'] ?? '') ?>
+            <?php if (!empty($item['signature_status'])): ?>
+                · Estado firma: <?= e($statusLabels[$item['signature_status']] ?? $item['signature_status']) ?>
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
 
     <form method="post" action="/admin/partners/save" class="stack" enctype="multipart/form-data">
         <?php if ($isEdit): ?>
@@ -77,16 +96,26 @@ $fichaInitial = mb_substr(trim((string) ($item['first_name'] ?? 'P')), 0, 1);
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <small class="muted">Se asigna el convenio vigente de ese nivel.</small>
+                    <small class="muted">Se asigna el convenio publicado de ese nivel (el TR debe firmarlo).</small>
+                </label>
+                <?php if ($isEdit && !empty($item['signed_agreement_path'])): ?>
+                    <p class="field-wide muted">
+                        Último convenio confirmado:
+                        <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver PDF</a>
+                    </p>
+                <?php endif; ?>
+                <label class="field-wide">Logo de la escuela (opcional)
+                    <input type="file" name="logo" accept="image/*">
+                    <?php if (!empty($item['logo_path'])): ?>
+                        <small class="muted">
+                            Actual:
+                            <a href="/media?f=<?= e(rawurlencode($item['logo_path'])) ?>" target="_blank" rel="noopener">ver logo</a>
+                        </small>
+                    <?php endif; ?>
                 </label>
                 <label class="field-wide">Notas
                     <textarea name="notes" rows="3"><?= e($item['notes'] ?? '') ?></textarea>
                 </label>
-                <?php if ($isEdit): ?>
-                    <label class="field-wide">Motivo de cambio de nivel/convenio
-                        <input name="assignment_reason" placeholder="Renovación, cambio de nivel, etc.">
-                    </label>
-                <?php endif; ?>
             </div>
         </div>
 
@@ -118,18 +147,8 @@ $fichaInitial = mb_substr(trim((string) ($item['first_name'] ?? 'P')), 0, 1);
         </div>
 
         <div class="admin-ficha-panel" data-tab-panel="facturacion" <?= $tab !== 'facturacion' ? 'hidden' : '' ?>>
-            <h3>Documentos y facturación</h3>
+            <h3>Facturación</h3>
             <div class="form-grid">
-                <label class="field-wide">Convenio firmado (PDF)
-                    <input type="file" name="signed_agreement" accept=".pdf,application/pdf">
-                    <?php if (!empty($item['signed_agreement_path'])): ?>
-                        <small class="muted">
-                            Actual:
-                            <a href="/media?f=<?= e(rawurlencode($item['signed_agreement_path'])) ?>" target="_blank" rel="noopener">ver archivo</a>
-                        </small>
-                    <?php endif; ?>
-                </label>
-
                 <label class="check field-wide">
                     <input type="checkbox" name="requires_invoice" id="requiresInvoice" <?= $requiresInvoice ? 'checked' : '' ?>>
                     Requiere factura
@@ -146,44 +165,40 @@ $fichaInitial = mb_substr(trim((string) ($item['first_name'] ?? 'P')), 0, 1);
                         <small class="muted">Obligatoria si marca “Requiere factura”.</small>
                     <?php endif; ?>
                 </label>
-
-                <label class="field-wide">Logo de la escuela (opcional)
-                    <input type="file" name="logo" accept="image/*">
-                    <?php if (!empty($item['logo_path'])): ?>
-                        <small class="muted">
-                            Actual:
-                            <a href="/media?f=<?= e(rawurlencode($item['logo_path'])) ?>" target="_blank" rel="noopener">ver logo</a>
-                        </small>
-                    <?php endif; ?>
-                </label>
             </div>
         </div>
 
         <div class="admin-ficha-actions">
             <button class="btn" type="submit"><?= $isEdit ? 'Guardar cambios' : 'Crear partner' ?></button>
+            <a class="btn btn-ghost" href="/admin/partners">Volver</a>
         </div>
     </form>
 
-    <?php if ($isEdit && $history): ?>
-    <div class="admin-ficha-panel" data-tab-panel="historial" <?= $tab !== 'historial' ? 'hidden' : '' ?>>
-        <h3>Historial de convenios</h3>
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead><tr><th>Convenio</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
-                <tbody>
-                <?php foreach ($history as $h): ?>
-                    <tr>
-                        <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
-                        <td><?= e($h['assigned_at']) ?></td>
-                        <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
-                        <td><?= e($h['reason'] ?? '—') ?></td>
-                        <td><?= e($h['created_by_name'] ?? '—') ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
+    <?php if ($isEdit): ?>
+        <div class="admin-ficha-panel" data-tab-panel="historial" <?= $tab !== 'historial' ? 'hidden' : '' ?>>
+            <h3>Historial de convenios</h3>
+            <?php if (!empty($history)): ?>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Convenio</th><th>Estado firma</th><th>Asignado</th><th>Terminado</th><th>Motivo</th><th>Por</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($history as $h): ?>
+                            <tr>
+                                <td><?= e($h['tier_name']) ?> · <?= e($h['agreement_name']) ?> (<?= (int)$h['year'] ?>)</td>
+                                <td><?= e($statusLabels[$h['signature_status'] ?? ''] ?? ($h['signature_status'] ?? '—')) ?></td>
+                                <td><?= e($h['assigned_at']) ?></td>
+                                <td><?= e($h['ended_at'] ?? 'Vigente') ?></td>
+                                <td><?= e($h['reason'] ?? '—') ?></td>
+                                <td><?= e($h['created_by_name'] ?? '—') ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <p class="muted">Sin historial todavía.</p>
+            <?php endif; ?>
         </div>
-    </div>
     <?php endif; ?>
 </section>
 
