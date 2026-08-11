@@ -11,11 +11,14 @@ use App\Support\Uploader;
 
 final class ActionRunner
 {
+    private readonly CaseMailService $mailer;
+
     public function __construct(
         private readonly CatalogRepository $repo = new CatalogRepository(),
         private readonly ActionRepository $actions = new ActionRepository(),
-        private readonly CaseMailService $mailer = new CaseMailService(),
+        ?CaseMailService $mailer = null,
     ) {
+        $this->mailer = $mailer ?? new CaseMailService($this->repo);
     }
 
     /**

@@ -14,9 +14,20 @@ $hasAccess = trim((string) ($item['access_key'] ?? '')) !== '' || trim((string) 
 $hasMoodle = trim((string) ($item['moodle_user'] ?? '')) !== '';
 $examOutcome = (string) ($item['exam_outcome'] ?? 'pending');
 $hasResults = $examOutcome === 'delivered'
-    || trim((string) ($item['results_url'] ?? '')) !== ''
-    || trim((string) ($item['score_url'] ?? '')) !== ''
-    || trim((string) ($item['certificate_url'] ?? '')) !== '';
+    || \App\Support\Str::externalUrl($item['results_url'] ?? '') !== ''
+    || \App\Support\Str::externalUrl($item['score_url'] ?? '') !== ''
+    || \App\Support\Str::externalUrl($item['certificate_url'] ?? '') !== '';
+$resultsUrl = \App\Support\Str::externalUrl($item['results_url'] ?? '');
+$scoreUrl = \App\Support\Str::externalUrl($item['score_url'] ?? '');
+$certificateUrl = \App\Support\Str::externalUrl($item['certificate_url'] ?? '');
+$isItepCase = (bool) preg_match('/itep/i', (string) (
+    ($item['protocol_code'] ?? '') . ' '
+    . ($item['protocol_name'] ?? '') . ' '
+    . ($item['certification_code'] ?? '') . ' '
+    . ($item['certification_name'] ?? '') . ' '
+    . ($item['provider_code'] ?? '') . ' '
+    . ($item['provider_name'] ?? '')
+));
 $isInvalidated = $examOutcome === 'invalidated';
 $cenniProcess = (string) ($item['cenni_process'] ?? 'none');
 $cenniStatus = (string) ($item['cenni_status'] ?? 'none');
@@ -658,16 +669,19 @@ foreach ($course_prorrogas as $pr) {
         </p>
     <?php elseif ($hasResults): ?>
         <ul>
-            <?php if (!empty($item['results_url'])): ?>
-                <li><a href="<?= e($item['results_url']) ?>" target="_blank" rel="noopener">Ver resultados</a></li>
+            <?php if (!$isItepCase && $resultsUrl !== ''): ?>
+                <li><a href="<?= e($resultsUrl) ?>" target="_blank" rel="noopener">Ver resultados</a></li>
             <?php endif; ?>
-            <?php if (!empty($item['score_url'])): ?>
-                <li><a href="<?= e($item['score_url']) ?>" target="_blank" rel="noopener">Score result</a></li>
+            <?php if ($scoreUrl !== ''): ?>
+                <li><a href="<?= e($scoreUrl) ?>" target="_blank" rel="noopener">Score report</a></li>
             <?php endif; ?>
-            <?php if (!empty($item['certificate_url'])): ?>
-                <li><a href="<?= e($item['certificate_url']) ?>" target="_blank" rel="noopener">Certificate</a></li>
+            <?php if ($certificateUrl !== ''): ?>
+                <li><a href="<?= e($certificateUrl) ?>" target="_blank" rel="noopener">Certificate</a></li>
             <?php endif; ?>
         </ul>
+        <?php if ($scoreUrl === '' && $certificateUrl === '' && ($isItepCase || $resultsUrl === '')): ?>
+            <p class="muted">Los resultados ya fueron marcados como entregados; los enlaces aparecerán aquí cuando el administrador los registre con URL completa (https://…).</p>
+        <?php endif; ?>
     <?php else: ?>
         <p class="muted">Cuando el proveedor publique tus resultados, aparecerán aquí (y te avisaremos por correo).</p>
     <?php endif; ?>
