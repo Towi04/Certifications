@@ -4462,6 +4462,11 @@ final class CatalogRepository
                bundle_price = VALUES(bundle_price), notes = VALUES(notes)'
         );
         $stmt->execute([$certificationId, $courseId, $relationType, $bundlePrice, $notes]);
+        try {
+            $this->pdo->prepare('UPDATE courses SET standalone = 0, updated_at = NOW() WHERE id = ?')
+                ->execute([$courseId]);
+        } catch (\Throwable) {
+        }
     }
 
     public function detachCertificationCourse(int $certificationId, int $courseId): void
