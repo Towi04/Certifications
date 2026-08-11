@@ -36,6 +36,13 @@
 
 4. En cada curso de preparación: método de matrícula **Manual** habilitado.
 
+Opcional en `.env`:
+
+```env
+# Solo si el pack de idioma está instalado (es / es_mx). Si se omite, el PDV no envía lang.
+# MOODLE_USER_LANG=es_mx
+```
+
 ## Error `accessexception` / “Excepción al control de acceso”
 
 El inventario del PDV **sí** puede asignarse aunque Moodle falle: son caminos independientes tras el pago.
@@ -46,6 +53,16 @@ Qué hacer:
 1. Abre `/admin/salud` — Moodle ahora lista qué funciones faltan al token.
 2. En Moodle, agrega las funciones faltantes al servicio y/o capacidades al usuario.
 3. En el caso del alumno: **Sincronizar Moodle** (no hace falta reasignar el código de inventario).
+
+## Error `invalidparameter` al crear usuario
+
+Causas frecuentes:
+1. **`lang` no instalado** — el PDV ya **no envía** `lang` salvo `MOODLE_USER_LANG`.
+2. **Política de contraseñas** — el PDV genera claves tipo `Doceo!…A9x`.
+3. **Username** — sin “usernames extendidos”, Moodle solo acepta `a-z0-9_`; el PDV convierte puntos a `_`.
+4. **Campos de perfil obligatorios** — hazlos opcionales o pon default en Moodle.
+
+El error incluye `debuginfo` de Moodle. Tras corregir: **Sincronizar Moodle** en el caso.
 
 ## Alta automática tras el pago
 

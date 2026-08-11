@@ -316,10 +316,6 @@ final class MoodleClient
                 ];
             } catch (\Throwable $e) {
                 $lastError = $e;
-                // Solo reintentar invalidparameter; otros errores (acceso, duplicado) no.
-                if (!str_contains(strtolower($e->getMessage()), 'invalidparameter') && $i === 0) {
-                    // si el primer intento ya no es invalidparameter, igual permitir reintentos solo para invalidparameter
-                }
                 if (!str_contains(strtolower($e->getMessage()), 'invalidparameter')) {
                     throw $e;
                 }
@@ -329,12 +325,15 @@ final class MoodleClient
         throw $lastError ?? new \RuntimeException('No se pudo crear el usuario Moodle.');
     }
 
-    /** Username Moodle: minúsculas, a-z 0-9 . _ - */
+    /** Username Moodle: por defecto solo a-z 0-9 _ (compatible sin “usernames extendidos”). */
     public static function sanitizeUsername(string $username): string
     {
         $username = strtolower(trim($username));
-        $username = preg_replace('/[^a-z0-9._-]+/', '', $username) ?? '';
-        $username = trim($username, '.-_');
+        // Puntos/guiones → guion bajo (si el sitio no tiene usernames extendidos, . y - invalidan el parámetro)
+        $username = str_replace(['.', '-'], '_', $username);
+        $username = preg_replace('/[^a-z0-9_]+/', '', $username) ?? '';
+        $username = trim($username, '_');
+        $username = preg_replace('/_+/', '_', $username) ?? $username;
         if (strlen($username) > 90) {
             $username = substr($username, 0, 90);
         }
