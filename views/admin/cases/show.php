@@ -234,62 +234,10 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         ));
         ?>
 
-        <form id="caseAccessSaveForm" method="post" action="/admin/cases/update" class="stack">
+        <form id="caseAccessSaveForm" method="post" action="/admin/cases/update" class="hidden-form">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
-
-            <div class="case-access-row">
-                <label>Folio / ID<input name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
-                <label>Clave<input name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
-                <div class="case-inline-actions">
-                    <?php if (!empty($item['uses_inventory']) && !$hasInventoryAssigned): ?>
-                        <button class="btn btn-ghost" type="submit" form="caseAssignInventoryForm"
-                                onclick="return confirm('¿Asignar un código de inventario y enviar acceso al alumno?');">
-                            Asignar código
-                        </button>
-                    <?php endif; ?>
-                    <button class="btn btn-ghost" type="submit" form="caseResendAccessForm"
-                            onclick="return confirm('¿Reenviar al alumno el correo con folio/clave actuales?');">
-                        Reenviar acceso
-                    </button>
-                </div>
-            </div>
-
-            <?php if ($requiresZoom): ?>
-                <div class="case-access-row">
-                    <label class="field-wide">Zoom<input name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
-                </div>
-            <?php endif; ?>
-            <?php if ($isLinguaskillCase): ?>
-                <div class="case-access-row">
-                    <label>Doc prep (sin acceso)<input name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
-                    <label>Doc con acceso / token<input name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>
-                </div>
-            <?php endif; ?>
-
-            <div class="case-access-row">
-                <label>Moodle user<input name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
-                <label>Moodle password
-                    <input name="moodle_password" value="<?= e($moodlePassVal) ?>">
-                    <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
-                </label>
-                <div class="case-inline-actions">
-                    <button class="btn btn-ghost" type="submit" form="caseMoodleEnrolForm"
-                            onclick="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>? Se avisará al alumno por correo.');">
-                        Sincronizar Moodle
-                    </button>
-                    <button class="btn btn-ghost" type="submit" form="caseMoodleResetForm"
-                            onclick="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y avisar al alumno por correo?');">
-                        Restablecer contraseña
-                    </button>
-                </div>
-            </div>
-
-            <div class="admin-ficha-actions">
-                <button class="btn" type="submit">Guardar credenciales</button>
-            </div>
         </form>
-
         <form id="caseAssignInventoryForm" method="post" action="/admin/cases/assign-inventory" class="hidden-form">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
@@ -306,6 +254,57 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
         </form>
+
+        <div class="case-access-row">
+            <label>Folio / ID<input form="caseAccessSaveForm" name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
+            <label>Clave<input form="caseAccessSaveForm" name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
+            <div class="case-inline-actions">
+                <?php if (!empty($item['uses_inventory']) && !$hasInventoryAssigned): ?>
+                    <button class="btn btn-ghost" type="submit" form="caseAssignInventoryForm"
+                            onclick="return confirm('¿Asignar un código de inventario y enviar acceso al alumno?');">
+                        Asignar código
+                    </button>
+                <?php endif; ?>
+                <button class="btn btn-ghost" type="submit" form="caseResendAccessForm"
+                        onclick="return confirm('¿Reenviar al alumno el correo con folio/clave actuales?');">
+                    Reenviar acceso
+                </button>
+            </div>
+        </div>
+
+        <?php if ($requiresZoom): ?>
+            <div class="case-access-row">
+                <label class="field-wide">Zoom<input form="caseAccessSaveForm" name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
+            </div>
+        <?php endif; ?>
+        <?php if ($isLinguaskillCase): ?>
+            <div class="case-access-row">
+                <label>Doc prep (sin acceso)<input form="caseAccessSaveForm" name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+                <label>Doc con acceso / token<input form="caseAccessSaveForm" name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>
+            </div>
+        <?php endif; ?>
+
+        <div class="case-access-row">
+            <label>Moodle user<input form="caseAccessSaveForm" name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
+            <label>Moodle password
+                <input form="caseAccessSaveForm" name="moodle_password" value="<?= e($moodlePassVal) ?>">
+                <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
+            </label>
+            <div class="case-inline-actions">
+                <button class="btn btn-ghost" type="submit" form="caseMoodleEnrolForm"
+                        onclick="return confirm('¿Crear/matricular en Moodle con usuario y clave <?= e($moodleDefaultPass) ?>? Se avisará al alumno por correo.');">
+                    Sincronizar Moodle
+                </button>
+                <button class="btn btn-ghost" type="submit" form="caseMoodleResetForm"
+                        onclick="return confirm('¿Restablecer la contraseña Moodle a <?= e($moodleDefaultPass) ?> y avisar al alumno por correo?');">
+                    Restablecer contraseña
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-ficha-actions">
+            <button class="btn" type="submit" form="caseAccessSaveForm">Guardar credenciales</button>
+        </div>
 
         <?php if (!empty($item['uses_inventory'])): ?>
             <p class="muted" style="margin-top:0.75rem">
