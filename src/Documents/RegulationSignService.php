@@ -6,6 +6,7 @@ namespace App\Documents;
 
 use App\Catalog\CatalogRepository;
 use App\Config\Env;
+use App\Support\PdfDocumentMerger;
 use App\Support\SimplePdfWriter;
 use App\Support\Uploader;
 
@@ -64,7 +65,6 @@ final class RegulationSignService
             $signedAt,
             $mode,
             $ip,
-            $ua,
             $appUrl,
             $signatureAbs
         );
@@ -88,7 +88,7 @@ final class RegulationSignService
         $this->repo->addCaseAttachment(
             $caseId,
             'regulation_signed_pdf',
-            'Reglamento firmado digitalmente — ' . $signerName,
+            'Reglamento con hoja de firma — ' . $signerName,
             $pdfRel,
             $userId
         );
@@ -102,9 +102,8 @@ final class RegulationSignService
             );
         }
 
-        // Constancia HTML de respaldo
         try {
-            $html = $this->buildHtmlReceipt($caseId, $case, $doc, $signerName, $signedAt, $mode, $ip, $ua, $signatureRel);
+            $html = $this->buildHtmlReceipt($caseId, $case, $doc, $signerName, $signedAt, $mode, $ip, $ua, $signatureRel, $appUrl);
             $htmlRel = $this->storeBinary('cases/' . $caseId, $html, 'html', 'regulation-signature');
             $this->repo->addCaseAttachment(
                 $caseId,
@@ -132,7 +131,6 @@ final class RegulationSignService
         string $signedAt,
         string $mode,
         string $ip,
-        string $ua,
         string $appUrl,
         ?string $signatureAbs
     ): string {
@@ -141,37 +139,24 @@ final class RegulationSignService
             . (string) ($case['student_last_name_p'] ?? '') . ' '
             . (string) ($case['student_last_name_m'] ?? '')
         );
+        $studentName = $full !== '' ? $full : $signerName;
+
         $lines = [
-            'INSTITUTO DOCEO — PDF FIRMADO / EVIDENCIA DE FIRMA',
-            'BE DIFFERENT, BE BETTER!',
+            'Hoja de firma digital',
             '',
-            'ESTE ARCHIVO ES LA CONSTANCIA FIRMADA (no el reglamento en blanco).',
-            'El alumno firmo digitalmente el reglamento sin imprimir ni escanear.',
-            'Adjunta este PDF al proveedor junto con la solicitud de registro.',
+            'Esta hoja incluye la firma digital del alumno quien declara haber leido',
+            'el reglamento completo y aceptar sus terminos para presentar la',
+            'certificacion indicada.',
             '',
-            'Caso PDV: #' . $caseId,
-            'Certificacion: ' . (string) ($case['certification_name'] ?? '') . ' (' . (string) ($case['certification_code'] ?? '') . ')',
+            'Certificacion: ' . (string) ($case['certification_name'] ?? '')
+                . ' (' . (string) ($case['certification_code'] ?? '') . ')',
             'Proveedor: ' . (string) ($case['provider_name'] ?? ''),
-            'Alumno: ' . ($full !== '' ? $full : $signerName),
+            'Alumno: ' . $studentName,
             'Correo: ' . (string) ($case['student_email'] ?? ''),
-            'CURP: ' . (string) ($case['student_curp'] ?? '—'),
-            '',
-            'Reglamento firmado: ' . (string) ($doc['title'] ?? 'Reglamento del examen'),
-            'Codigo doc: ' . (string) ($doc['code'] ?? '—') . '  Version: ' . (string) ($doc['version'] ?? '—'),
-            'Archivo original (lectura): ' . (string) ($doc['file_path'] ?? '—'),
-            '',
-            'Declaracion:',
-            'Declaro haber leido el reglamento completo y aceptar sus terminos',
-            'para presentar la certificacion indicada.',
-            '',
             'Firmado como: ' . $signerName,
-            'Modo de firma: ' . ($mode === 'draw' ? 'Firma dibujada en pantalla' : 'Nombre escrito (firma tipografica)'),
             'Fecha/hora: ' . $signedAt . ' (America/Mexico_City)',
             'IP: ' . ($ip !== '' ? $ip : '—'),
-            'Navegador: ' . ($ua !== '' ? mb_substr($ua, 0, 90) : '—'),
-            '',
             'Portal: ' . $appUrl,
-            'Ver caso: ' . $appUrl . '/admin/cases/view?id=' . $caseId,
             '',
             '--- Firma del alumno ---',
         ];
@@ -185,11 +170,44 @@ final class RegulationSignService
         if ($signatureAbs) {
             $writer->setPngImage($signatureAbs, 320, 100);
         }
-        $rel = 'uploads/cases/' . $caseId . '/regulation-signed-' . date('YmdHis') . '.pdf';
-        $abs = dirname(__DIR__, 2) . '/storage/' . $rel;
-        $writer->write($abs);
 
-        return $rel;
+        $stampRel = 'uploads/cases/' . $caseId . '/regulation-signature-page-' . date('YmdHis') . '.pdf';
+        $stampAbs = dirname(__DIR__, 2) . '/storage/' . $stampRel;
+        $writer->write($stampAbs);
+
+        $finalRel = 'uploads/cases/' . $caseId . '/regulation-signed-' . date('YmdHis') . '.pdf';
+        $finalAbs = dirname(__DIR__, 2) . '/storage/' . $finalRel;
+
+        $originalAbs = null;
+        $originalRel = trim((string) ($doc['file_path'] ?? ''));
+        if ($originalRel !== '') {
+            $candidate = Uploader::absolutePath($originalRel);
+            if ($candidate !== null && PdfDocumentMerger::isPdfFile($candidate)) {
+                $originalAbs = $candidate;
+            }
+        }
+
+        if ($originalAbs !== null) {
+            try {
+                PdfDocumentMerger::mergeToFile([$originalAbs, $stampAbs], $finalAbs);
+                @unlink($stampAbs);
+
+                return $finalRel;
+            } catch (\Throwable $e) {
+                error_log('[PDV] No se pudo anexar hoja de firma al reglamento: ' . $e->getMessage());
+                // Fallback: solo la hoja de firma
+            }
+        }
+
+        // Sin PDF original usable: entregar la hoja de firma como evidencia.
+        if (!@rename($stampAbs, $finalAbs)) {
+            if (!@copy($stampAbs, $finalAbs)) {
+                throw new \RuntimeException('No se pudo guardar el PDF firmado.');
+            }
+            @unlink($stampAbs);
+        }
+
+        return $finalRel;
     }
 
     /** @param array<string,mixed> $case @param array<string,mixed>|null $doc */
@@ -202,30 +220,41 @@ final class RegulationSignService
         string $mode,
         string $ip,
         string $ua,
-        ?string $signatureRel
+        ?string $signatureRel,
+        string $appUrl
     ): string {
+        $full = trim(
+            (string) ($case['student_name'] ?? '') . ' '
+            . (string) ($case['student_last_name_p'] ?? '') . ' '
+            . (string) ($case['student_last_name_m'] ?? '')
+        );
+        $studentName = $full !== '' ? $full : $signerName;
         $img = '';
         if ($signatureRel) {
             $img = '<p><img src="/media?f=' . htmlspecialchars(rawurlencode($signatureRel), ENT_QUOTES, 'UTF-8')
                 . '" alt="Firma" style="max-width:320px;border:1px solid #ccc;background:#fff"></p>';
+        } elseif ($mode === 'type') {
+            $img = '<p style="font-family:cursive;font-size:1.4rem">'
+                . htmlspecialchars($signerName, ENT_QUOTES, 'UTF-8') . '</p>';
         }
 
-        return '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Firma de reglamento</title></head><body>'
-            . '<h1>Constancia de firma digital de reglamento</h1>'
-            . '<p><strong>Caso:</strong> #' . (int) $caseId . '</p>'
-            . '<p><strong>Alumno:</strong> ' . htmlspecialchars((string) ($case['student_name'] ?? ''), ENT_QUOTES, 'UTF-8')
-            . ' ' . htmlspecialchars((string) ($case['student_last_name_p'] ?? ''), ENT_QUOTES, 'UTF-8')
-            . ' (' . htmlspecialchars((string) ($case['student_email'] ?? ''), ENT_QUOTES, 'UTF-8') . ')</p>'
-            . '<p><strong>Certificación:</strong> ' . htmlspecialchars((string) ($case['certification_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
+        return '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Hoja de firma</title></head><body>'
+            . '<h1>Hoja de firma digital</h1>'
+            . '<p>Esta hoja incluye la firma digital del alumno quien declara haber leído el reglamento completo '
+            . 'y aceptar sus términos para presentar la certificación indicada.</p>'
+            . '<p><strong>Certificación:</strong> ' . htmlspecialchars((string) ($case['certification_name'] ?? ''), ENT_QUOTES, 'UTF-8')
+            . ' (' . htmlspecialchars((string) ($case['certification_code'] ?? ''), ENT_QUOTES, 'UTF-8') . ')</p>'
+            . '<p><strong>Proveedor:</strong> ' . htmlspecialchars((string) ($case['provider_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><strong>Alumno:</strong> ' . htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><strong>Correo:</strong> ' . htmlspecialchars((string) ($case['student_email'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><strong>Firmado como:</strong> ' . htmlspecialchars($signerName, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><strong>Fecha/hora:</strong> ' . htmlspecialchars($signedAt, ENT_QUOTES, 'UTF-8') . ' (America/Mexico_City)</p>'
+            . '<p><strong>IP:</strong> ' . htmlspecialchars($ip !== '' ? $ip : '—', ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><strong>Portal:</strong> ' . htmlspecialchars($appUrl, ENT_QUOTES, 'UTF-8') . '</p>'
             . '<p><strong>Documento:</strong> ' . htmlspecialchars((string) ($doc['title'] ?? 'Reglamento'), ENT_QUOTES, 'UTF-8')
             . ' v' . htmlspecialchars((string) ($doc['version'] ?? ''), ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<p><strong>Firmado como:</strong> ' . htmlspecialchars($signerName, ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<p><strong>Modo:</strong> ' . htmlspecialchars($mode, ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<p><strong>Fecha/hora:</strong> ' . htmlspecialchars($signedAt, ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<p><strong>IP:</strong> ' . htmlspecialchars($ip, ENT_QUOTES, 'UTF-8') . '</p>'
-            . '<p><strong>Navegador:</strong> ' . htmlspecialchars($ua, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p><em>Caso #' . (int) $caseId . ' · modo ' . htmlspecialchars($mode, ENT_QUOTES, 'UTF-8') . '</em></p>'
             . $img
-            . '<p>El alumno declaró haber leído y aceptado el reglamento antes de continuar.</p>'
             . '</body></html>';
     }
 
@@ -250,9 +279,7 @@ final class RegulationSignService
             return $bin;
         }
 
-        // Convertir JPEG/WebP a PNG (el PDF de evidencia embebe PNG)
         if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) {
-            // Sin GD: si ya es PNG válido ok; si no, rechazar
             return str_starts_with($bin, "\x89PNG") ? $bin : null;
         }
         $img = @imagecreatefromstring($bin);
