@@ -147,6 +147,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <p class="muted">El alumno aún no ha firmado el reglamento de esta certificación.</p>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
 
     <?php if ($tab === 'accesos'): ?>
     <div class="admin-ficha-panel is-active">
