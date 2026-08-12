@@ -8,6 +8,9 @@
         <a class="btn" href="/admin/providers/create">Nuevo proveedor</a>
     </div>
 
+    <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
+    <?php if (!empty($info)): ?><div class="alert alert-ok"><?= e($info) ?></div><?php endif; ?>
+
     <div class="providers-grid">
         <?php foreach ($items as $item): ?>
             <?php
@@ -28,6 +31,7 @@
                         <small>Convenio: <?= e($item['code']) ?> · <?= (int)($item['certifications_count'] ?? 0) ?> certificaciones</small>
                     </span>
                 </a>
+                <div class="provider-tile-actions">
                 <form method="post" action="/admin/providers/toggle-active" class="provider-tile-eye"
                       onsubmit="return confirm(<?= json_encode('¿Seguro que quieres ' . ($active ? 'desactivar' : 'activar') . ' a ' . $item['name'] . '?', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
                     <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
@@ -39,6 +43,16 @@
                         <?php endif; ?>
                     </button>
                 </form>
+                <?php if ((int)($item['certifications_count'] ?? 0) === 0): ?>
+                    <form method="post" action="/admin/providers/delete" class="provider-tile-delete"
+                          onsubmit="return confirm(<?= json_encode('¿Eliminar permanentemente a «' . $item['name'] . '» (convenio ' . $item['code'] . ')? Solo si no tiene certificaciones.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                        <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                        <button type="submit" class="eye-btn eye-btn--danger" title="Eliminar" aria-label="Eliminar">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                    </form>
+                <?php endif; ?>
+                </div>
             </article>
         <?php endforeach; ?>
         <?php if (!$items): ?>

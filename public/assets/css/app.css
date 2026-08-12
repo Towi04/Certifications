@@ -1099,18 +1099,28 @@ body.asset-lightbox-open { overflow: hidden; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .provider-tile-body small { color: var(--muted); font-size: 0.82rem; }
-.provider-tile-eye {
-  display: grid; place-items: center;
+.provider-tile-actions {
+  display: flex;
+  flex-direction: column;
   border-left: 1px solid rgba(49, 82, 133, 0.1);
-  margin: 0; padding: 0 0.65rem;
   background: rgba(49, 82, 133, 0.03);
 }
+.provider-tile-eye,
+.provider-tile-delete {
+  display: grid; place-items: center;
+  margin: 0; padding: 0.25rem 0.65rem;
+  background: transparent;
+  border: 0;
+}
+.provider-tile-delete { border-top: 1px solid rgba(49, 82, 133, 0.08); }
 .eye-btn {
   border: 0; background: transparent; color: var(--blue);
   width: 40px; height: 40px; border-radius: 10px; cursor: pointer;
   display: grid; place-items: center;
 }
 .eye-btn:hover { background: rgba(49, 82, 133, 0.12); }
+.eye-btn--danger { color: #a33; }
+.eye-btn--danger:hover { background: rgba(170, 40, 40, 0.12); }
 .eye-btn svg { width: 22px; height: 22px; }
 .provider-tile.is-inactive .eye-btn { color: var(--muted); }
 

@@ -305,6 +305,27 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/providers/delete', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $item = $repo()->provider($id);
+            if (!$item) {
+                flash('error', 'Proveedor no encontrado.');
+                header('Location: /admin/providers');
+                exit;
+            }
+            try {
+                $repo()->deleteProvider($id);
+                flash('info', 'Proveedor «' . $item['name'] . '» eliminado.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                header('Location: /admin/providers/edit?id=' . $id);
+                exit;
+            }
+            header('Location: /admin/providers');
+            exit;
+        });
+
         $router->post('/admin/providers/save', static function () use ($repo, $providerTabUrl): void {
             Auth::requireAdmin();
             $id = (int) ($_POST['id'] ?? 0) ?: null;

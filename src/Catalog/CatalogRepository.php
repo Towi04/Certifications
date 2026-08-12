@@ -100,6 +100,74 @@ final class CatalogRepository
             ->execute([$active ? 1 : 0, $id]);
     }
 
+    /**
+     * Elimina un proveedor sin certificaciones ni casos.
+     * Sirve para limpiar duplicados del seed (mismo nombre, distinto código de convenio).
+     */
+    public function deleteProvider(int $id): void
+    {
+        $provider = $this->provider($id);
+        if (!$provider) {
+            throw new \RuntimeException('Proveedor no encontrado.');
+        }
+
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM certifications WHERE provider_id = ?');
+        $stmt->execute([$id]);
+        $certCount = (int) $stmt->fetchColumn();
+        if ($certCount > 0) {
+            throw new \RuntimeException(
+                'No se puede eliminar: tiene ' . $certCount . ' certificación(es). '
+                . 'Muévelas a otro proveedor o elimínalas primero.'
+            );
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM certification_cases c
+             JOIN protocols pr ON pr.id = c.protocol_id
+             WHERE pr.provider_id = ?'
+        );
+        $stmt->execute([$id]);
+        $caseCount = (int) $stmt->fetchColumn();
+        if ($caseCount > 0) {
+            throw new \RuntimeException(
+                'No se puede eliminar: hay ' . $caseCount . ' caso(s) ligados a protocolos de este proveedor.'
+            );
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            // Protocolos sin casos: borrar pasos y luego protocolos
+            $protoIds = $this->pdo->prepare('SELECT id FROM protocols WHERE provider_id = ?');
+            $protoIds->execute([$id]);
+            $ids = $protoIds->fetchAll(\PDO::FETCH_COLUMN);
+            foreach ($ids as $pid) {
+                $pid = (int) $pid;
+                // Desvincular cursos que apunten al protocolo
+                try {
+                    $this->pdo->prepare('UPDATE courses SET protocol_id = NULL WHERE protocol_id = ?')
+                        ->execute([$pid]);
+                } catch (\Throwable) {
+                }
+                $this->pdo->prepare('DELETE FROM protocol_steps WHERE protocol_id = ?')->execute([$pid]);
+                $this->pdo->prepare('DELETE FROM protocols WHERE id = ?')->execute([$pid]);
+            }
+
+            // Assets del proveedor
+            try {
+                $this->pdo->prepare(
+                    "DELETE FROM product_assets WHERE owner_type = 'provider' AND owner_id = ?"
+                )->execute([$id]);
+            } catch (\Throwable) {
+            }
+
+            $this->pdo->prepare('DELETE FROM providers WHERE id = ?')->execute([$id]);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw new \RuntimeException('No se pudo eliminar el proveedor: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
     public function providerIconPath(?array $provider): ?string
     {
         if (!$provider) {
