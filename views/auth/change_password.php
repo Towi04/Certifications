@@ -1,5 +1,5 @@
 <section class="auth-card">
-    <p class="brand-mark"><img src="/assets/brand/escudo.svg" width="48" height="58" alt="Instituto DOCEO"></p>
+    <p class="brand-mark"><img src="/assets/brand/escudo.png" width="48" height="58" alt="Instituto DOCEO"></p>
     <h1>Cambia tu contraseña</h1>
     <p class="muted">
         Por seguridad debes definir una contraseña nueva antes de continuar.

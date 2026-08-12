@@ -13,7 +13,7 @@ $sandbox = filter_var(\App\Config\Env::get('OPENPAY_SANDBOX', 'true') ?? 'true',
 ?>
 <article class="spei-voucher">
     <header class="spei-voucher__head">
-        <img class="spei-voucher__logo" src="/assets/brand/logo-doceo.svg" width="280" height="93" alt="Instituto DOCEO">
+        <img class="spei-voucher__logo" src="/assets/brand/logo-doceo.png" width="280" height="93" alt="Instituto DOCEO">
         <div class="spei-voucher__meta">
             <p class="eyebrow">Ficha de pago SPEI</p>
             <p class="muted">Transferencia interbancaria</p>

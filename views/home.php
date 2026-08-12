@@ -4,31 +4,13 @@ $groups = $groups ?? [];
 $courses = $courses ?? [];
 ?>
 <section class="store-hero">
-    <img class="store-hero__logo" src="/assets/brand/logo-doceo.svg" width="320" height="107" alt="Instituto DOCEO">
-    <p class="eyebrow">Certificaciones</p>
     <h1>Elige tu certificación</h1>
-    <div class="actions">
-        <a class="btn" href="#catalogo">Ver catálogo</a>
-        <?php if (\App\Auth\Auth::check()): ?>
-            <?php $u = \App\Auth\Auth::user(); $role = $u['role'] ?? ''; ?>
-            <?php if ($role === 'student'): ?>
-                <a class="btn btn-ghost" href="/alumno">Mi seguimiento</a>
-            <?php elseif (\App\Auth\Auth::isStaffRole($role)): ?>
-                <a class="btn btn-ghost" href="/admin">Administración</a>
-            <?php elseif ($role === 'partner'): ?>
-                <a class="btn btn-ghost" href="/partner">Catálogo TR</a>
-            <?php endif; ?>
-        <?php else: ?>
-            <a class="btn btn-ghost" href="/login">Ya tengo cuenta</a>
-        <?php endif; ?>
-    </div>
 </section>
 
 <?php if ($featured): ?>
 <section class="store-section" id="estrellas">
     <div class="section-head">
         <h2>Productos estrella</h2>
-        <p class="muted">ELET, ITEP, TOEFL, Linguaskill, Excel y más destacados.</p>
     </div>
     <div class="store-featured-grid">
         <?php foreach ($featured as $item): ?>
@@ -56,7 +38,6 @@ $courses = $courses ?? [];
 <section class="store-section" id="catalogo">
     <div class="section-head">
         <h2>Catálogo por certificadora</h2>
-        <p class="muted">Todas las certificaciones publicadas, agrupadas por empresa (incluye las estrellas).</p>
     </div>
 
     <?php if (!$groups && !$featured): ?>
@@ -101,8 +82,18 @@ $courses = $courses ?? [];
     </div>
     <div class="store-grid">
         <?php foreach ($courses as $course): ?>
+            <?php
+            $platformRaw = strtolower(trim((string) ($course['platform_type'] ?? '')));
+            $platformLabel = match ($platformRaw) {
+                'moodle' => 'Campus',
+                '' => '',
+                default => (string) ($course['platform_type'] ?? ''),
+            };
+            ?>
             <article class="store-card store-card--course">
-                <p class="eyebrow"><?= e($course['platform_type']) ?></p>
+                <?php if ($platformLabel !== ''): ?>
+                    <p class="eyebrow"><?= e($platformLabel) ?></p>
+                <?php endif; ?>
                 <h4><?= e($course['name']) ?></h4>
                 <p class="muted"><?= e(mb_substr(trim(strip_tags((string)($course['description'] ?? $course['access_notes'] ?? ''))), 0, 120)) ?></p>
             </article>

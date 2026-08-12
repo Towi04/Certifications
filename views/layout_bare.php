@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= e(($title ?? 'PDV') . ' · ' . app_name()) ?></title>
-    <link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
+    
     <link rel="icon" href="/assets/brand/favicon.png" type="image/png" sizes="64x64">
     <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
