@@ -74,6 +74,17 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
         <a class="btn btn-ghost" href="/admin/providers">Volver al listado</a>
     </header>
 
+    <?php if ($item): ?>
+        <div class="actions" style="margin:0 0 1rem;flex-wrap:wrap;gap:0.5rem">
+            <form method="post" action="/admin/providers/delete"
+                  onsubmit="return confirm(<?= json_encode('¿Eliminar permanentemente a «' . ($item['name'] ?? '') . '»? Solo funciona si no tiene certificaciones ni casos.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <button type="submit" class="btn btn-ghost">Eliminar proveedor</button>
+            </form>
+            <span class="muted" style="align-self:center">Solo si no tiene certificaciones (útil para quitar duplicados del seed).</span>
+        </div>
+    <?php endif; ?>
+
     <nav class="provider-tabs" aria-label="Secciones del proveedor">
         <?php foreach ($tabs as $key => $label): ?>
             <?php if ($item): ?>
