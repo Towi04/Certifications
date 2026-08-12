@@ -2304,6 +2304,7 @@ final class AdminRoutes
         $router->get('/admin/courses/edit', static function () use ($repo): void {
             Auth::requireAdmin();
             $repo()->ensureCourseAccessTables();
+            $repo()->ensureProductAssetsSchema();
             $id = (int) ($_GET['id'] ?? 0);
             $item = $repo()->course($id);
             if (!$item) {
@@ -2315,6 +2316,8 @@ final class AdminRoutes
                 'title' => 'Editar curso',
                 'item' => $item,
                 'protocols' => $repo()->protocols(true),
+                'assets' => $repo()->assets('course', $id),
+                'assetTypes' => CatalogRepository::assetTypesFor('course'),
                 'error' => flash('error'),
             ]);
         });
@@ -2817,6 +2820,7 @@ final class AdminRoutes
             Auth::requireAdmin();
             $id = (int) ($_GET['id'] ?? 0);
             $repo()->ensureUksFlowSchemaAndSeeds();
+            $repo()->ensureProductAssetsSchema();
             $item = $repo()->certification($id);
             if (!$item) {
                 flash('error', 'Certificación no encontrada.');
@@ -3366,6 +3370,7 @@ final class AdminRoutes
 
         $router->post('/admin/assets/upload', static function () use ($repo): void {
             Auth::requireAdmin();
+            $repo()->ensureProductAssetsSchema();
             $ownerType = (string) ($_POST['owner_type'] ?? '');
             $ownerId = (int) ($_POST['owner_id'] ?? 0);
             $assetType = (string) ($_POST['asset_type'] ?? 'other');
@@ -3386,10 +3391,18 @@ final class AdminRoutes
                 exit;
             }
             try {
-                if (empty($_FILES['file'])) {
-                    throw new \RuntimeException('Selecciona un archivo.');
+                if (\App\Support\YoutubeUrl::isYoutubeAssetType($assetType)) {
+                    $youtube = trim((string) ($_POST['youtube_url'] ?? ''));
+                    if ($youtube === '') {
+                        throw new \RuntimeException('Pega el enlace de YouTube del video.');
+                    }
+                    $path = \App\Support\YoutubeUrl::normalize($youtube);
+                } else {
+                    if (empty($_FILES['file']) || (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                        throw new \RuntimeException('Selecciona un archivo.');
+                    }
+                    $path = Uploader::store($_FILES['file'], $ownerType);
                 }
-                $path = Uploader::store($_FILES['file'], $ownerType);
                 $repo()->saveAsset([
                     'owner_type' => $ownerType,
                     'owner_id' => $ownerId,
@@ -3398,7 +3411,7 @@ final class AdminRoutes
                     'title' => trim((string) ($_POST['title'] ?? '')) ?: null,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ]);
-                flash('info', 'Archivo subido.');
+                flash('info', $assetType === 'youtube' ? 'Video de YouTube agregado.' : 'Archivo subido.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
@@ -3415,7 +3428,10 @@ final class AdminRoutes
             }
             $asset = $repo()->deleteAsset($assetId);
             if ($asset) {
-                Uploader::delete((string) $asset['file_path']);
+                $path = (string) ($asset['file_path'] ?? '');
+                if ($path !== '' && !\App\Support\YoutubeUrl::looksLikeUrl($path)) {
+                    Uploader::delete($path);
+                }
                 flash('info', 'Asset eliminado.');
             } else {
                 flash('error', 'Asset no encontrado.');

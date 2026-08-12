@@ -26,7 +26,14 @@ $findAsset = static function (array $list, string $type): ?array {
     return null;
 };
 $examLogo = $findAsset($assets, 'exam_logo') ?? $findAsset($assets, 'badge') ?? $findAsset($assets, 'cover');
-$samples = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['certificate_sample', 'badge', 'cover', 'exam_logo'], true)));
+$samples = array_values(array_filter(
+    $assets,
+    static fn ($a) => in_array($a['asset_type'] ?? '', ['certificate_sample', 'badge', 'cover', 'exam_logo', 'youtube'], true)
+));
+$youtubeAssets = array_values(array_filter(
+    $assets,
+    static fn ($a) => \App\Support\ProductAssetView::isYoutube($a)
+));
 $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_points_json'] ?? null);
 ?>
 <section class="page-head">
@@ -101,16 +108,27 @@ $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_po
             Al adquirir capturas tus datos de candidato. Creamos tu acceso automáticamente y te enviamos el correo.
         </p>
         <?php if ($samples): ?>
-            <h3>Visuales</h3>
-            <div class="asset-gallery">
-                <?php foreach ($samples as $a): ?>
-                    <a class="asset-thumb" href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener">
-                        <?php if (preg_match('/\.(jpe?g|png|gif|webp)$/i', (string)$a['file_path'])): ?>
-                            <img src="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" alt="">
-                        <?php else: ?>
-                            <span><?= e($a['title'] ?: $a['asset_type']) ?></span>
-                        <?php endif; ?>
-                    </a>
+            <?php
+            $galleryAssets = $samples;
+            $galleryTitle = 'Visuales';
+            require __DIR__ . '/../partials/asset_gallery.php';
+            ?>
+        <?php endif; ?>
+        <?php if ($youtubeAssets): ?>
+            <h3>Videos</h3>
+            <div class="asset-youtube-embeds">
+                <?php foreach ($youtubeAssets as $yt): ?>
+                    <?php $embed = \App\Support\YoutubeUrl::embedUrl((string) ($yt['file_path'] ?? '')); ?>
+                    <?php if ($embed): ?>
+                        <div class="asset-youtube-embed">
+                            <?php if (!empty($yt['title'])): ?>
+                                <p class="muted"><?= e((string) $yt['title']) ?></p>
+                            <?php endif; ?>
+                            <iframe src="<?= e($embed) ?>" title="<?= e((string) ($yt['title'] ?? 'Video')) ?>"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    allowfullscreen loading="lazy"></iframe>
+                        </div>
+                    <?php endif; ?>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
@@ -118,9 +136,17 @@ $valuePoints = \App\Catalog\CatalogRepository::decodeValuePoints($item['value_po
             <h3>Cursos relacionados</h3>
             <ul class="facts">
                 <?php foreach ($courses as $c): ?>
-                    <li><?= e($c['course_name']) ?></li>
+                    <li>
+                        <?php if (!empty($c['course_id'])): ?>
+                            <a href="/curso?id=<?= (int) $c['course_id'] ?>"><?= e($c['course_name']) ?></a>
+                        <?php else: ?>
+                            <?= e($c['course_name']) ?>
+                        <?php endif; ?>
+                    </li>
                 <?php endforeach; ?>
             </ul>
         <?php endif; ?>
     </aside>
 </div>
+
+<script src="/assets/js/asset-lightbox.js?v=<?= e((string) (@filemtime(BASE_PATH . '/public/assets/js/asset-lightbox.js') ?: time())) ?>" defer></script>

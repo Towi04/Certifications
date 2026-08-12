@@ -39,6 +39,21 @@ final class PublicRoutes
             ]);
         });
 
+        $router->get('/curso', static function () use ($repo): void {
+            $id = (int) ($_GET['id'] ?? 0);
+            $item = $id > 0 ? $repo()->course($id) : null;
+            if (!$item || !(int) ($item['is_active'] ?? 0)) {
+                http_response_code(404);
+                echo 'Curso no encontrado.';
+                exit;
+            }
+            view('store/course', [
+                'title' => (string) ($item['name'] ?? 'Curso'),
+                'item' => $item,
+                'assets' => $repo()->assets('course', (int) $item['id']),
+            ]);
+        });
+
         $router->get('/adquirir', static function () use ($repo): void {
             $slug = trim((string) ($_GET['slug'] ?? ''));
             $item = $slug !== '' ? $repo()->certificationBySlug($slug) : null;

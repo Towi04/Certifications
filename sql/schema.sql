@@ -402,7 +402,7 @@ CREATE TABLE IF NOT EXISTS product_assets (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   owner_type ENUM('provider', 'certification', 'course', 'agreement') NOT NULL,
   owner_id BIGINT UNSIGNED NOT NULL,
-  asset_type ENUM('provider_logo', 'exam_logo', 'certificate_sample', 'badge', 'syllabus_pdf', 'regulation_pdf', 'cover', 'other') NOT NULL,
+  asset_type ENUM('provider_logo', 'exam_logo', 'course_logo', 'certificate_sample', 'badge', 'syllabus_pdf', 'regulation_pdf', 'cover', 'youtube', 'other') NOT NULL,
   file_path VARCHAR(255) NOT NULL,
   title VARCHAR(190) NULL,
   sort_order INT NOT NULL DEFAULT 0,

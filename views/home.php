@@ -91,11 +91,18 @@ $courses = $courses ?? [];
             };
             ?>
             <article class="store-card store-card--course">
+                <a class="store-card-link" href="/curso?id=<?= (int) $course['id'] ?>">
+                <?php if (!empty($course['course_logo_path'])): ?>
+                    <div class="store-card-logo">
+                        <img src="/media?f=<?= e(rawurlencode((string) $course['course_logo_path'])) ?>" alt="">
+                    </div>
+                <?php endif; ?>
                 <?php if ($platformLabel !== ''): ?>
                     <p class="eyebrow"><?= e($platformLabel) ?></p>
                 <?php endif; ?>
                 <h4><?= e($course['name']) ?></h4>
                 <p class="muted"><?= e(mb_substr(trim(strip_tags((string)($course['description'] ?? $course['access_notes'] ?? ''))), 0, 120)) ?></p>
+                </a>
             </article>
         <?php endforeach; ?>
     </div>

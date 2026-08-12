@@ -762,16 +762,118 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
   margin: 0.75rem 0 1.25rem;
 }
 .asset-thumb {
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   min-height: 110px; padding: 0.5rem;
   border-radius: 12px; border: 1px solid rgba(49, 82, 133, 0.15);
   background: rgba(255,255,255,0.85); text-decoration: none; color: var(--blue);
   font-size: 0.85rem; font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
 }
 .asset-thumb img {
   width: 100%; height: 110px; object-fit: contain;
 }
+.asset-thumb--video img { object-fit: cover; }
+.asset-thumb-play {
+  position: absolute;
+  inset: auto auto 0.55rem 0.55rem;
+  width: 2rem; height: 2rem;
+  border-radius: 999px;
+  background: rgba(49, 82, 133, 0.92);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+.asset-youtube-embeds { display: grid; gap: 1rem; margin: 0.75rem 0 1.25rem; }
+.asset-youtube-embed iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 12px;
+  background: #000;
+}
 .assets-panel h3 { margin-top: 0; }
+
+body.asset-lightbox-open { overflow: hidden; }
+.asset-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.asset-lightbox[hidden] { display: none !important; }
+.asset-lightbox__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+}
+.asset-lightbox__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(960px, 100%);
+  max-height: min(92vh, 900px);
+  background: #0f172a;
+  color: #fff;
+  border-radius: 18px;
+  padding: 1rem 1rem 1.1rem;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 0.65rem;
+}
+.asset-lightbox__stage {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.asset-lightbox__image {
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+}
+.asset-lightbox__video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  background: #000;
+}
+.asset-lightbox__caption {
+  margin: 0;
+  font-weight: 600;
+}
+.asset-lightbox__counter { margin: 0; opacity: 0.8; }
+.asset-lightbox__close,
+.asset-lightbox__nav {
+  position: absolute;
+  border: 0;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.asset-lightbox__close { top: 0.65rem; right: 0.65rem; }
+.asset-lightbox__nav--prev { left: 0.65rem; top: 50%; transform: translateY(-50%); }
+.asset-lightbox__nav--next { right: 0.65rem; top: 50%; transform: translateY(-50%); }
+.store-card--course .store-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  color: inherit;
+  text-decoration: none;
+  height: 100%;
+}
 
 /* —— Admin dashboard —— */
 .admin-hero {
