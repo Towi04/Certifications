@@ -8,6 +8,9 @@
         <a class="btn" href="/admin/providers/create">Nuevo proveedor</a>
     </div>
 
+    <?php if (!empty($error)): ?><div class="alert alert-error"><?= e($error) ?></div><?php endif; ?>
+    <?php if (!empty($info)): ?><div class="alert alert-ok"><?= e($info) ?></div><?php endif; ?>
+
     <div class="providers-grid">
         <?php foreach ($items as $item): ?>
             <?php
