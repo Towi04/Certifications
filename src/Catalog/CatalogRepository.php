@@ -3235,6 +3235,34 @@ final class CatalogRepository
         return $stmt->fetchAll();
     }
 
+    /**
+     * ¿Ya se envió al alumno un correo de datos de acceso (folio/clave/Moodle)?
+     */
+    public function caseAccessMailAlreadySent(int $caseId, ?string $preferredTemplate = null): bool
+    {
+        $templates = [
+            'uks_data',
+            'itep_data',
+            'toefl_data',
+            'linguaskill_prep',
+            'moodle_acceso',
+        ];
+        $preferred = trim((string) $preferredTemplate);
+        if ($preferred !== '' && !in_array($preferred, $templates, true)) {
+            $templates[] = $preferred;
+        }
+        $placeholders = implode(',', array_fill(0, count($templates), '?'));
+        $params = array_merge([$caseId], $templates);
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM case_mail_log
+             WHERE case_id = ? AND status = 'sent' AND template_code IN ($placeholders)
+             LIMIT 1"
+        );
+        $stmt->execute($params);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
     /** @return list<array<string, mixed>> */
     public function mailTemplates(bool $onlyActive = false): array
     {

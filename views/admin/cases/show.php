@@ -231,6 +231,11 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         $hasExamCreds = trim((string) ($item['folio_id'] ?? '')) !== ''
             && trim((string) ($item['access_key'] ?? '')) !== '';
         $hasInventoryAssigned = !empty($item['inventory_code_id']) || $hasExamCreds;
+        $accessMailSent = !empty($access_mail_sent);
+        $accessSendLabel = $accessMailSent ? 'Reenviar acceso' : 'Enviar acceso';
+        $accessSendConfirm = $accessMailSent
+            ? '¿Guardar folio/clave y reenviar el correo de acceso al alumno?'
+            : '¿Guardar folio/clave y enviar el correo de acceso al alumno?';
         $isLinguaskillCase = (bool) preg_match('/linguaskill/i', (string) (
             ($item['protocol_code'] ?? '') . ' '
             . ($item['protocol_name'] ?? '') . ' '
@@ -246,10 +251,6 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <input type="hidden" name="tab" value="accesos">
         </form>
         <form id="caseAssignInventoryForm" method="post" action="/admin/cases/assign-inventory" class="hidden-form">
-            <input type="hidden" name="case_id" value="<?= $caseId ?>">
-            <input type="hidden" name="tab" value="accesos">
-        </form>
-        <form id="caseResendAccessForm" method="post" action="/admin/cases/resend-access" class="hidden-form">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
         </form>
@@ -272,9 +273,10 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                         Asignar código
                     </button>
                 <?php endif; ?>
-                <button class="btn btn-ghost" type="submit" form="caseResendAccessForm"
-                        onclick="return confirm('¿Reenviar al alumno el correo con folio/clave actuales?');">
-                    Reenviar acceso
+                <button class="btn" type="submit" form="caseAccessSaveForm"
+                        formaction="/admin/cases/resend-access"
+                        onclick="return confirm(<?= json_encode($accessSendConfirm, JSON_UNESCAPED_UNICODE) ?>);">
+                    <?= e($accessSendLabel) ?>
                 </button>
             </div>
         </div>
@@ -295,7 +297,6 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <label>Moodle user<input form="caseAccessSaveForm" name="moodle_user" value="<?= e($moodleUserVal) ?>" placeholder="se propone desde el e-mail"></label>
             <label>Moodle password
                 <input form="caseAccessSaveForm" name="moodle_password" value="<?= e($moodlePassVal) ?>">
-                <small class="muted">Clave estándar: <code><?= e($moodleDefaultPass) ?></code>. Al sincronizar se usa siempre esta clave en Moodle y en el correo.</small>
             </label>
             <div class="case-inline-actions">
                 <button class="btn btn-ghost" type="submit" form="caseMoodleEnrolForm"
@@ -310,7 +311,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         </div>
 
         <div class="admin-ficha-actions">
-            <button class="btn" type="submit" form="caseAccessSaveForm">Guardar credenciales</button>
+            <button class="btn btn-ghost" type="submit" form="caseAccessSaveForm">Guardar credenciales</button>
         </div>
 
         <?php if (!empty($item['uses_inventory'])): ?>
@@ -320,13 +321,17 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                     Código asignado #<?= (int)$item['inventory_code_id'] ?>
                     (folio <code><?= e($item['folio_id'] ?? '') ?></code>).
                 <?php elseif ($hasExamCreds): ?>
-                    Folio/clave capturados manualmente. Usa <strong>Reenviar acceso</strong> para notificar.
+                    Folio/clave capturados. Usa <strong><?= e($accessSendLabel) ?></strong> para notificar (se guardan al enviar).
                 <?php else: ?>
-                    Aún sin código — carga stock en <a href="/admin/inventory">Inventario</a> y usa <strong>Asignar código</strong>.
+                    Aún sin código — carga stock en <a href="/admin/inventory">Inventario</a> y usa <strong>Asignar código</strong>, o captura Folio/Clave y pulsa <strong>Enviar acceso</strong>.
                 <?php endif; ?>
             </p>
         <?php else: ?>
-            <p class="muted" style="margin-top:0.75rem">Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente Moodle si hay cursos vinculados.</p>
+            <p class="muted" style="margin-top:0.75rem">
+                Escribe Folio/ID y Clave y pulsa <strong><?= e($accessSendLabel) ?></strong>
+                (se guardan y se envían juntos). Solo cambia la clave si reagendas el examen.
+                Tras el pago OpenPay (o “Confirmar pago”) se intenta automáticamente Moodle si hay cursos vinculados.
+            </p>
         <?php endif; ?>
 
         <h4 style="margin-top:1.5rem">Acceso Moodle (6 meses) y prórrogas</h4>
