@@ -523,7 +523,7 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
         <label>Orden<input type="number" name="sort_order" value="<?= e((string)($item['sort_order'] ?? '0')) ?>"></label>
         <label class="check">
             <input type="checkbox" name="is_featured" <?= !empty($item['is_featured']) ? 'checked' : '' ?>>
-            Producto estrella (aparece arriba en la vitrina pública)
+            Producto estrella (aparece arriba en la vitrina y también con su certificadora)
         </label>
 
             </div>

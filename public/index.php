@@ -114,7 +114,8 @@ $router->get('/', static function (): void {
     $courses = [];
     try {
         $featured = $repo->publicFeaturedCertifications();
-        $groups = $repo->publicCatalogGroupedByProvider(true);
+        // false: las estrellas también aparecen en su certificadora (además del bloque superior)
+        $groups = $repo->publicCatalogGroupedByProvider(false);
         $courses = $repo->publicCourses();
     } catch (Throwable $e) {
         error_log('[PDV] home catalog: ' . $e->getMessage());
