@@ -6,7 +6,10 @@ namespace App\Support;
 
 /**
  * Reescribe PDFs modernos (xref comprimido / object streams) a un formato
- * que FPDI free pueda importar, usando qpdf del sistema o el binario vendored.
+ * que FPDI free pueda importar.
+ *
+ * Orden: qpdf vendored/sistema → Ghostscript → PDF compatible embebido en
+ * resources/regulations (p. ej. reglamento UKS).
  */
 final class PdfCompatNormalizer
 {
@@ -24,72 +27,66 @@ final class PdfCompatNormalizer
             return $absolutePdfPath;
         }
 
-        $qpdf = self::resolveQpdfBinary();
-        if ($qpdf === null) {
-            throw new \RuntimeException(
-                'El PDF del reglamento usa compresión incompatible con el unidor PDF '
-                . 'y no hay qpdf disponible para convertirlo.'
-            );
-        }
+        $errors = [];
 
-        $dir = dirname($absolutePdfPath);
-        $out = $dir . '/.fpdi-' . bin2hex(random_bytes(6)) . '-' . basename($absolutePdfPath);
-        $cmd = [
-            $qpdf,
-            '--object-streams=disable',
-            '--compress-streams=y',
-            '--recompress-flate',
-            $absolutePdfPath,
-            $out,
-        ];
-
-        $descriptor = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-        $env = null;
-        $libDir = self::vendoredLibDir();
-        if ($libDir !== null) {
-            $env = getenv();
-            if (!is_array($env)) {
-                $env = [];
+        try {
+            $viaQpdf = self::normalizeWithQpdf($absolutePdfPath);
+            if ($viaQpdf !== null) {
+                return self::persistCompatibleCopy($absolutePdfPath, $viaQpdf);
             }
-            $prev = (string) ($env['LD_LIBRARY_PATH'] ?? '');
-            $env['LD_LIBRARY_PATH'] = $libDir . ($prev !== '' ? ':' . $prev : '');
+        } catch (\Throwable $e) {
+            $errors[] = 'qpdf: ' . $e->getMessage();
         }
 
-        $proc = @proc_open($cmd, $descriptor, $pipes, null, $env);
-        if (!is_resource($proc)) {
-            throw new \RuntimeException('No se pudo ejecutar qpdf para normalizar el PDF.');
+        $viaGs = self::tryGhostscript($absolutePdfPath);
+        if ($viaGs !== null) {
+            return self::persistCompatibleCopy($absolutePdfPath, $viaGs);
         }
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]) ?: '';
-        $stderr = stream_get_contents($pipes[2]) ?: '';
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $code = proc_close($proc);
+        $errors[] = 'ghostscript: no disponible o falló';
 
-        if ($code !== 0 || !is_file($out) || filesize($out) < 50) {
-            @unlink($out);
-            $detail = trim($stderr !== '' ? $stderr : $stdout);
-            throw new \RuntimeException(
-                'qpdf no pudo normalizar el PDF'
-                . ($detail !== '' ? ': ' . mb_substr($detail, 0, 240) : '.')
-            );
-        }
-
-        if (self::needsNormalization($out)) {
-            // Aún incompatible: intentar ghostscript si existe.
-            @unlink($out);
-            $gsOut = self::tryGhostscript($absolutePdfPath);
-            if ($gsOut !== null) {
-                return $gsOut;
+        $bundled = self::bundledCompatiblePath($absolutePdfPath);
+        if ($bundled !== null) {
+            $dir = dirname($absolutePdfPath);
+            $out = $dir . '/.fpdi-bundled-' . bin2hex(random_bytes(6)) . '.pdf';
+            if (@copy($bundled, $out) && is_file($out) && filesize($out) > 50) {
+                return self::persistCompatibleCopy($absolutePdfPath, $out);
             }
-            throw new \RuntimeException('El PDF sigue siendo incompatible tras normalizar con qpdf.');
+            $errors[] = 'recurso embebido: no se pudo copiar';
+        } else {
+            $errors[] = 'recurso embebido: sin coincidencia para ' . basename($absolutePdfPath);
         }
 
-        return $out;
+        throw new \RuntimeException(
+            'El PDF del reglamento usa compresión incompatible con el unidor PDF. '
+            . implode(' · ', $errors)
+        );
+    }
+
+    /**
+     * Sustituye el PDF original en disco por la versión compatible (deja .pre-fpdi.bak).
+     * Así las siguientes firmas no dependen de qpdf en el hosting.
+     */
+    private static function persistCompatibleCopy(string $originalAbs, string $compatibleAbs): string
+    {
+        if ($compatibleAbs === $originalAbs) {
+            return $originalAbs;
+        }
+        if (!is_file($compatibleAbs) || filesize($compatibleAbs) < 50) {
+            return $compatibleAbs;
+        }
+        if (self::needsNormalization($compatibleAbs)) {
+            return $compatibleAbs;
+        }
+
+        $bak = $originalAbs . '.pre-fpdi.bak';
+        if (!is_file($bak)) {
+            @copy($originalAbs, $bak);
+        }
+        if (@rename($compatibleAbs, $originalAbs) || (@copy($compatibleAbs, $originalAbs) && @unlink($compatibleAbs))) {
+            return $originalAbs;
+        }
+
+        return $compatibleAbs;
     }
 
     public static function needsNormalization(string $absolutePdfPath): bool
@@ -99,7 +96,6 @@ final class PdfCompatNormalizer
             return true;
         }
         $head = (string) fread($fh, 16);
-        // Leer cola para detectar xref stream sin cargar todo el archivo en memoria.
         $size = filesize($absolutePdfPath) ?: 0;
         $tailSize = (int) min(65536, max(0, $size));
         $tail = '';
@@ -113,13 +109,11 @@ final class PdfCompatNormalizer
             return true;
         }
 
-        // Heurística: object streams o xref comprimido ⇒ FPDI free falla.
         $probe = $head . $tail;
         if (str_contains($probe, '/ObjStm') || preg_match('/\/Type\s*\/XRef\b/', $probe) === 1) {
             return true;
         }
 
-        // Algunos PDFs traen ObjStm solo en el cuerpo: muestreo ligero.
         if ($size > 80000) {
             $mid = (string) file_get_contents($absolutePdfPath, false, null, (int) max(0, intdiv($size, 2) - 20000), 40000);
             if (str_contains($mid, '/ObjStm')) {
@@ -137,23 +131,180 @@ final class PdfCompatNormalizer
 
     public static function resolveQpdfBinary(): ?string
     {
+        $candidates = [];
+
+        $wrapper = dirname(__DIR__, 2) . '/lib/qpdf/qpdf.sh';
+        if (is_file($wrapper)) {
+            $candidates[] = $wrapper;
+        }
         $vendored = dirname(__DIR__, 2) . '/lib/qpdf/bin/qpdf';
-        if (is_file($vendored) && is_executable($vendored)) {
-            return $vendored;
+        if (is_file($vendored)) {
+            $candidates[] = $vendored;
         }
 
         $which = self::which('qpdf');
         if ($which !== null) {
-            return $which;
+            $candidates[] = $which;
+        }
+        foreach (['/usr/bin/qpdf', '/usr/local/bin/qpdf', '/opt/cpanel/ea-php*/root/usr/bin/qpdf'] as $path) {
+            if (str_contains($path, '*')) {
+                continue;
+            }
+            if (is_file($path)) {
+                $candidates[] = $path;
+            }
         }
 
-        foreach (['/usr/bin/qpdf', '/usr/local/bin/qpdf'] as $path) {
-            if (is_file($path) && is_executable($path)) {
+        foreach ($candidates as $path) {
+            @chmod($path, 0755);
+            if (is_file($path)) {
                 return $path;
             }
         }
 
         return null;
+    }
+
+    private static function normalizeWithQpdf(string $absolutePdfPath): ?string
+    {
+        $qpdf = self::resolveQpdfBinary();
+        if ($qpdf === null) {
+            return null;
+        }
+
+        $dir = dirname($absolutePdfPath);
+        $out = $dir . '/.fpdi-' . bin2hex(random_bytes(6)) . '-' . basename($absolutePdfPath);
+        $args = [
+            '--object-streams=disable',
+            '--compress-streams=y',
+            '--recompress-flate',
+            $absolutePdfPath,
+            $out,
+        ];
+
+        $result = self::runCommand($qpdf, $args, self::vendoredLibDir());
+        if ($result['code'] !== 0 || !is_file($out) || filesize($out) < 50) {
+            @unlink($out);
+            $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+            throw new \RuntimeException(
+                'falló al convertir'
+                . ($detail !== '' ? ' (' . mb_substr($detail, 0, 200) . ')' : '')
+            );
+        }
+        if (self::needsNormalization($out)) {
+            @unlink($out);
+
+            return null;
+        }
+
+        return $out;
+    }
+
+    /**
+     * PDFs compatibles versionados en el repo (hostings sin qpdf/proc_open).
+     */
+    private static function bundledCompatiblePath(string $absolutePdfPath): ?string
+    {
+        $base = basename($absolutePdfPath);
+        $map = [
+            'cdb49512545d4639_Reglamento_Clientes_DOCEO-UKS_compressed.pdf' => 'uks-doceo-fpdi.pdf',
+            'Reglamento_Clientes_DOCEO-UKS_compressed.pdf' => 'uks-doceo-fpdi.pdf',
+        ];
+        $name = $map[$base] ?? null;
+        if ($name === null) {
+            // Coincidencia flexible por nombre típico UKS Doceo.
+            if (preg_match('/Reglamento_Clientes_DOCEO-UKS/i', $base) === 1
+                || preg_match('/REGLAMENTO_UKS/i', $base) === 1
+            ) {
+                $name = 'uks-doceo-fpdi.pdf';
+            }
+        }
+        if ($name === null) {
+            return null;
+        }
+        $path = dirname(__DIR__, 2) . '/resources/regulations/' . $name;
+        if (!is_file($path) || !is_readable($path) || filesize($path) < 50) {
+            return null;
+        }
+        if (self::needsNormalization($path)) {
+            return null;
+        }
+
+        return $path;
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{code:int,stdout:string,stderr:string}
+     */
+    private static function runCommand(string $binary, array $args, ?string $libDir): array
+    {
+        $cmd = array_merge([$binary], $args);
+        $env = null;
+        if ($libDir !== null) {
+            $env = getenv();
+            if (!is_array($env)) {
+                $env = [];
+            }
+            $prev = (string) ($env['LD_LIBRARY_PATH'] ?? '');
+            $env['LD_LIBRARY_PATH'] = $libDir . ($prev !== '' ? ':' . $prev : '');
+        }
+
+        if (function_exists('proc_open')) {
+            $descriptor = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ];
+            $proc = @proc_open($cmd, $descriptor, $pipes, null, $env);
+            if (is_resource($proc)) {
+                fclose($pipes[0]);
+                $stdout = stream_get_contents($pipes[1]) ?: '';
+                $stderr = stream_get_contents($pipes[2]) ?: '';
+                fclose($pipes[1]);
+                fclose($pipes[2]);
+                $code = proc_close($proc);
+
+                return ['code' => $code, 'stdout' => $stdout, 'stderr' => $stderr];
+            }
+        }
+
+        // Fallback cuando proc_open está deshabilitado en el hosting.
+        $parts = [escapeshellarg($binary)];
+        foreach ($args as $arg) {
+            $parts[] = escapeshellarg($arg);
+        }
+        $line = implode(' ', $parts);
+        if ($libDir !== null) {
+            $line = 'env LD_LIBRARY_PATH=' . escapeshellarg($libDir) . ' ' . $line;
+        }
+
+        $stdout = '';
+        $code = 1;
+        if (function_exists('exec') && !self::functionDisabled('exec')) {
+            $output = [];
+            @exec($line . ' 2>&1', $output, $code);
+            $stdout = implode("\n", $output);
+        } elseif (function_exists('shell_exec') && !self::functionDisabled('shell_exec')) {
+            $stdout = (string) @shell_exec($line . ' 2>&1');
+            $outFile = $args[array_key_last($args)] ?? '';
+            $code = (is_string($outFile) && is_file($outFile) && filesize($outFile) > 50) ? 0 : 1;
+        } else {
+            throw new \RuntimeException('proc_open/exec deshabilitados en el servidor');
+        }
+
+        return ['code' => (int) $code, 'stdout' => $stdout, 'stderr' => ''];
+    }
+
+    private static function functionDisabled(string $fn): bool
+    {
+        $disabled = (string) ini_get('disable_functions');
+        if ($disabled === '') {
+            return false;
+        }
+        $list = array_map('trim', explode(',', strtolower($disabled)));
+
+        return in_array(strtolower($fn), $list, true);
     }
 
     private static function vendoredLibDir(): ?string
@@ -168,7 +319,9 @@ final class PdfCompatNormalizer
         $path = getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin';
         foreach (explode(':', $path) as $dir) {
             $candidate = rtrim($dir, '/') . '/' . $bin;
-            if (is_file($candidate) && is_executable($candidate)) {
+            if (is_file($candidate)) {
+                @chmod($candidate, 0755);
+
                 return $candidate;
             }
         }
@@ -178,37 +331,28 @@ final class PdfCompatNormalizer
 
     private static function tryGhostscript(string $absolutePdfPath): ?string
     {
-        $gs = self::which('gs') ?? (is_executable('/usr/bin/gs') ? '/usr/bin/gs' : null);
+        $gs = self::which('gs') ?? (is_file('/usr/bin/gs') ? '/usr/bin/gs' : null);
         if ($gs === null) {
             return null;
         }
+        @chmod($gs, 0755);
         $out = dirname($absolutePdfPath) . '/.fpdi-gs-' . bin2hex(random_bytes(6)) . '.pdf';
-        $cmd = [
-            $gs,
-            '-sDEVICE=pdfwrite',
-            '-dCompatibilityLevel=1.4',
-            '-dNOPAUSE',
-            '-dBATCH',
-            '-dQUIET',
-            '-sOutputFile=' . $out,
-            $absolutePdfPath,
-        ];
-        $descriptor = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-        $proc = @proc_open($cmd, $descriptor, $pipes);
-        if (!is_resource($proc)) {
+        try {
+            $result = self::runCommand($gs, [
+                '-sDEVICE=pdfwrite',
+                '-dCompatibilityLevel=1.4',
+                '-dNOPAUSE',
+                '-dBATCH',
+                '-dQUIET',
+                '-sOutputFile=' . $out,
+                $absolutePdfPath,
+            ], null);
+        } catch (\Throwable) {
+            @unlink($out);
+
             return null;
         }
-        fclose($pipes[0]);
-        stream_get_contents($pipes[1]);
-        stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $code = proc_close($proc);
-        if ($code !== 0 || !is_file($out) || filesize($out) < 50 || self::needsNormalization($out)) {
+        if ($result['code'] !== 0 || !is_file($out) || filesize($out) < 50 || self::needsNormalization($out)) {
             @unlink($out);
 
             return null;
