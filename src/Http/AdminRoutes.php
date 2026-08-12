@@ -1761,6 +1761,10 @@ final class AdminRoutes
                     return $att ? $repo()->caseAttachmentShareUrl($att) : '';
                 })(),
                 'mail_log' => $repo()->caseMailLog($id),
+                'access_mail_sent' => $repo()->caseAccessMailAlreadySent(
+                    $id,
+                    trim((string) ($item['student_access_template'] ?? '')) ?: null
+                ),
                 'mail_templates' => $repo()->mailTemplates(true),
                 'export_formats' => \App\Exports\ProviderExportGenerator::formats(),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
@@ -3787,14 +3791,24 @@ final class AdminRoutes
             $caseId = (int) ($_POST['case_id'] ?? 0);
             $user = Auth::user();
             try {
-                $mail = (new \App\Services\ExamFulfillmentService($repo()))->resendAccessMail(
+                $fields = [];
+                foreach (['folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url'] as $key) {
+                    if (array_key_exists($key, $_POST)) {
+                        $fields[$key] = is_string($_POST[$key]) ? trim((string) $_POST[$key]) : $_POST[$key];
+                    }
+                }
+                $mail = (new \App\Services\ExamFulfillmentService($repo()))->saveCredentialsAndSendAccessMail(
                     $caseId,
+                    $fields,
                     $user ? (int) $user['id'] : null
                 );
+                $verb = !empty($mail['was_resend']) ? 'reenviado' : 'enviado';
                 flash(
                     'info',
-                    'Acceso reenviado (“' . ($mail['template'] ?? '') . '”)'
-                    . (!empty($mail['to']) ? ' a ' . $mail['to'] : '') . '.'
+                    'Acceso ' . $verb . ' (“' . ($mail['template'] ?? '') . '”)'
+                    . (!empty($mail['to']) ? ' a ' . $mail['to'] : '')
+                    . (!empty($mail['saved']) ? ' · credenciales guardadas' : '')
+                    . '.'
                 );
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());

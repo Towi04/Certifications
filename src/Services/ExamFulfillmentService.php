@@ -150,6 +150,41 @@ final class ExamFulfillmentService
     }
 
     /**
+     * Guarda folio/clave (y links operativos) desde el formulario y envía el correo de acceso.
+     *
+     * @param array<string, mixed> $fields
+     * @return array{sent:bool,template?:string,to?:string,error?:string,saved:bool,was_resend:bool}
+     */
+    public function saveCredentialsAndSendAccessMail(int $caseId, array $fields, ?int $actorUserId = null): array
+    {
+        $this->repo->ensureInventoryAndResultColumns();
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+
+        $allowed = ['folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url'];
+        $update = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $fields)) {
+                continue;
+            }
+            $val = $fields[$key];
+            $update[$key] = is_string($val) ? trim($val) : $val;
+        }
+        if ($update !== []) {
+            $this->repo->updateCertificationCase($caseId, $update);
+        }
+
+        $wasResend = $this->repo->caseAccessMailAlreadySent($caseId);
+        $mail = $this->resendAccessMail($caseId, $actorUserId);
+        $mail['saved'] = $update !== [];
+        $mail['was_resend'] = $wasResend;
+
+        return $mail;
+    }
+
+    /**
      * Reenvía al alumno el correo con folio/clave ya asignados (no toma código nuevo).
      *
      * @return array{sent:bool,template?:string,to?:string,error?:string}
@@ -165,7 +200,7 @@ final class ExamFulfillmentService
             || trim((string) ($case['folio_id'] ?? '')) !== '';
         if (!$hasCreds) {
             throw new \RuntimeException(
-                'Aún no hay folio/clave. Usa “Asignar código” o captura Folio y Clave manualmente.'
+                'Indica Folio / ID y Clave antes de enviar el acceso al alumno.'
             );
         }
 
