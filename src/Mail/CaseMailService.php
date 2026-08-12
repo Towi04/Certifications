@@ -694,6 +694,11 @@ final class CaseMailService
             'Hora2' => (string) ($case['reschedule_time'] ?? ''),
             'Folio / ID' => (string) ($case['folio_id'] ?? ''),
             'Clave' => (string) ($case['access_key'] ?? ''),
+            'Institution ID' => (string) ($case['institution_id'] ?? 'MX143'),
+            'Username' => (string) ($case['folio_id'] ?? ''),
+            'Password' => (string) ($case['access_key'] ?? ''),
+            'Supervisor Cambridge' => $this->cambridgeSupervisorContact($case),
+            'Hora Line' => $hora !== '' ? ' · ' . $hora : '',
             'Zoom' => (string) ($case['zoom_url'] ?? ''),
             'TOKEN' => $token,
             'CC' => (string) ($case['cc_email'] ?? ''),
@@ -739,6 +744,44 @@ final class CaseMailService
             'Exportacion URL' => $fileLinks['export_url'],
             'Exportacion Boton' => $fileLinks['export_button'],
         ], $linkTokens);
+    }
+
+    /** @param array<string, mixed> $case */
+    private function cambridgeSupervisorContact(array $case): string
+    {
+        $providerId = (int) ($case['provider_id'] ?? 0);
+        if ($providerId < 1) {
+            return '';
+        }
+        try {
+            foreach ($this->repo->providerContacts($providerId) as $contact) {
+                $role = strtolower(trim((string) ($contact['role'] ?? '')));
+                $name = trim((string) ($contact['name'] ?? ''));
+                $phone = trim((string) ($contact['phone'] ?? $contact['whatsapp'] ?? ''));
+                $looksSupervisor = str_contains($role, 'supervisor')
+                    || str_contains($role, 'cambridge')
+                    || str_contains(strtolower($name), 'supervisor');
+                if (!$looksSupervisor && $role !== 'soporte') {
+                    continue;
+                }
+                $parts = array_filter([$name, $phone, trim((string) ($contact['email'] ?? ''))]);
+                if ($parts !== []) {
+                    return implode(' · ', $parts);
+                }
+            }
+            // Fallback: primer contacto de soporte o primario con teléfono
+            foreach ($this->repo->providerContacts($providerId) as $contact) {
+                $phone = trim((string) ($contact['phone'] ?? $contact['whatsapp'] ?? ''));
+                if ($phone === '') {
+                    continue;
+                }
+                $name = trim((string) ($contact['name'] ?? 'Soporte'));
+                return $name . ' · ' . $phone;
+            }
+        } catch (\Throwable) {
+        }
+
+        return '';
     }
 
     /**
@@ -1412,8 +1455,13 @@ final class CaseMailService
             'Hora' => 'Hora de examen',
             'Fecha2' => 'Fecha de reagenda',
             'Hora2' => 'Hora de reagenda',
-            'Folio / ID' => 'Folio / ID del proveedor',
+            'Folio / ID' => 'Folio / ID del proveedor (Username Cambridge)',
             'Clave' => 'Clave / password del examen',
+            'Institution ID' => 'Institution ID Cambridge (MX143)',
+            'Username' => 'Alias de Folio / ID',
+            'Password' => 'Alias de Clave',
+            'Supervisor Cambridge' => 'Contacto de soporte Cambridge (contactos del proveedor)',
+            'Hora Line' => 'Sufijo con hora si existe',
             'Zoom' => 'URL de Zoom',
             'TOKEN' => 'URL de guía / prep',
             'CC' => 'Correo en copia (TR)',

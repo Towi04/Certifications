@@ -34,6 +34,7 @@ $tabs = $item ? [
     'proveedor' => 'Proveedor',
     'contactos' => 'Contactos',
     'sedes' => 'Sedes',
+    'fechas' => 'Fechas de aplicación',
     'autorizacion' => 'Autorización',
     'convenio' => 'Convenio',
     'cuentas' => 'Cuentas',
@@ -101,6 +102,23 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <label>Certificaciones de
                         <input name="name" required value="<?= e($item['name'] ?? '') ?>" placeholder="Ej. Cambridge, Certiport, TOEFL (IIE)">
                         <small class="muted">Nombre público que ven alumnos y Teacher Referral.</small>
+                    </label>
+                    <label>Tipo de entidad
+                        <?php
+                        $orgKinds = \App\Catalog\CatalogRepository::providerOrgKinds();
+                        $orgKind = (string) ($item['org_kind'] ?? 'certifier');
+                        if (!isset($orgKinds[$orgKind])) {
+                            $orgKind = 'certifier';
+                        }
+                        ?>
+                        <select name="org_kind">
+                            <?php foreach ($orgKinds as $ok => $ol): ?>
+                                <option value="<?= e($ok) ?>" <?= $orgKind === $ok ? 'selected' : '' ?>><?= e($ol) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="muted">
+                            Usa <strong>Trámites Doceo (SEP)</strong> para CENNI / Red CONOCER (no son un proveedor de examen).
+                        </small>
                     </label>
                     <label>Sitio web del convenio
                         <input type="url" name="website_url" value="<?= e($item['website_url'] ?? '') ?>" placeholder="https://creativesolutions.com">
@@ -393,6 +411,150 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                     <?php else: ?>
                         <p class="muted">Sin sedes ni subcentros. Ejemplo Cambridge: 2 sedes fijas en CDMX + subcentros por estado.</p>
                     <?php endif; ?>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+        <?php if ($item && $tab === 'fechas'): ?>
+            <?php
+            $examSittings = $exam_sittings ?? [];
+            $editSitting = $editSitting ?? null;
+            $sittingFormOpen = $showForm || $editSitting;
+            $modalityLabels = \App\Catalog\CatalogRepository::modalities();
+            $sittingModalities = [
+                'online_venue' => $modalityLabels['online_venue'] ?? 'Presencial digital',
+                'paper' => $modalityLabels['paper'] ?? 'Presencial en papel',
+            ];
+            ?>
+            <section class="provider-panel">
+                <div class="panel-toolbar">
+                    <div>
+                        <h3>Fechas de aplicación</h3>
+                        <p class="muted" style="margin:0.25rem 0 0">
+                            Para exámenes presenciales (digital o papel). El proveedor suele publicar 3–4 fechas cada ~6 meses
+                            con su fecha límite de inscripción. Si no hay fechas publicadas, el alumno puede adquirir y agendar después.
+                        </p>
+                    </div>
+                    <?php if (!$sittingFormOpen): ?>
+                        <a class="btn" href="/admin/providers/edit?id=<?= $id ?>&tab=fechas&form=1">Agregar fecha</a>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($sittingFormOpen): ?>
+                    <div class="inline-form-panel">
+                        <div class="panel-toolbar">
+                            <h4 style="margin:0"><?= $editSitting ? 'Editar fecha' : 'Nueva fecha de aplicación' ?></h4>
+                            <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=fechas">Cancelar</a>
+                        </div>
+                        <form method="post" action="/admin/providers/sitting/save" class="form-grid" style="margin-top:0.75rem">
+                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                            <?php if ($editSitting): ?>
+                                <input type="hidden" name="sitting_id" value="<?= (int)$editSitting['id'] ?>">
+                            <?php endif; ?>
+                            <label>Modalidad
+                                <select name="modality" required>
+                                    <?php foreach ($sittingModalities as $sm => $sl): ?>
+                                        <option value="<?= e($sm) ?>" <?= (($editSitting['modality'] ?? 'online_venue') === $sm) ? 'selected' : '' ?>><?= e($sl) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>Fecha de aplicación
+                                <input type="date" name="exam_date" required value="<?= e($editSitting['exam_date'] ?? '') ?>">
+                            </label>
+                            <label>Límite de inscripción
+                                <input type="date" name="registration_deadline" required value="<?= e($editSitting['registration_deadline'] ?? '') ?>">
+                                <small class="muted">Digital ~2 semanas antes; papel ~8 semanas.</small>
+                            </label>
+                            <label>Etiqueta (opcional)
+                                <input name="label" value="<?= e($editSitting['label'] ?? '') ?>" placeholder="Ej. Sesión junio">
+                            </label>
+                            <label>Certificación (opcional)
+                                <select name="certification_id">
+                                    <option value="">— Todas las de esta modalidad —</option>
+                                    <?php foreach ($certifications as $c): ?>
+                                        <option value="<?= (int)$c['id'] ?>" <?= (int)($editSitting['certification_id'] ?? 0) === (int)$c['id'] ? 'selected' : '' ?>>
+                                            <?= e($c['name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>Sede (opcional)
+                                <select name="venue_id">
+                                    <option value="">—</option>
+                                    <?php foreach ($venues as $v): ?>
+                                        <option value="<?= (int)$v['id'] ?>" <?= (int)($editSitting['venue_id'] ?? 0) === (int)$v['id'] ? 'selected' : '' ?>>
+                                            <?= e($v['name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>Cupo (opcional)
+                                <input type="number" min="1" name="capacity" value="<?= e((string)($editSitting['capacity'] ?? '')) ?>">
+                            </label>
+                            <label class="field-wide">Notas
+                                <textarea name="notes" rows="2"><?= e($editSitting['notes'] ?? '') ?></textarea>
+                            </label>
+                            <label class="check">
+                                <input type="checkbox" name="is_published" value="1" <?= !isset($editSitting) || !empty($editSitting['is_published']) ? 'checked' : '' ?>>
+                                Publicada (visible al adquirir)
+                            </label>
+                            <label class="check">
+                                <input type="checkbox" name="is_active" value="1" <?= !isset($editSitting) || !empty($editSitting['is_active']) ? 'checked' : '' ?>>
+                                Activa
+                            </label>
+                            <div class="actions"><button class="btn" type="submit">Guardar fecha</button></div>
+                        </form>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($examSittings): ?>
+                    <div class="table-wrap" style="margin-top:1rem">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Aplicación</th>
+                                    <th>Límite inscripción</th>
+                                    <th>Modalidad</th>
+                                    <th>Alcance</th>
+                                    <th>Estado</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($examSittings as $s): ?>
+                                <tr>
+                                    <td>
+                                        <strong><?= e($s['exam_date']) ?></strong>
+                                        <?php if (!empty($s['label'])): ?><br><span class="muted"><?= e($s['label']) ?></span><?php endif; ?>
+                                    </td>
+                                    <td><?= e($s['registration_deadline']) ?></td>
+                                    <td><?= e($sittingModalities[$s['modality']] ?? $s['modality']) ?></td>
+                                    <td><?= e($s['certification_name'] ?? 'Todas') ?><?php if (!empty($s['venue_name'])): ?><br><span class="muted"><?= e($s['venue_name']) ?></span><?php endif; ?></td>
+                                    <td>
+                                        <?= !empty($s['is_published']) ? 'Publicada' : 'Borrador' ?>
+                                        · <?= !empty($s['is_active']) ? 'Activa' : 'Inactiva' ?>
+                                    </td>
+                                    <td class="actions">
+                                        <a class="btn btn-ghost" href="/admin/providers/edit?id=<?= $id ?>&tab=fechas&edit_sitting=<?= (int)$s['id'] ?>">Editar</a>
+                                        <form method="post" action="/admin/providers/sitting/toggle-active" style="display:inline">
+                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                            <input type="hidden" name="sitting_id" value="<?= (int)$s['id'] ?>">
+                                            <input type="hidden" name="is_active" value="<?= !empty($s['is_active']) ? '0' : '1' ?>">
+                                            <button class="btn btn-ghost" type="submit"><?= !empty($s['is_active']) ? 'Desactivar' : 'Activar' ?></button>
+                                        </form>
+                                        <form method="post" action="/admin/providers/sitting/delete" style="display:inline" onsubmit="return confirm('¿Eliminar esta fecha?');">
+                                            <input type="hidden" name="provider_id" value="<?= $id ?>">
+                                            <input type="hidden" name="sitting_id" value="<?= (int)$s['id'] ?>">
+                                            <button class="btn btn-ghost" type="submit">Eliminar</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php elseif (!$sittingFormOpen): ?>
+                    <p class="muted">Aún no hay fechas. Mientras no publiques fechas, los alumnos de modalidad presencial podrán adquirir y agendar después.</p>
                 <?php endif; ?>
             </section>
         <?php endif; ?>

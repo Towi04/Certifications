@@ -11,6 +11,12 @@ $regCatalog = \App\Catalog\CatalogRepository::registrationFieldCatalog();
 $regCustom = $regConfig['custom'];
 $schedule = $regConfig['schedule'];
 $scheduleSummary = \App\Catalog\CatalogRepository::examScheduleSummary($schedule);
+$examFeatures = \App\Catalog\CatalogRepository::examProductFeatures(
+    $item['features_json'] ?? null,
+    (string) ($item['modality'] ?? 'online')
+);
+$examSittings = is_array($exam_sittings ?? null) ? $exam_sittings : [];
+$schedulingMode = $examFeatures['mode'];
 $initialDate = (string) (($old['exam_date'] ?? '') ?: '');
 $timeSlots = $initialDate !== ''
     ? \App\Catalog\CatalogRepository::examTimeSlotsForDate($initialDate, $schedule)
@@ -29,6 +35,8 @@ $val = static function (string $key, string $fallback = '') use ($old): string {
 $extraOld = is_array($old['extra'] ?? null) ? $old['extra'] : [];
 $publicPrice = $item['public_price'] !== null ? (float) $item['public_price'] : 0.0;
 $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
+$minAhead = (int) ($examFeatures['min_days_ahead'] ?? 0);
+$minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAhead . ' days')->format('Y-m-d') : '';
 ?>
 <section class="page-head">
     <div>
@@ -40,6 +48,11 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
                 <strong><?= e(\App\Support\Str::money($publicPrice, $item['currency'] ?? 'MXN')) ?></strong>
             <?php else: ?>
                 a consultar
+            <?php endif; ?>
+            <?php
+            $modLabel = \App\Catalog\CatalogRepository::modalities()[$item['modality'] ?? ''] ?? null;
+            if ($modLabel): ?>
+                · Modalidad: <strong><?= e($modLabel) ?></strong>
             <?php endif; ?>
         </p>
     </div>
@@ -156,6 +169,52 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
             </label>
         <?php endif; ?>
 
+        <?php if ($schedulingMode === 'exam_sittings'): ?>
+            <div class="field-wide note" style="grid-column:1/-1">
+                <h3 style="margin-top:0">Fecha de aplicación</h3>
+                <p class="muted">
+                    Los exámenes presenciales (digital o papel) se aplican en sábados con fechas publicadas por el proveedor.
+                    “Online” o en computadora no implica que puedas presentarlo desde casa: la modalidad presencial digital
+                    se aplica en sede con supervisor.
+                </p>
+                <?php if ($examSittings !== []): ?>
+                    <label>Elige una fecha disponible
+                        <select name="exam_sitting_id" id="examSittingSelect">
+                            <option value="">— Selecciona —</option>
+                            <?php foreach ($examSittings as $sit): ?>
+                                <?php
+                                $sitLabel = $sit['exam_date']
+                                    . ' (inscripción hasta ' . $sit['registration_deadline'] . ')'
+                                    . (!empty($sit['label']) ? ' · ' . $sit['label'] : '')
+                                    . (!empty($sit['venue_name']) ? ' · ' . $sit['venue_name'] : '');
+                                ?>
+                                <option value="<?= (int)$sit['id'] ?>" <?= $val('exam_sitting_id') === (string)$sit['id'] ? 'selected' : '' ?>>
+                                    <?= e($sitLabel) ?>
+                                </option>
+                            <?php endforeach; ?>
+                            <option value="__later__" <?= $val('schedule_later') === '1' ? 'selected' : '' ?>>
+                                Prefiero adquirir ahora y agendar cuando publiquen nuevas fechas
+                            </option>
+                        </select>
+                    </label>
+                <?php else: ?>
+                    <p>No hay fechas publicadas todavía. Puedes adquirir la certificación y agendar cuando se publiquen.</p>
+                    <input type="hidden" name="schedule_later" value="1">
+                <?php endif; ?>
+            </div>
+        <?php elseif ($schedulingMode === 'flexible_home'): ?>
+            <div class="field-wide note" style="grid-column:1/-1">
+                <h3 style="margin-top:0">Fecha preferida (desde casa)</h3>
+                <p class="muted">
+                    Examen en línea <strong>desde casa</strong>, de lunes a viernes entre 9:00 y 18:00.
+                    No hace falta elegir hora fija. Debes agendar con al menos <?= (int)$minAhead ?> días de antelación.
+                </p>
+                <label>Fecha preferida
+                    <input type="date" name="exam_date" <?= $minDate !== '' ? 'min="' . e($minDate) . '"' : '' ?>
+                           value="<?= e($val('exam_date')) ?>" required>
+                </label>
+            </div>
+        <?php else: ?>
         <?php if ($isOn('exam_date')): ?>
             <label><?= e($regCatalog['exam_date']['label']) ?>
                 <input type="date" name="exam_date" id="examDateInput" <?= $isReq('exam_date') ? 'required' : '' ?>
@@ -208,6 +267,24 @@ $extraFee = (float) ($schedule['extraordinary_fee'] ?? 0);
                 'selected' => $val('exam_time'),
                 'selected_extra' => $val('exam_time_mode') === 'extraordinary',
             ], JSON_UNESCAPED_UNICODE) ?></script>
+        <?php endif; ?>
+        <?php endif; ?>
+
+        <?php if (!empty($examFeatures['requires_id_doc']) || !empty($examFeatures['requires_regulation_upload'])): ?>
+            <div class="field-wide note" style="grid-column:1/-1">
+                <h3 style="margin-top:0">Documentos antes de agendar</h3>
+                <p class="muted" style="margin-bottom:0">
+                    Después del registro deberás subir en tu ficha:
+                    <?php if (!empty($examFeatures['requires_regulation_upload'])): ?>
+                        el <strong>reglamento</strong> (formulario PDF descargable, llenado y vuelto a subir)
+                    <?php endif; ?>
+                    <?php if (!empty($examFeatures['requires_id_doc'])): ?>
+                        <?= !empty($examFeatures['requires_regulation_upload']) ? ' y ' : '' ?>
+                        tu <strong>INE</strong> (PDF ambos lados) o <strong>pasaporte</strong>
+                    <?php endif; ?>
+                    . Sin estos documentos no se puede agendar el examen.
+                </p>
+            </div>
         <?php endif; ?>
 
         <?php foreach ($regCustom as $cf): ?>

@@ -135,6 +135,10 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                     <option value="<?= e($value) ?>" <?= $modality === $value ? 'selected' : '' ?>><?= e($label) ?></option>
                 <?php endforeach; ?>
             </select>
+            <small class="muted">
+                Cambridge: <em>Online desde casa</em> (lun–vie, 10 días), <em>Presencial digital</em> (sábados en sede, ~2 semanas)
+                o <em>Presencial en papel</em> (~8 semanas). Las fechas presenciales se cargan en Proveedor → Fechas de aplicación.
+            </small>
         </label>
 
             </div>

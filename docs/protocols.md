@@ -36,13 +36,47 @@ También se siembran:
 
 En la certificación ELET puedes vincular el producto CENNI tardío (`cenni_late_certification_id`).
 
+## Trámites SEP (no es un proveedor de examen)
+
+CENNI y Red CONOCER son trámites que **Doceo realiza ante la SEP**. A veces van incluidos en un examen; otras se cobran aparte como productos propios.
+
+Se modelan como proveedor especial `TRAMITES_SEP` con `org_kind = tramites` (no certificadora):
+
+| Código producto / protocolo | Uso |
+|-----------------------------|-----|
+| `SEP_CENNI` | Trámite CENNI independiente (estrella) |
+| `SEP_CONOCER` | Trámite Red CONOCER independiente (estrella) |
+
+Siguen existiendo los flags `cenni_*` / `conocer_*` en cada certificación de examen (incluido / fee / elegible). El producto bajo Trámites SEP cubre la venta standalone.
+
+Migración / seed runtime: `sql/migration_tramites_sep_cambridge.sql` y `CatalogRepository::ensureCambridgeAndSepSchemaAndSeeds()`.
+
+## Cambridge — modalidades y fechas
+
+| Modalidad (`certifications.modality`) | Agenda | Antelación típica |
+|---------------------------------------|--------|-------------------|
+| `online_home` | Fecha preferida lun–vie 9–18 (sin hora fija) | 10 días |
+| `online_venue` | Fechas publicadas (`exam_sittings`) — sábados en sede con supervisor | ~2 semanas |
+| `paper` | Fechas publicadas (`exam_sittings`) — sábados en papel | ~8 semanas |
+
+Importante: un examen “online” o en computadora **no** implica que sea desde casa. La modalidad presencial digital se aplica en sede.
+
+Admin: **Proveedores → Fechas de aplicación** para cargar las 3–4 fechas que envía el proveedor cada ~6 meses (con límite de inscripción). Si no hay fechas publicadas, el alumno puede adquirir y agendar después (`schedule_deferred`).
+
+Documentos previos al agendado: reglamento (formulario PDF descargable / re-subida) + INE (ambos lados) o pasaporte.
+
+Correos: `cambridge_info` (material / info) y `cambridge_acceso` (Username, Password, Institution ID `MX143`); presencial usa `cambridge_sede`. El supervisor de soporte vive en contactos del proveedor Cambridge.
+
+Protocolos: `CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER` (+ legacy `CAMBRIDGE_ONLINE`).
+
 ## Cómo usarlo en admin
 
 1. Ejecuta en MariaDB:
    - `sql/migration_protocol_steps.sql`
    - `sql/seed_protocol_elet.sql`
+   - `sql/migration_tramites_sep_cambridge.sql` (Trámites SEP + fechas Cambridge)
 2. **Protocolos** → edita o crea → agrega pasos con fase y responsable.
-3. En la ficha de la **certificación**, asigna el protocolo (ej. `UKS_ELET`).
+3. En la ficha de la **certificación**, asigna el protocolo (ej. `UKS_ELET` o `CAMBRIDGE_ONLINE_HOME`).
 4. **Casos** → Abrir caso (alumno + certificación) → ver timeline y marcar pasos hechos.
 
 ## Próximos pasos (producto)
@@ -50,3 +84,5 @@ En la certificación ELET puedes vincular el producto CENNI tardío (`cenni_late
 - Portal del alumno con el mismo timeline y acciones por responsable.
 - Automatizar pasos `system` (OpenPay) y recordatorios por `trigger_days_after_exam`.
 - Adjuntos por paso (reglamento firmado, CSV, capturas).
+- Cambridge: subida de reglamento PDF + INE/pasaporte como gate antes de agendar; envío/paquetería y CENNI opcional en checkout.
+- Flujo completo Red CONOCER (hoy flags + producto; falta protocolo operativo detallado).

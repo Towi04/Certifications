@@ -52,9 +52,16 @@ final class CatalogRepository
 
     public function saveProvider(array $data, ?int $id = null): int
     {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $orgKind = (string) ($data['org_kind'] ?? 'certifier');
+        if (!isset(self::providerOrgKinds()[$orgKind])) {
+            $orgKind = 'certifier';
+        }
+
         $fields = [
             $data['code'],
             $data['name'],
+            $orgKind,
             $data['website_url'],
             $data['brand_website_url'] ?? null,
             $data['logo_path'] ?? $data['logo_icon_path'] ?? null,
@@ -68,7 +75,7 @@ final class CatalogRepository
 
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE providers SET code=?, name=?, website_url=?, brand_website_url=?, logo_path=?,
+                'UPDATE providers SET code=?, name=?, org_kind=?, website_url=?, brand_website_url=?, logo_path=?,
                  logo_icon_path=?, logo_full_path=?,
                  auth_proof_type=?, auth_proof_url=?, auth_proof_path=?, is_active=?
                  WHERE id=?'
@@ -79,9 +86,9 @@ final class CatalogRepository
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO providers (
-                code, name, website_url, brand_website_url, logo_path, logo_icon_path, logo_full_path,
+                code, name, org_kind, website_url, brand_website_url, logo_path, logo_icon_path, logo_full_path,
                 auth_proof_type, auth_proof_url, auth_proof_path, is_active
-             ) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -1205,8 +1212,121 @@ final class CatalogRepository
     public static function modalities(): array
     {
         return [
-            'paper' => 'Paper',
-            'online' => 'Online',
+            'online' => 'Online (genérico)',
+            'online_home' => 'Online desde casa',
+            'online_venue' => 'Presencial digital',
+            'paper' => 'Presencial en papel',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function providerOrgKinds(): array
+    {
+        return [
+            'certifier' => 'Certificadora / proveedor de examen',
+            'tramites' => 'Trámites Doceo (SEP)',
+            'internal' => 'Uso interno',
+        ];
+    }
+
+    /**
+     * Modo de agenda según modalidad / features_json.
+     * - weekday_slots: horarios por día (UKS, iTEP…)
+     * - flexible_home: Cambridge desde casa (lun–vie, sin hora fija, N días de antelación)
+     * - exam_sittings: fechas publicadas (presencial digital/papel)
+     *
+     * @return array{
+     *   mode:string,
+     *   min_days_ahead:int,
+     *   institution_id:?string,
+     *   requires_id_doc:bool,
+     *   requires_regulation_upload:bool,
+     *   allows_shipping:bool,
+     *   allows_cenni_addon:bool,
+     *   sitting_modality:?string
+     * }
+     */
+    public static function examProductFeatures(mixed $featuresJson, ?string $modality = null): array
+    {
+        $decoded = [];
+        if (is_string($featuresJson) && $featuresJson !== '') {
+            $tmp = json_decode($featuresJson, true);
+            if (is_array($tmp)) {
+                $decoded = $tmp;
+            }
+        } elseif (is_array($featuresJson)) {
+            $decoded = $featuresJson;
+        }
+
+        $modality = (string) ($modality ?? ($decoded['modality'] ?? 'online'));
+        $defaults = match ($modality) {
+            'online_home' => [
+                'mode' => 'flexible_home',
+                'min_days_ahead' => 10,
+                'institution_id' => 'MX143',
+                'requires_id_doc' => true,
+                'requires_regulation_upload' => true,
+                'allows_shipping' => false,
+                'allows_cenni_addon' => false,
+                'sitting_modality' => null,
+            ],
+            'online_venue' => [
+                'mode' => 'exam_sittings',
+                'min_days_ahead' => 14,
+                'institution_id' => 'MX143',
+                'requires_id_doc' => true,
+                'requires_regulation_upload' => true,
+                'allows_shipping' => true,
+                'allows_cenni_addon' => true,
+                'sitting_modality' => 'online_venue',
+            ],
+            'paper' => [
+                'mode' => 'exam_sittings',
+                'min_days_ahead' => 56,
+                'institution_id' => null,
+                'requires_id_doc' => true,
+                'requires_regulation_upload' => true,
+                'allows_shipping' => true,
+                'allows_cenni_addon' => true,
+                'sitting_modality' => 'paper',
+            ],
+            default => [
+                'mode' => 'weekday_slots',
+                'min_days_ahead' => 0,
+                'institution_id' => null,
+                'requires_id_doc' => false,
+                'requires_regulation_upload' => false,
+                'allows_shipping' => false,
+                'allows_cenni_addon' => false,
+                'sitting_modality' => null,
+            ],
+        };
+
+        $mode = (string) ($decoded['scheduling_mode'] ?? $defaults['mode']);
+        if (!in_array($mode, ['weekday_slots', 'flexible_home', 'exam_sittings'], true)) {
+            $mode = $defaults['mode'];
+        }
+
+        return [
+            'mode' => $mode,
+            'min_days_ahead' => max(0, (int) ($decoded['min_days_ahead'] ?? $defaults['min_days_ahead'])),
+            'institution_id' => ($decoded['institution_id'] ?? $defaults['institution_id']) !== null
+                && (string) ($decoded['institution_id'] ?? $defaults['institution_id']) !== ''
+                ? (string) ($decoded['institution_id'] ?? $defaults['institution_id'])
+                : null,
+            'requires_id_doc' => array_key_exists('requires_id_doc', $decoded)
+                ? !empty($decoded['requires_id_doc'])
+                : $defaults['requires_id_doc'],
+            'requires_regulation_upload' => array_key_exists('requires_regulation_upload', $decoded)
+                ? !empty($decoded['requires_regulation_upload'])
+                : $defaults['requires_regulation_upload'],
+            'allows_shipping' => array_key_exists('allows_shipping', $decoded)
+                ? !empty($decoded['allows_shipping'])
+                : $defaults['allows_shipping'],
+            'allows_cenni_addon' => array_key_exists('allows_cenni_addon', $decoded)
+                ? !empty($decoded['allows_cenni_addon'])
+                : $defaults['allows_cenni_addon'],
+            'sitting_modality' => $defaults['sitting_modality'],
         ];
     }
 
@@ -1705,6 +1825,24 @@ final class CatalogRepository
             ]);
             $caseId = (int) $this->pdo->lastInsertId();
 
+            try {
+                $this->ensureCambridgeAndSepSchemaAndSeeds();
+                $sittingId = !empty($data['exam_sitting_id']) ? (int) $data['exam_sitting_id'] : null;
+                $deferred = !empty($data['schedule_deferred']) ? 1 : 0;
+                $institutionId = trim((string) ($data['institution_id'] ?? ''));
+                if ($institutionId === '') {
+                    $institutionId = null;
+                }
+                if ($sittingId || $deferred || $institutionId !== null) {
+                    $this->pdo->prepare(
+                        'UPDATE certification_cases
+                         SET exam_sitting_id = ?, schedule_deferred = ?, institution_id = COALESCE(?, institution_id)
+                         WHERE id = ?'
+                    )->execute([$sittingId, $deferred, $institutionId, $caseId]);
+                }
+            } catch (\Throwable) {
+            }
+
             $ins = $this->pdo->prepare(
                 'INSERT INTO certification_case_steps
                  (case_id, protocol_step_id, sort_order, status) VALUES (?,?,?,?)'
@@ -2083,6 +2221,7 @@ final class CatalogRepository
         }
         $this->ensureItepMailTemplatesAndPrepCourse();
         $this->ensureUksFlowSchemaAndSeeds();
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
         $done = true;
     }
 
@@ -2298,6 +2437,607 @@ final class CatalogRepository
         }
 
         $done = true;
+    }
+
+    /**
+     * Trámites SEP + Cambridge: columnas, fechas de aplicación, protocolos y productos estrella.
+     */
+    public function ensureCambridgeAndSepSchemaAndSeeds(): void
+    {
+        static $done = false;
+        static $running = false;
+        if ($done || $running) {
+            return;
+        }
+        $running = true;
+
+        try {
+            $this->ensureCambridgeAndSepSchemaAndSeedsBody();
+            $done = true;
+        } finally {
+            $running = false;
+        }
+    }
+
+    private function ensureCambridgeAndSepSchemaAndSeedsBody(): void
+    {
+        $hasColumn = function (string $table, string $column): bool {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+            );
+            $stmt->execute([$table, $column]);
+            return (int) $stmt->fetchColumn() > 0;
+        };
+
+        try {
+            if (!$hasColumn('providers', 'org_kind')) {
+                $this->pdo->exec(
+                    "ALTER TABLE providers
+                     ADD COLUMN org_kind ENUM('certifier','tramites','internal') NOT NULL DEFAULT 'certifier'
+                     COMMENT 'certifier=proveedor de examen; tramites=CENNI/CONOCER Doceo; internal=uso interno'
+                     AFTER name"
+                );
+            }
+        } catch (\Throwable) {
+        }
+
+        try {
+            $this->pdo->exec(
+                "ALTER TABLE certifications
+                 MODIFY COLUMN modality ENUM('online','online_home','online_venue','paper') NOT NULL DEFAULT 'online'"
+            );
+        } catch (\Throwable) {
+        }
+
+        try {
+            $this->pdo->exec(
+                "CREATE TABLE IF NOT EXISTS exam_sittings (
+                  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  provider_id BIGINT UNSIGNED NOT NULL,
+                  certification_id BIGINT UNSIGNED NULL,
+                  modality ENUM('online_venue','paper') NOT NULL,
+                  exam_date DATE NOT NULL,
+                  registration_deadline DATE NOT NULL,
+                  label VARCHAR(190) NULL,
+                  venue_id BIGINT UNSIGNED NULL,
+                  capacity INT UNSIGNED NULL,
+                  notes TEXT NULL,
+                  is_published TINYINT(1) NOT NULL DEFAULT 1,
+                  is_active TINYINT(1) NOT NULL DEFAULT 1,
+                  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                  UNIQUE KEY uq_exam_sitting_slot (provider_id, modality, exam_date, certification_id),
+                  KEY idx_exam_sittings_provider (provider_id, modality, exam_date),
+                  KEY idx_exam_sittings_deadline (registration_deadline, is_published, is_active)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        } catch (\Throwable) {
+        }
+
+        $caseCols = [
+            'exam_sitting_id' => 'BIGINT UNSIGNED NULL',
+            'schedule_deferred' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'institution_id' => 'VARCHAR(64) NULL',
+        ];
+        foreach ($caseCols as $name => $def) {
+            try {
+                if (!$hasColumn('certification_cases', $name)) {
+                    $this->pdo->exec('ALTER TABLE certification_cases ADD COLUMN ' . $name . ' ' . $def);
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        // Proveedor Trámites SEP
+        try {
+            $this->pdo->exec(
+                "INSERT INTO providers (code, name, org_kind, notes, is_active) VALUES
+                 ('TRAMITES_SEP', 'Trámites SEP', 'tramites',
+                  'Trámites que realiza Instituto Doceo ante la SEP (CENNI, Red CONOCER). No es un proveedor de examen.', 1)
+                 ON DUPLICATE KEY UPDATE
+                   name = VALUES(name),
+                   org_kind = 'tramites',
+                   notes = VALUES(notes),
+                   is_active = 1"
+            );
+            $this->pdo->exec("UPDATE providers SET org_kind = 'tramites' WHERE code = 'TRAMITES_SEP'");
+            $this->pdo->exec(
+                "UPDATE providers SET org_kind = 'certifier'
+                 WHERE (org_kind IS NULL OR org_kind = '') AND code <> 'TRAMITES_SEP'"
+            );
+        } catch (\Throwable) {
+        }
+
+        $sepProviderId = 0;
+        $cambridgeProviderId = 0;
+        try {
+            $sepProviderId = (int) $this->pdo->query(
+                "SELECT id FROM providers WHERE code = 'TRAMITES_SEP' LIMIT 1"
+            )->fetchColumn();
+            $cambridgeProviderId = (int) $this->pdo->query(
+                "SELECT id FROM providers WHERE code = 'CAMBRIDGE' LIMIT 1"
+            )->fetchColumn();
+        } catch (\Throwable) {
+        }
+
+        // Protocolos Cambridge + SEP
+        try {
+            $protoStmt = $this->pdo->prepare(
+                'INSERT INTO protocols
+                 (provider_id, code, name, modality, procedure_html,
+                  requires_regulation_signature, requires_software, requires_zoom, requires_vm,
+                  uses_inventory, export_format, provider_request_template, student_access_template, is_active)
+                 VALUES (?,?,?,?,?,?,0,0,0,0,?,?,?,1)
+                 ON DUPLICATE KEY UPDATE
+                   name = VALUES(name),
+                   procedure_html = VALUES(procedure_html),
+                   requires_regulation_signature = VALUES(requires_regulation_signature),
+                   student_access_template = VALUES(student_access_template),
+                   is_active = 1'
+            );
+            if ($cambridgeProviderId > 0) {
+                $protoStmt->execute([
+                    $cambridgeProviderId,
+                    'CAMBRIDGE_ONLINE_HOME',
+                    'Cambridge — Online desde casa',
+                    'online',
+                    '<p>Examen en línea desde casa (lun–vie 9:00–18:00). Agendar con 10 días de antelación. '
+                    . 'Documentos: reglamento PDF + INE (ambos lados) o pasaporte. '
+                    . 'Correos separados: info del examen y credenciales (Username, Password, Institution ID MX143).</p>',
+                    1,
+                    'none',
+                    null,
+                    'cambridge_acceso',
+                ]);
+                $protoStmt->execute([
+                    $cambridgeProviderId,
+                    'CAMBRIDGE_ONLINE_VENUE',
+                    'Cambridge — Presencial digital',
+                    'online',
+                    '<p>Examen digital en sede con supervisor (sábados). Inscripción ~2 semanas. '
+                    . 'Fechas publicadas por el proveedor. Reglamento + INE/pasaporte. '
+                    . 'Correo con sede/credenciales e instrucciones; certificado en sede o envío.</p>',
+                    1,
+                    'none',
+                    null,
+                    'cambridge_acceso',
+                ]);
+                $protoStmt->execute([
+                    $cambridgeProviderId,
+                    'CAMBRIDGE_PAPER',
+                    'Cambridge — Presencial en papel',
+                    'paper',
+                    '<p>Examen en papel en sede (sábados). Inscripción ~8 semanas. '
+                    . 'Fechas publicadas por el proveedor. Reglamento + INE/pasaporte.</p>',
+                    1,
+                    'none',
+                    null,
+                    'cambridge_sede',
+                ]);
+                $protoStmt->execute([
+                    $cambridgeProviderId,
+                    'CAMBRIDGE_ONLINE',
+                    'Cambridge Online (legacy → desde casa)',
+                    'online',
+                    '<p>Protocolo legacy. Preferir CAMBRIDGE_ONLINE_HOME.</p>',
+                    1,
+                    'none',
+                    null,
+                    'cambridge_acceso',
+                ]);
+            }
+            if ($sepProviderId > 0) {
+                $protoStmt->execute([
+                    $sepProviderId,
+                    'SEP_CENNI',
+                    'Trámite CENNI ante SEP',
+                    'other',
+                    '<p>Producto independiente: Doceo gestiona el trámite CENNI ante la SEP '
+                    . '(también puede incluirse o cobrarse aparte en un examen).</p>',
+                    0,
+                    'none',
+                    null,
+                    null,
+                ]);
+                $protoStmt->execute([
+                    $sepProviderId,
+                    'SEP_CONOCER',
+                    'Red CONOCER ante SEP',
+                    'other',
+                    '<p>Producto independiente: trámite Red CONOCER que Doceo realiza ante la SEP.</p>',
+                    0,
+                    'none',
+                    null,
+                    null,
+                ]);
+            }
+        } catch (\Throwable) {
+        }
+
+        // Pasos mínimos SEP_CENNI / SEP_CONOCER
+        foreach (['SEP_CENNI' => 'CENNI', 'SEP_CONOCER' => 'CONOCER'] as $code => $label) {
+            try {
+                $pid = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = " . $this->pdo->quote($code) . " LIMIT 1"
+                )->fetchColumn();
+                if ($pid < 1) {
+                    continue;
+                }
+                $stepCount = (int) $this->pdo->query(
+                    'SELECT COUNT(*) FROM protocol_steps WHERE protocol_id = ' . $pid
+                )->fetchColumn();
+                if ($stepCount > 0) {
+                    continue;
+                }
+                if ($code === 'SEP_CENNI') {
+                    $this->pdo->exec(
+                        "INSERT INTO protocol_steps (protocol_id, sort_order, phase, title, description, responsible, is_active) VALUES
+                         ({$pid}, 1, 'pre_exam', 'Pago del trámite CENNI', 'El alumno paga el producto CENNI.', 'student', 1),
+                         ({$pid}, 2, 'pre_exam', 'Subir INE, CURP y solicitud', 'El alumno carga documentos en el portal Doceo.', 'student', 1),
+                         ({$pid}, 3, 'post_exam', 'Revisión y envío a SEP', 'Doceo gestiona el trámite CENNI.', 'admin', 1),
+                         ({$pid}, 4, 'post_exam', 'Registrar folio CENNI emitido', 'Capturar folio y avisar al alumno.', 'admin', 1)"
+                    );
+                } else {
+                    $this->pdo->exec(
+                        "INSERT INTO protocol_steps (protocol_id, sort_order, phase, title, description, responsible, is_active) VALUES
+                         ({$pid}, 1, 'pre_exam', 'Pago del trámite CONOCER', 'El alumno paga el producto Red CONOCER.', 'student', 1),
+                         ({$pid}, 2, 'pre_exam', 'Recabar documentación', 'Doceo solicita y revisa documentos del trámite.', 'admin', 1),
+                         ({$pid}, 3, 'post_exam', 'Gestión ante SEP / CONOCER', 'Doceo realiza el trámite.', 'admin', 1),
+                         ({$pid}, 4, 'post_exam', 'Entrega de constancia', 'Registrar emisión y avisar al alumno.', 'admin', 1)"
+                    );
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        // Productos estrella CENNI / CONOCER bajo Trámites SEP
+        if ($sepProviderId > 0) {
+            try {
+                $cenniProtoId = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = 'SEP_CENNI' LIMIT 1"
+                )->fetchColumn();
+                $conocerProtoId = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = 'SEP_CONOCER' LIMIT 1"
+                )->fetchColumn();
+
+                $exists = $this->pdo->prepare('SELECT id FROM certifications WHERE code = ? LIMIT 1');
+                $exists->execute(['SEP_CENNI']);
+                if (!(int) $exists->fetchColumn()) {
+                    $this->saveCertification([
+                        'provider_id' => $sepProviderId,
+                        'protocol_id' => $cenniProtoId > 0 ? $cenniProtoId : null,
+                        'code' => 'SEP_CENNI',
+                        'slug' => 'tramite-cenni',
+                        'name' => 'Trámite CENNI',
+                        'modality' => 'online',
+                        'short_description' => '<p>Trámite CENNI ante la SEP gestionado por Instituto Doceo. '
+                            . 'Puede adquirirse solo o como complemento de un examen que lo permita.</p>',
+                        'description_html' => null,
+                        'syllabus_html' => null,
+                        'duration_label' => null,
+                        'audience' => null,
+                        'is_level_exam' => 0,
+                        'skills_json' => null,
+                        'score_range' => null,
+                        'score_ranges_json' => null,
+                        'public_price' => null,
+                        'cost_price' => null,
+                        'currency' => 'MXN',
+                        'cenni_eligible' => 1,
+                        'cenni_doc_type' => 'constancia',
+                        'cenni_included' => 1,
+                        'cenni_fee' => 0,
+                        'cenni_process' => 'doceo_managed',
+                        'conocer_eligible' => 0,
+                        'conocer_fee' => null,
+                        'value_points_json' => json_encode([
+                            'Trámite gestionado por Instituto Doceo ante la SEP',
+                            'Producto estrella independiente del examen',
+                            'También disponible como complemento en certificaciones elegibles',
+                        ], JSON_UNESCAPED_UNICODE),
+                        'registration_fields_json' => json_encode([
+                            'modes' => [
+                                'first_name' => 'required',
+                                'last_name_p' => 'required',
+                                'last_name_m' => 'optional',
+                                'email' => 'required',
+                                'phone' => 'optional',
+                                'curp' => 'required',
+                                'birth_date' => 'off',
+                                'sex' => 'off',
+                                'nationality' => 'off',
+                                'exam_date' => 'off',
+                                'exam_time' => 'off',
+                            ],
+                            'custom' => [],
+                            'schedule' => self::defaultExamSchedule(),
+                        ], JSON_UNESCAPED_UNICODE),
+                        'is_published' => 0,
+                        'is_featured' => 1,
+                        'sort_order' => 10,
+                    ]);
+                    $this->pdo->prepare(
+                        "UPDATE certifications SET features_json = ?, cenni_process = 'doceo_managed', is_featured = 1
+                         WHERE code = 'SEP_CENNI'"
+                    )->execute([
+                        json_encode([
+                            'scheduling_mode' => 'weekday_slots',
+                            'product_kind' => 'tramite_sep',
+                        ], JSON_UNESCAPED_UNICODE),
+                    ]);
+                } else {
+                    $this->pdo->prepare(
+                        'UPDATE certifications SET is_featured = 1, provider_id = ?, protocol_id = COALESCE(protocol_id, ?),
+                         features_json = COALESCE(features_json, ?)
+                         WHERE code = ?'
+                    )->execute([
+                        $sepProviderId,
+                        $cenniProtoId > 0 ? $cenniProtoId : null,
+                        json_encode(['scheduling_mode' => 'weekday_slots', 'product_kind' => 'tramite_sep'], JSON_UNESCAPED_UNICODE),
+                        'SEP_CENNI',
+                    ]);
+                }
+
+                $exists->execute(['SEP_CONOCER']);
+                if (!(int) $exists->fetchColumn()) {
+                    $this->saveCertification([
+                        'provider_id' => $sepProviderId,
+                        'protocol_id' => $conocerProtoId > 0 ? $conocerProtoId : null,
+                        'code' => 'SEP_CONOCER',
+                        'slug' => 'tramite-red-conocer',
+                        'name' => 'Trámite Red CONOCER',
+                        'modality' => 'online',
+                        'short_description' => '<p>Trámite Red CONOCER ante la SEP gestionado por Instituto Doceo.</p>',
+                        'description_html' => null,
+                        'syllabus_html' => null,
+                        'duration_label' => null,
+                        'audience' => null,
+                        'is_level_exam' => 0,
+                        'skills_json' => null,
+                        'score_range' => null,
+                        'score_ranges_json' => null,
+                        'public_price' => null,
+                        'cost_price' => null,
+                        'currency' => 'MXN',
+                        'cenni_eligible' => 0,
+                        'cenni_doc_type' => 'none',
+                        'cenni_included' => 0,
+                        'cenni_fee' => null,
+                        'cenni_process' => 'none',
+                        'conocer_eligible' => 1,
+                        'conocer_fee' => 0,
+                        'value_points_json' => json_encode([
+                            'Trámite Red CONOCER gestionado por Instituto Doceo',
+                            'Se cobra por separado del examen',
+                        ], JSON_UNESCAPED_UNICODE),
+                        'registration_fields_json' => json_encode([
+                            'modes' => [
+                                'first_name' => 'required',
+                                'last_name_p' => 'required',
+                                'last_name_m' => 'optional',
+                                'email' => 'required',
+                                'phone' => 'optional',
+                                'curp' => 'required',
+                                'birth_date' => 'off',
+                                'sex' => 'off',
+                                'nationality' => 'off',
+                                'exam_date' => 'off',
+                                'exam_time' => 'off',
+                            ],
+                            'custom' => [],
+                            'schedule' => self::defaultExamSchedule(),
+                        ], JSON_UNESCAPED_UNICODE),
+                        'is_published' => 0,
+                        'is_featured' => 1,
+                        'sort_order' => 20,
+                    ]);
+                    $this->pdo->prepare(
+                        "UPDATE certifications SET features_json = ?, is_featured = 1 WHERE code = 'SEP_CONOCER'"
+                    )->execute([
+                        json_encode([
+                            'scheduling_mode' => 'weekday_slots',
+                            'product_kind' => 'tramite_sep',
+                        ], JSON_UNESCAPED_UNICODE),
+                    ]);
+                } else {
+                    $this->pdo->prepare(
+                        'UPDATE certifications SET is_featured = 1, provider_id = ?, protocol_id = COALESCE(protocol_id, ?),
+                         features_json = COALESCE(features_json, ?)
+                         WHERE code = ?'
+                    )->execute([
+                        $sepProviderId,
+                        $conocerProtoId > 0 ? $conocerProtoId : null,
+                        json_encode(['scheduling_mode' => 'weekday_slots', 'product_kind' => 'tramite_sep'], JSON_UNESCAPED_UNICODE),
+                        'SEP_CONOCER',
+                    ]);
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        // Plantillas Cambridge (info vs acceso)
+        $cambridgeTemplates = [
+            [
+                'cambridge_info',
+                'Cambridge — Información del examen',
+                'student',
+                'Información de tu examen Cambridge — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>Confirmamos tu inscripción a <strong>{{Certificación}}</strong>.</p>'
+                . '<p><strong>Fecha:</strong> {{Fecha}}{{Hora Line}}</p>'
+                . '<p>{{Links Estudio}}</p>'
+                . '<p>Pronto te enviaremos un correo aparte con tus datos de acceso '
+                . '(Username, Password e Institution ID) cuando el proveedor los confirme.</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+            ],
+            [
+                'cambridge_acceso',
+                'Cambridge — Credenciales de acceso',
+                'student',
+                'Datos de acceso Cambridge — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>Estos son tus datos para presentar <strong>{{Certificación}}</strong>.</p>'
+                . '<p><strong>Username:</strong> {{Folio / ID}}<br>'
+                . '<strong>Password:</strong> {{Clave}}<br>'
+                . '<strong>Institution ID:</strong> {{Institution ID}}</p>'
+                . '<p>{{Links Software}}</p>'
+                . '<p>Supervisor Cambridge (soporte el día del examen): {{Supervisor Cambridge}}</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+            ],
+            [
+                'cambridge_sede',
+                'Cambridge — Sede e instrucciones (presencial)',
+                'student',
+                'Sede e instrucciones — {{Certificación}}',
+                '<p>¡Hola {{Nombre}}!</p>'
+                . '<p>Tu examen presencial <strong>{{Certificación}}</strong> es el <strong>{{Fecha}}</strong>.</p>'
+                . '<p>{{Links Examen}}</p>'
+                . '<p>Adjuntamos / enlazamos la información de la sede y las reglas del examen.</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+            ],
+        ];
+        foreach ($cambridgeTemplates as $tpl) {
+            try {
+                if ($this->mailTemplateByCode($tpl[0])) {
+                    continue;
+                }
+                $this->saveMailTemplate([
+                    'code' => $tpl[0],
+                    'name' => $tpl[1],
+                    'audience' => $tpl[2],
+                    'to_mode' => 'student',
+                    'to_fixed' => '',
+                    'cc_mode' => 'case_cc',
+                    'cc_fixed' => '',
+                    'subject' => $tpl[3],
+                    'body_html' => $tpl[4],
+                    'attach_export' => 0,
+                    'attach_regulation' => 0,
+                    'is_active' => 1,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function examSittingsForProvider(int $providerId, bool $onlyActive = false): array
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $sql = 'SELECT s.*, c.name AS certification_name, v.name AS venue_name
+                FROM exam_sittings s
+                LEFT JOIN certifications c ON c.id = s.certification_id
+                LEFT JOIN provider_venues v ON v.id = s.venue_id
+                WHERE s.provider_id = ?';
+        if ($onlyActive) {
+            $sql .= ' AND s.is_active = 1';
+        }
+        $sql .= ' ORDER BY s.exam_date ASC, s.modality ASC, s.id ASC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$providerId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Fechas publicadas y aún inscribibles para una certificación.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function availableExamSittingsForCertification(array $cert): array
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $features = self::examProductFeatures($cert['features_json'] ?? null, (string) ($cert['modality'] ?? ''));
+        if ($features['mode'] !== 'exam_sittings') {
+            return [];
+        }
+        $modality = $features['sitting_modality'] ?? ((string) ($cert['modality'] ?? '') === 'paper' ? 'paper' : 'online_venue');
+        $providerId = (int) ($cert['provider_id'] ?? 0);
+        $certId = (int) ($cert['id'] ?? 0);
+        if ($providerId < 1 || $certId < 1) {
+            return [];
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT s.*, v.name AS venue_name
+             FROM exam_sittings s
+             LEFT JOIN provider_venues v ON v.id = s.venue_id
+             WHERE s.provider_id = ?
+               AND s.modality = ?
+               AND s.is_active = 1
+               AND s.is_published = 1
+               AND s.registration_deadline >= CURDATE()
+               AND s.exam_date >= CURDATE()
+               AND (s.certification_id IS NULL OR s.certification_id = ?)
+             ORDER BY s.exam_date ASC, s.id ASC'
+        );
+        $stmt->execute([$providerId, $modality, $certId]);
+        return $stmt->fetchAll();
+    }
+
+    public function examSitting(int $id): ?array
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $stmt = $this->pdo->prepare('SELECT * FROM exam_sittings WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function saveExamSitting(array $data, ?int $id = null): int
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $modality = (string) ($data['modality'] ?? 'online_venue');
+        if (!in_array($modality, ['online_venue', 'paper'], true)) {
+            $modality = 'online_venue';
+        }
+        $examDate = (string) ($data['exam_date'] ?? '');
+        $deadline = (string) ($data['registration_deadline'] ?? '');
+        if ($examDate === '' || $deadline === '') {
+            throw new \RuntimeException('Fecha de aplicación y fecha límite de inscripción son obligatorias.');
+        }
+        $fields = [
+            (int) $data['provider_id'],
+            !empty($data['certification_id']) ? (int) $data['certification_id'] : null,
+            $modality,
+            $examDate,
+            $deadline,
+            trim((string) ($data['label'] ?? '')) ?: null,
+            !empty($data['venue_id']) ? (int) $data['venue_id'] : null,
+            isset($data['capacity']) && $data['capacity'] !== '' ? (int) $data['capacity'] : null,
+            trim((string) ($data['notes'] ?? '')) ?: null,
+            !empty($data['is_published']) ? 1 : 0,
+            !isset($data['is_active']) || !empty($data['is_active']) ? 1 : 0,
+        ];
+        if ($id) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE exam_sittings SET provider_id=?, certification_id=?, modality=?, exam_date=?,
+                 registration_deadline=?, label=?, venue_id=?, capacity=?, notes=?, is_published=?, is_active=?
+                 WHERE id=?'
+            );
+            $stmt->execute([...$fields, $id]);
+            return $id;
+        }
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO exam_sittings
+             (provider_id, certification_id, modality, exam_date, registration_deadline,
+              label, venue_id, capacity, notes, is_published, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $stmt->execute($fields);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function deleteExamSitting(int $id): void
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $this->pdo->prepare('DELETE FROM exam_sittings WHERE id = ?')->execute([$id]);
+    }
+
+    public function setExamSittingActive(int $id, bool $active): void
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $this->pdo->prepare('UPDATE exam_sittings SET is_active = ? WHERE id = ?')
+            ->execute([$active ? 1 : 0, $id]);
     }
 
     private function ensureItepMailTemplatesAndPrepCourse(): void

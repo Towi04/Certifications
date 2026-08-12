@@ -44,8 +44,10 @@ final class CertIcons
     public static function modalitySvg(string $modality): string
     {
         return match ($modality) {
-            // PC / monitor
-            'online' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="12.5" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20.5h8M12 16.5v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+            // PC / monitor (online genérico o desde casa)
+            'online', 'online_home' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="12.5" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20.5h8M12 16.5v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+            // Laptop en sede (presencial digital)
+            'online_venue' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 16.5h16M5.5 7h13a1 1 0 0 1 1 1v7.5H4.5V8a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M2.5 16.5h19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="11.5" r="1.2" fill="currentColor"/></svg>',
             // Papel / documento
             'paper' => '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.5h7.5L19 8v12.5a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 20.5V5A1.5 1.5 0 0 1 7 3.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.5 3.5V8H19M8.5 12h7M8.5 15.5h7M8.5 19h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
             default => '',
@@ -107,7 +109,7 @@ final class CertIcons
         if ($svg === '') {
             return '';
         }
-        $label = $modality === 'paper' ? 'Paper' : ($modality === 'online' ? 'Online' : $modality);
+        $label = \App\Catalog\CatalogRepository::modalities()[$modality] ?? $modality;
         $class = trim('cert-meta-icons ' . $sizeClass);
         return '<span class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '"><span class="cert-meta-icon cert-meta-icon--modality" title="' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '" aria-label="' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '">' . $svg . '</span></span>';
     }
