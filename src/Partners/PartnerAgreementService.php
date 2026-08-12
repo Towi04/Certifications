@@ -158,7 +158,8 @@ final class PartnerAgreementService
             . "Sube tu convenio firmado aquí:\n{$link}\n\n"
             . "Instituto Doceo\n";
 
-        $html = '<p>Hola ' . htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ',</p>'
+        $html = '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">¡Hola '
+            . htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '!</h1>'
             . '<p>Hay una nueva versión del convenio Teacher Referral'
             . ($tier !== '' ? ' (nivel <strong>' . htmlspecialchars($tier, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</strong>)' : '')
             . ': <strong>' . htmlspecialchars($agreementName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</strong>.</p>'
@@ -166,12 +167,11 @@ final class PartnerAgreementService
             . htmlspecialchars($deadlineLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
             . '</strong>.</p>'
             . '<p>Hasta que el equipo Doceo confirme el documento, podrás entrar a tu cuenta pero <strong>no registrar alumnos</strong>.</p>'
-            . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">Subir convenio firmado</a></p>'
-            . '<p>Instituto Doceo</p>';
+            . \App\Mail\MailBranding::button('Subir convenio firmado', $link);
 
         (new Mailer())->send($email, $subject, $body, [
             'html' => true,
-            'body_html' => $html,
+            'body_html' => \App\Mail\MailBranding::wrap($html),
         ]);
     }
 }

@@ -245,10 +245,17 @@ final class HealthChecker
 
         try {
             $mailer = new Mailer();
+            $plain = "Este es un correo de prueba del panel de salud del PDV.\n\nFecha: " . date('c') . "\n";
+            $html = \App\Mail\MailBranding::wrap(
+                '<h1 style="color:#315285;font-size:28px;margin:0 0 20px 0;font-family:Arial,sans-serif;">Prueba PDV</h1>'
+                . '<p>Este es un correo de prueba del panel de salud del PDV.</p>'
+                . '<p><strong>Fecha:</strong> ' . htmlspecialchars(date('c'), ENT_QUOTES, 'UTF-8') . '</p>'
+            );
             $mailer->send(
                 $to,
                 'Prueba PDV Instituto Doceo',
-                "Este es un correo de prueba del panel de salud del PDV.\n\nFecha: " . date('c') . "\n"
+                $plain,
+                ['html' => true, 'body_html' => $html]
             );
 
             $used = Mailer::lastEndpoint();

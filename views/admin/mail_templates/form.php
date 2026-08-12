@@ -76,7 +76,13 @@ require __DIR__ . '/../_ficha_head.php';
                 </div>
                 <textarea name="body_html" rows="14" class="html-editor" required><?= e($item['body_html'] ?? '') ?></textarea>
                 <div class="html-preview prose" hidden></div>
-                <small class="muted">Pulsa <code>&lt;/&gt;</code> para ver el correo renderizado (sin etiquetas HTML).</small>
+                <small class="muted">
+                    Escribe solo el <strong>texto / HTML del mensaje</strong> (saludo, párrafos, tokens).
+                    Al enviar, el sistema envuelve automáticamente con la plantilla Doceo
+                    (logo gris, pie azul y redes sociales). Usa tokens
+                    <code>{{… Boton}}</code> para botones azules homogéneos
+                    (<code>#315285</code>, bordes redondeados).
+                </small>
             </div>
             <label class="check field-wide">
                 <input type="checkbox" name="attach_export" <?= !empty($item['attach_export']) ? 'checked' : '' ?>>
