@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS providers (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(64) NOT NULL,
   name VARCHAR(190) NOT NULL,
+  org_kind ENUM('certifier', 'tramites', 'internal') NOT NULL DEFAULT 'certifier'
+    COMMENT 'certifier=proveedor de examen; tramites=CENNI/CONOCER Doceo; internal=uso interno',
   website_url VARCHAR(255) NULL,
   brand_website_url VARCHAR(255) NULL,
   registration_fields_json JSON NULL COMMENT 'Campos disponibles para adquisición (elegibles en cada certificación)',
@@ -317,7 +319,7 @@ CREATE TABLE IF NOT EXISTS certifications (
   code VARCHAR(64) NOT NULL,
   slug VARCHAR(190) NOT NULL,
   name VARCHAR(255) NOT NULL,
-  modality ENUM('online', 'paper') NOT NULL DEFAULT 'online',
+  modality ENUM('online', 'online_home', 'online_venue', 'paper') NOT NULL DEFAULT 'online',
   short_description TEXT NULL,
   value_points_json JSON NULL COMMENT 'Viñetas de valor agregado Doceo (por qué con nosotros)',
   registration_fields_json JSON NULL COMMENT 'Campos del formulario de adquisición: off|optional|required',
@@ -410,6 +412,30 @@ CREATE TABLE IF NOT EXISTS product_assets (
   KEY idx_assets_owner (owner_type, owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Fechas de aplicación publicadas (Cambridge presencial digital/papel y similares)
+CREATE TABLE IF NOT EXISTS exam_sittings (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider_id BIGINT UNSIGNED NOT NULL,
+  certification_id BIGINT UNSIGNED NULL COMMENT 'NULL = todas las certs del proveedor con esa modalidad',
+  modality ENUM('online_venue', 'paper') NOT NULL,
+  exam_date DATE NOT NULL,
+  registration_deadline DATE NOT NULL,
+  label VARCHAR(190) NULL,
+  venue_id BIGINT UNSIGNED NULL,
+  capacity INT UNSIGNED NULL,
+  notes TEXT NULL,
+  is_published TINYINT(1) NOT NULL DEFAULT 1,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_exam_sitting_slot (provider_id, modality, exam_date, certification_id),
+  KEY idx_exam_sittings_provider (provider_id, modality, exam_date),
+  KEY idx_exam_sittings_deadline (registration_deadline, is_published, is_active),
+  CONSTRAINT fk_exam_sittings_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+  CONSTRAINT fk_exam_sittings_cert FOREIGN KEY (certification_id) REFERENCES certifications(id) ON DELETE CASCADE,
+  CONSTRAINT fk_exam_sittings_venue FOREIGN KEY (venue_id) REFERENCES provider_venues(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS provider_links (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NOT NULL,
@@ -489,12 +515,15 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   student_nationality VARCHAR(64) NULL,
   exam_date DATE NULL,
   exam_time VARCHAR(32) NULL,
+  exam_sitting_id BIGINT UNSIGNED NULL,
+  schedule_deferred TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=compró sin fecha; agendará cuando publiquen sittings',
   exam_extraordinary TINYINT(1) NOT NULL DEFAULT 0,
   exam_extraordinary_fee DECIMAL(12,2) NULL,
   reschedule_date DATE NULL,
   reschedule_time VARCHAR(32) NULL,
   folio_id VARCHAR(120) NULL,
   access_key VARCHAR(120) NULL,
+  institution_id VARCHAR(64) NULL COMMENT 'Ej. Cambridge Institution ID MX143',
   inventory_code_id BIGINT UNSIGNED NULL,
   zoom_url VARCHAR(512) NULL,
   prep_doc_url VARCHAR(512) NULL,

@@ -71,9 +71,11 @@ final class PublicRoutes
                     exit;
                 }
                 if ($role === 'student' || Auth::isStaffRole($role)) {
+                    $repo()->ensureCambridgeAndSepSchemaAndSeeds();
                     view('store/acquire', [
                         'title' => 'Adquirir · ' . $item['name'],
                         'item' => $item,
+                        'exam_sittings' => $repo()->availableExamSittingsForCertification($item),
                         'user' => Auth::user(),
                         'logged_in' => true,
                         'error' => flash('error'),
@@ -84,9 +86,11 @@ final class PublicRoutes
                 }
             }
 
+            $repo()->ensureCambridgeAndSepSchemaAndSeeds();
             view('store/acquire', [
                 'title' => 'Adquirir · ' . $item['name'],
                 'item' => $item,
+                'exam_sittings' => $repo()->availableExamSittingsForCertification($item),
                 'user' => null,
                 'logged_in' => false,
                 'error' => flash('error'),
@@ -110,6 +114,7 @@ final class PublicRoutes
                 if (!is_array($extra)) {
                     $extra = [];
                 }
+                $sittingRaw = (string) ($_POST['exam_sitting_id'] ?? '');
                 return [
                     'first_name' => (string) ($_POST['first_name'] ?? ''),
                     'last_name_p' => (string) ($_POST['last_name_p'] ?? ''),
@@ -125,6 +130,8 @@ final class PublicRoutes
                     'exam_time_extraordinary' => (string) ($_POST['exam_time_extraordinary'] ?? ''),
                     'exam_time_mode' => ((string) ($_POST['exam_time'] ?? '') === '__extraordinary__') ? 'extraordinary' : '',
                     'accept_extraordinary' => isset($_POST['accept_extraordinary']) ? '1' : '',
+                    'exam_sitting_id' => $sittingRaw !== '__later__' ? $sittingRaw : '',
+                    'schedule_later' => ($sittingRaw === '__later__' || isset($_POST['schedule_later'])) ? '1' : '',
                     'extra' => $extra,
                     'show_login' => $mode === 'login' ? '1' : '',
                 ];
@@ -151,6 +158,13 @@ final class PublicRoutes
                 $catalog = CatalogRepository::registrationFieldCatalog();
                 $schedule = $regConfig['schedule'];
                 $customDefs = $regConfig['custom'];
+                $examFeatures = CatalogRepository::examProductFeatures(
+                    $item['features_json'] ?? null,
+                    (string) ($item['modality'] ?? 'online')
+                );
+                $schedulingMode = $examFeatures['mode'];
+                $examSittingId = null;
+                $scheduleDeferred = false;
 
                 $first = trim((string) ($_POST['first_name'] ?? ''));
                 $lastP = trim((string) ($_POST['last_name_p'] ?? ''));
@@ -181,6 +195,13 @@ final class PublicRoutes
                     'exam_date' => $examDate,
                     'exam_time' => $examTimeRaw === '__extraordinary__' ? $examTimeExtra : $examTimeRaw,
                 ];
+
+                // En modos Cambridge, la agenda no usa los campos weekday estándar
+                if ($schedulingMode === 'exam_sittings' || $schedulingMode === 'flexible_home') {
+                    $regCfg['exam_date'] = 'off';
+                    $regCfg['exam_time'] = 'off';
+                }
+
                 foreach ($regCfg as $key => $fieldMode) {
                     if ($fieldMode === 'off') {
                         $posted[$key] = '';
@@ -198,47 +219,92 @@ final class PublicRoutes
                     $sex = '';
                 }
 
-                if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date') && $examDate !== '') {
-                    if (!CatalogRepository::isExamDateOpen($examDate, $schedule) && empty($schedule['extraordinary_enabled'])) {
-                        throw new \RuntimeException('Ese día no hay horario de aplicación para esta certificación.');
-                    }
-                }
-
-                if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
-                    $dateOpen = $examDate === '' || CatalogRepository::isExamDateOpen($examDate, $schedule);
-                    if ($examTimeRaw === '__extraordinary__') {
-                        if (empty($schedule['extraordinary_enabled'])) {
-                            throw new \RuntimeException('Esta certificación no admite aplicación extraordinaria.');
-                        }
-                        if (!isset($_POST['accept_extraordinary'])) {
-                            throw new \RuntimeException('Debes aceptar el costo de aplicación extraordinaria.');
-                        }
-                        if ($examTimeExtra === '' || !preg_match('/^\d{2}:\d{2}$/', $examTimeExtra)) {
-                            throw new \RuntimeException('Indica la hora fuera de horario.');
-                        }
-                        if ($dateOpen && $examDate !== '' && CatalogRepository::isExamTimeWithinRange($examTimeExtra, $schedule, $examDate)) {
-                            throw new \RuntimeException('Esa hora está dentro del horario regular; elige una opción de la lista.');
-                        }
-                        $extraordinary = true;
-                        $extraordinaryFee = max(0, (float) ($schedule['extraordinary_fee'] ?? 0));
-                        $examTime = $examTimeExtra;
+                if ($schedulingMode === 'exam_sittings') {
+                    $sittingRaw = trim((string) ($_POST['exam_sitting_id'] ?? ''));
+                    $wantLater = $sittingRaw === '__later__' || isset($_POST['schedule_later']);
+                    $available = $repo()->availableExamSittingsForCertification($item);
+                    if ($wantLater || $available === []) {
+                        $scheduleDeferred = true;
+                        $examDate = '';
+                        $examTime = '';
                     } else {
-                        $examTime = substr($examTimeRaw, 0, 5);
-                        if ($examTime !== '') {
-                            if ($examDate === '') {
-                                throw new \RuntimeException('Indica la fecha de examen para validar el horario.');
+                        if ($sittingRaw === '' || !ctype_digit($sittingRaw)) {
+                            throw new \RuntimeException('Selecciona una fecha de aplicación o elige agendar después.');
+                        }
+                        $sittingId = (int) $sittingRaw;
+                        $found = null;
+                        foreach ($available as $sit) {
+                            if ((int) $sit['id'] === $sittingId) {
+                                $found = $sit;
+                                break;
                             }
-                            if (!$dateOpen) {
-                                if (!empty($schedule['extraordinary_enabled'])) {
-                                    throw new \RuntimeException('Ese día no tiene horario regular; elige “Fuera de horario / día”.');
-                                }
-                                throw new \RuntimeException('Ese día no hay aplicaciones para esta certificación.');
+                        }
+                        if (!$found) {
+                            throw new \RuntimeException('La fecha seleccionada ya no está disponible.');
+                        }
+                        $examSittingId = $sittingId;
+                        $examDate = (string) $found['exam_date'];
+                        $examTime = '';
+                    }
+                } elseif ($schedulingMode === 'flexible_home') {
+                    if ($examDate === '') {
+                        throw new \RuntimeException('Indica la fecha preferida de examen.');
+                    }
+                    $minAhead = max(0, (int) $examFeatures['min_days_ahead']);
+                    $minDate = (new \DateTimeImmutable('today'))->modify('+' . $minAhead . ' days')->format('Y-m-d');
+                    if ($examDate < $minDate) {
+                        throw new \RuntimeException(
+                            'Debes agendar con al menos ' . $minAhead . ' días de antelación (a partir del ' . $minDate . ').'
+                        );
+                    }
+                    $dow = (int) (new \DateTimeImmutable($examDate))->format('N');
+                    if ($dow > 5) {
+                        throw new \RuntimeException('Los exámenes desde casa se presentan de lunes a viernes.');
+                    }
+                    $examTime = ''; // ventana 9–18 sin hora fija
+                } else {
+                    if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date') && $examDate !== '') {
+                        if (!CatalogRepository::isExamDateOpen($examDate, $schedule) && empty($schedule['extraordinary_enabled'])) {
+                            throw new \RuntimeException('Ese día no hay horario de aplicación para esta certificación.');
+                        }
+                    }
+
+                    if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
+                        $dateOpen = $examDate === '' || CatalogRepository::isExamDateOpen($examDate, $schedule);
+                        if ($examTimeRaw === '__extraordinary__') {
+                            if (empty($schedule['extraordinary_enabled'])) {
+                                throw new \RuntimeException('Esta certificación no admite aplicación extraordinaria.');
                             }
-                            if (!CatalogRepository::isExamTimeWithinRange($examTime, $schedule, $examDate)) {
-                                if (!empty($schedule['extraordinary_enabled'])) {
-                                    throw new \RuntimeException('Para horarios fuera de rango elige “Fuera de horario / día”.');
+                            if (!isset($_POST['accept_extraordinary'])) {
+                                throw new \RuntimeException('Debes aceptar el costo de aplicación extraordinaria.');
+                            }
+                            if ($examTimeExtra === '' || !preg_match('/^\d{2}:\d{2}$/', $examTimeExtra)) {
+                                throw new \RuntimeException('Indica la hora fuera de horario.');
+                            }
+                            if ($dateOpen && $examDate !== '' && CatalogRepository::isExamTimeWithinRange($examTimeExtra, $schedule, $examDate)) {
+                                throw new \RuntimeException('Esa hora está dentro del horario regular; elige una opción de la lista.');
+                            }
+                            $extraordinary = true;
+                            $extraordinaryFee = max(0, (float) ($schedule['extraordinary_fee'] ?? 0));
+                            $examTime = $examTimeExtra;
+                        } else {
+                            $examTime = substr($examTimeRaw, 0, 5);
+                            if ($examTime !== '') {
+                                if ($examDate === '') {
+                                    throw new \RuntimeException('Indica la fecha de examen para validar el horario.');
                                 }
-                                throw new \RuntimeException('La hora no está disponible en el horario de ese día.');
+                                if (!$dateOpen) {
+                                    if (!empty($schedule['extraordinary_enabled'])) {
+                                        throw new \RuntimeException('Ese día no tiene horario regular; elige “Fuera de horario / día”.');
+                                    }
+                                    throw new \RuntimeException('Ese día no hay aplicaciones para esta certificación.');
+                                }
+                                if (!CatalogRepository::isExamTimeWithinRange($examTime, $schedule, $examDate)) {
+                                    if (!empty($schedule['extraordinary_enabled'])) {
+                                        throw new \RuntimeException('Para horarios fuera de rango elige “Fuera de horario / día”.');
+                                    }
+                                    throw new \RuntimeException('La hora no está disponible en el horario de ese día.');
+                                }
                             }
                         }
                     }
@@ -279,13 +345,15 @@ final class PublicRoutes
                 if (!CatalogRepository::registrationFieldEnabled($regCfg, 'nationality')) {
                     $nationality = '';
                 }
-                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date')) {
-                    $examDate = '';
-                }
-                if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
-                    $examTime = '';
-                    $extraordinary = false;
-                    $extraordinaryFee = 0.0;
+                if ($schedulingMode === 'weekday_slots') {
+                    if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date')) {
+                        $examDate = '';
+                    }
+                    if (!CatalogRepository::registrationFieldEnabled($regCfg, 'exam_time')) {
+                        $examTime = '';
+                        $extraordinary = false;
+                        $extraordinaryFee = 0.0;
+                    }
                 }
 
                 $plainPassword = null;
@@ -330,6 +398,9 @@ final class PublicRoutes
                 }
 
                 $fullName = trim($first . ' ' . $lastP . ' ' . $lastM);
+                $caseNotes = 'Adquisición pública · datos para certificado: ' . $fullName
+                    . ($extraordinary ? ' · aplicación extraordinaria' : '')
+                    . ($scheduleDeferred ? ' · agenda pendiente (sin fechas publicadas)' : '');
                 $caseId = $repo()->openCertificationCase([
                     'certification_id' => (int) $item['id'],
                     'student_user_id' => (int) $user['id'],
@@ -344,13 +415,15 @@ final class PublicRoutes
                     'student_nationality' => $nationality !== '' ? $nationality : null,
                     'exam_date' => $examDate !== '' ? $examDate : null,
                     'exam_time' => $examTime !== '' ? $examTime : null,
+                    'exam_sitting_id' => $examSittingId,
+                    'schedule_deferred' => $scheduleDeferred ? 1 : 0,
+                    'institution_id' => $examFeatures['institution_id'] ?? null,
                     'exam_extraordinary' => $extraordinary ? 1 : 0,
                     'exam_extraordinary_fee' => $extraordinary ? $extraordinaryFee : null,
                     'registration_extra_json' => $extraOut !== []
                         ? (json_encode($extraOut, JSON_UNESCAPED_UNICODE) ?: null)
                         : null,
-                    'notes' => 'Adquisición pública · datos para certificado: ' . $fullName
-                        . ($extraordinary ? ' · aplicación extraordinaria' : ''),
+                    'notes' => $caseNotes,
                 ]);
 
                 // El formulario de adquisición cubre el registro del candidato.

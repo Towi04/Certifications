@@ -194,8 +194,9 @@ final class AdminRoutes
             }
             $repo()->ensureLegacyContactMigrated($id);
             $repo()->ensureProviderSetupSchema();
+            $repo()->ensureCambridgeAndSepSchemaAndSeeds();
             $allowedTabs = [
-                'proveedor', 'contactos', 'sedes', 'autorizacion', 'convenio', 'cuentas', 'links',
+                'proveedor', 'contactos', 'sedes', 'fechas', 'autorizacion', 'convenio', 'cuentas', 'links',
                 'certificaciones', 'grupos', 'documentos', 'campos', 'notas',
             ];
             $tab = (string) ($_GET['tab'] ?? 'proveedor');
@@ -206,6 +207,14 @@ final class AdminRoutes
             $editVenueId = (int) ($_GET['edit_venue'] ?? 0);
             if ($tab === 'sedes' && $editVenueId > 0) {
                 $editVenue = $repo()->providerVenue($id, $editVenueId);
+            }
+            $editSitting = null;
+            $editSittingId = (int) ($_GET['edit_sitting'] ?? 0);
+            if ($tab === 'fechas' && $editSittingId > 0) {
+                $sittingRow = $repo()->examSitting($editSittingId);
+                if ($sittingRow && (int) $sittingRow['provider_id'] === $id) {
+                    $editSitting = $sittingRow;
+                }
             }
             $editContact = null;
             $editContactId = (int) ($_GET['edit_contact'] ?? 0);
@@ -243,6 +252,7 @@ final class AdminRoutes
             }
             $showForm = isset($_GET['form'])
                 || $editVenue !== null
+                || $editSitting !== null
                 || $editContact !== null
                 || $editAccount !== null
                 || $editLink !== null
@@ -256,8 +266,10 @@ final class AdminRoutes
                 'certifications' => $repo()->certificationsByProvider($id),
                 'contacts' => $repo()->providerContacts($id),
                 'venues' => $repo()->providerVenues($id),
+                'exam_sittings' => $repo()->examSittingsForProvider($id),
                 'accounts' => $repo()->providerAccounts($id),
                 'editVenue' => $editVenue,
+                'editSitting' => $editSitting,
                 'editContact' => $editContact,
                 'editAccount' => $editAccount,
                 'editLink' => $editLink,
@@ -313,11 +325,16 @@ final class AdminRoutes
                 $authPath = $existing['auth_proof_path'] ?? null;
                 $website = $existing['website_url'] ?? null;
                 $brandWebsite = $existing['brand_website_url'] ?? null;
+                $orgKind = (string) ($existing['org_kind'] ?? 'certifier');
                 $isActive = $existing ? (int) $existing['is_active'] : 1;
 
                 if ($tab === 'proveedor' || !$existing) {
                     $website = trim((string) ($_POST['website_url'] ?? '')) ?: null;
                     $brandWebsite = trim((string) ($_POST['brand_website_url'] ?? '')) ?: null;
+                    $orgKind = (string) ($_POST['org_kind'] ?? $orgKind);
+                    if (!isset(CatalogRepository::providerOrgKinds()[$orgKind])) {
+                        $orgKind = 'certifier';
+                    }
                     if (!empty($_FILES['logo_icon']['name'])) {
                         $newIcon = Uploader::storeImage($_FILES['logo_icon'], 'providers/icons', 320, 320);
                         if ($iconPath) {
@@ -372,6 +389,7 @@ final class AdminRoutes
                 $savedId = $repo()->saveProvider([
                     'code' => $code,
                     'name' => $name,
+                    'org_kind' => $orgKind,
                     'website_url' => $website,
                     'brand_website_url' => $brandWebsite,
                     'logo_path' => $iconPath,
@@ -1067,6 +1085,72 @@ final class AdminRoutes
                 flash('error', $e->getMessage());
             }
             header('Location: ' . $providerTabUrl($providerId, 'campos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/sitting/save', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $sittingId = (int) ($_POST['sitting_id'] ?? 0) ?: null;
+            if ($providerId < 1) {
+                flash('error', 'Proveedor inválido.');
+                header('Location: /admin/providers');
+                exit;
+            }
+            try {
+                $repo()->ensureCambridgeAndSepSchemaAndSeeds();
+                $repo()->saveExamSitting([
+                    'provider_id' => $providerId,
+                    'certification_id' => (int) ($_POST['certification_id'] ?? 0) ?: null,
+                    'modality' => (string) ($_POST['modality'] ?? 'online_venue'),
+                    'exam_date' => trim((string) ($_POST['exam_date'] ?? '')),
+                    'registration_deadline' => trim((string) ($_POST['registration_deadline'] ?? '')),
+                    'label' => trim((string) ($_POST['label'] ?? '')),
+                    'venue_id' => (int) ($_POST['venue_id'] ?? 0) ?: null,
+                    'capacity' => trim((string) ($_POST['capacity'] ?? '')),
+                    'notes' => trim((string) ($_POST['notes'] ?? '')),
+                    'is_published' => isset($_POST['is_published']) ? 1 : 0,
+                    'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                ], $sittingId);
+                flash('info', 'Fecha de aplicación guardada.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                $loc = $providerTabUrl($providerId, 'fechas') . ($sittingId ? '&edit_sitting=' . $sittingId : '&form=1');
+                header('Location: ' . $loc);
+                exit;
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'fechas'));
+            exit;
+        });
+
+        $router->post('/admin/providers/sitting/delete', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $sittingId = (int) ($_POST['sitting_id'] ?? 0);
+            if ($providerId > 0 && $sittingId > 0) {
+                $row = $repo()->examSitting($sittingId);
+                if ($row && (int) $row['provider_id'] === $providerId) {
+                    $repo()->deleteExamSitting($sittingId);
+                    flash('info', 'Fecha eliminada.');
+                }
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'fechas'));
+            exit;
+        });
+
+        $router->post('/admin/providers/sitting/toggle-active', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            $sittingId = (int) ($_POST['sitting_id'] ?? 0);
+            $active = isset($_POST['is_active']) ? (int) $_POST['is_active'] : 0;
+            if ($providerId > 0 && $sittingId > 0) {
+                $row = $repo()->examSitting($sittingId);
+                if ($row && (int) $row['provider_id'] === $providerId) {
+                    $repo()->setExamSittingActive($sittingId, $active === 1);
+                    flash('info', $active ? 'Fecha activada.' : 'Fecha desactivada.');
+                }
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'fechas'));
             exit;
         });
 
@@ -2820,6 +2904,7 @@ final class AdminRoutes
             Auth::requireAdmin();
             $id = (int) ($_GET['id'] ?? 0);
             $repo()->ensureUksFlowSchemaAndSeeds();
+            $repo()->ensureCambridgeAndSepSchemaAndSeeds();
             $repo()->ensureProductAssetsSchema();
             $item = $repo()->certification($id);
             if (!$item) {
@@ -2885,7 +2970,7 @@ final class AdminRoutes
             }
 
             $modality = (string) ($_POST['modality'] ?? 'online');
-            if (!in_array($modality, ['online', 'paper'], true)) {
+            if (!isset(CatalogRepository::modalities()[$modality])) {
                 $modality = 'online';
             }
 
