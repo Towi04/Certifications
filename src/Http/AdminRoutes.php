@@ -2053,6 +2053,23 @@ final class AdminRoutes
             exit;
         });
 
+        $router->post('/admin/cases/regenerate-signed-regulation', static function () use ($repo, $caseViewUrl): void {
+            Auth::requireAdmin();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $user = Auth::user();
+            try {
+                $result = $repo()->regenerateCaseRegulationSignedPdf(
+                    $caseId,
+                    $user ? (int) $user['id'] : null
+                );
+                flash('info', 'PDF del reglamento regenerado con la hoja de firma al final.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $caseViewUrl($caseId, 'reglamento'));
+            exit;
+        });
+
         $router->post('/admin/cases/send-provider-request', static function () use ($repo, $caseViewUrl): void {
             Auth::requireAdmin();
             $caseId = (int) ($_POST['case_id'] ?? 0);

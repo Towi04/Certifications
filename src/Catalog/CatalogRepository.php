@@ -1974,6 +1974,14 @@ final class CatalogRepository
         return $svc->sign($caseId, $signerName, $documentId, $userId, $mode, $signatureDataUrl);
     }
 
+    /** @return array{pdf_path:string} */
+    public function regenerateCaseRegulationSignedPdf(int $caseId, ?int $actorUserId = null): array
+    {
+        $svc = new \App\Documents\RegulationSignService($this);
+
+        return $svc->regenerateSignedPdf($caseId, $actorUserId);
+    }
+
     public function ensureRegulationSignatureColumns(): void
     {
         static $done = false;

@@ -6,6 +6,7 @@ namespace App\Support;
 
 /**
  * Une PDFs existentes (p. ej. reglamento + hoja de firma) usando FPDF/FPDI vendored.
+ * Normaliza PDFs con xref/object streams comprimidos vía qpdf antes de importar.
  */
 final class PdfDocumentMerger
 {
@@ -57,27 +58,43 @@ final class PdfDocumentMerger
             throw new \RuntimeException('FPDF no está disponible.');
         }
 
-        $pdf = new class extends \setasign\Fpdi\Fpdi {
-        };
-
-        foreach ($absolutePdfPaths as $path) {
-            $pageCount = $pdf->setSourceFile($path);
-            for ($page = 1; $page <= $pageCount; $page++) {
-                $tpl = $pdf->importPage($page);
-                $size = $pdf->getTemplateSize($tpl);
-                $orientation = ($size['width'] > $size['height']) ? 'L' : 'P';
-                $pdf->AddPage($orientation, [$size['width'], $size['height']]);
-                $pdf->useTemplate($tpl);
+        $tempNormalized = [];
+        try {
+            $sources = [];
+            foreach ($absolutePdfPaths as $path) {
+                $compatible = PdfCompatNormalizer::ensureFpdiCompatible($path);
+                if ($compatible !== $path) {
+                    $tempNormalized[] = $compatible;
+                }
+                $sources[] = $compatible;
             }
-        }
 
-        $dir = dirname($outputAbsolutePath);
-        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
-            throw new \RuntimeException('No se pudo crear la carpeta del PDF firmado.');
-        }
-        $pdf->Output('F', $outputAbsolutePath);
-        if (!is_file($outputAbsolutePath) || filesize($outputAbsolutePath) < 50) {
-            throw new \RuntimeException('No se pudo generar el PDF unido.');
+            $pdf = new class extends \setasign\Fpdi\Fpdi {
+            };
+
+            foreach ($sources as $path) {
+                $pageCount = $pdf->setSourceFile($path);
+                for ($page = 1; $page <= $pageCount; $page++) {
+                    $tpl = $pdf->importPage($page);
+                    $size = $pdf->getTemplateSize($tpl);
+                    $orientation = ($size['width'] > $size['height']) ? 'L' : 'P';
+                    $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+                    $pdf->useTemplate($tpl);
+                }
+            }
+
+            $dir = dirname($outputAbsolutePath);
+            if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+                throw new \RuntimeException('No se pudo crear la carpeta del PDF firmado.');
+            }
+            $pdf->Output('F', $outputAbsolutePath);
+            if (!is_file($outputAbsolutePath) || filesize($outputAbsolutePath) < 50) {
+                throw new \RuntimeException('No se pudo generar el PDF unido.');
+            }
+        } finally {
+            foreach ($tempNormalized as $tmp) {
+                @unlink($tmp);
+            }
         }
     }
 

@@ -57,6 +57,7 @@ final class RegulationSignService
         $ua = mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250);
         $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/');
 
+        $requireMerged = is_array($doc) && trim((string) ($doc['file_path'] ?? '')) !== '';
         $pdfRel = $this->buildSignedPdf(
             $caseId,
             $case,
@@ -66,7 +67,8 @@ final class RegulationSignService
             $mode,
             $ip,
             $appUrl,
-            $signatureAbs
+            $signatureAbs,
+            $requireMerged
         );
 
         $this->repo->updateCertificationCase($caseId, [
@@ -122,6 +124,82 @@ final class RegulationSignService
         ];
     }
 
+    /**
+     * Regenera el PDF firmado (reglamento + hoja de firma) para un caso ya firmado.
+     * Útil cuando una firma previa solo guardó la hoja de evidencia por fallo al unir.
+     *
+     * @return array{pdf_path:string}
+     */
+    public function regenerateSignedPdf(int $caseId, ?int $actorUserId = null): array
+    {
+        $this->repo->ensureRegulationSignatureColumns();
+        $case = $this->repo->certificationCaseDetailed($caseId);
+        if (!$case) {
+            throw new \RuntimeException('Caso no encontrado.');
+        }
+        if (empty($case['regulation_signed_at'])) {
+            throw new \RuntimeException('Este caso aún no tiene reglamento firmado.');
+        }
+
+        $docId = (int) ($case['regulation_document_id'] ?? 0);
+        $doc = $docId > 0 ? $this->repo->document($docId) : null;
+        if (!$doc) {
+            $doc = $this->repo->regulationDocumentForCertification((int) ($case['certification_id'] ?? 0));
+        }
+        if (!$doc || trim((string) ($doc['file_path'] ?? '')) === '') {
+            throw new \RuntimeException('No hay PDF de reglamento original para anexar la firma.');
+        }
+
+        $signerName = trim((string) ($case['regulation_signer_name'] ?? ''));
+        if ($signerName === '') {
+            throw new \RuntimeException('Falta el nombre del firmante en el caso.');
+        }
+        $signedAt = (string) ($case['regulation_signed_at'] ?? date('Y-m-d H:i:s'));
+        $mode = (string) ($case['regulation_signature_mode'] ?? 'type');
+        if (!in_array($mode, ['draw', 'type'], true)) {
+            $mode = 'type';
+        }
+        $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/');
+        $signatureAbs = null;
+        $sigRel = trim((string) ($case['regulation_signature_path'] ?? ''));
+        if ($sigRel !== '') {
+            $signatureAbs = Uploader::absolutePath($sigRel);
+        }
+
+        $pdfRel = $this->buildSignedPdf(
+            $caseId,
+            $case,
+            $doc,
+            $signerName,
+            $signedAt,
+            $mode,
+            '',
+            $appUrl,
+            $signatureAbs,
+            true
+        );
+
+        $oldRel = trim((string) ($case['regulation_signed_pdf_path'] ?? ''));
+        $this->repo->updateCertificationCase($caseId, [
+            'regulation_document_id' => (int) ($doc['id'] ?? $docId) ?: null,
+            'regulation_signed_pdf_path' => $pdfRel,
+        ]);
+
+        $this->repo->addCaseAttachment(
+            $caseId,
+            'regulation_signed_pdf',
+            'Reglamento con hoja de firma (regenerado) — ' . $signerName,
+            $pdfRel,
+            $actorUserId
+        );
+
+        if ($oldRel !== '' && $oldRel !== $pdfRel) {
+            Uploader::delete($oldRel);
+        }
+
+        return ['pdf_path' => $pdfRel];
+    }
+
     /** @param array<string,mixed> $case @param array<string,mixed>|null $doc */
     private function buildSignedPdf(
         int $caseId,
@@ -132,7 +210,8 @@ final class RegulationSignService
         string $mode,
         string $ip,
         string $appUrl,
-        ?string $signatureAbs
+        ?string $signatureAbs,
+        bool $requireMergedOriginal = false
     ): string {
         $full = trim(
             (string) ($case['student_name'] ?? '') . ' '
@@ -179,7 +258,7 @@ final class RegulationSignService
         $finalAbs = dirname(__DIR__, 2) . '/storage/' . $finalRel;
 
         $originalAbs = null;
-        $originalRel = trim((string) ($doc['file_path'] ?? ''));
+        $originalRel = is_array($doc) ? trim((string) ($doc['file_path'] ?? '')) : '';
         if ($originalRel !== '') {
             $candidate = Uploader::absolutePath($originalRel);
             if ($candidate !== null && PdfDocumentMerger::isPdfFile($candidate)) {
@@ -195,8 +274,19 @@ final class RegulationSignService
                 return $finalRel;
             } catch (\Throwable $e) {
                 error_log('[PDV] No se pudo anexar hoja de firma al reglamento: ' . $e->getMessage());
-                // Fallback: solo la hoja de firma
+                if ($requireMergedOriginal) {
+                    @unlink($stampAbs);
+                    throw new \RuntimeException(
+                        'No se pudo unir la hoja de firma al PDF del reglamento: ' . $e->getMessage()
+                    );
+                }
+                // Fallback (solo si no se exige el PDF completo): hoja de firma.
             }
+        } elseif ($requireMergedOriginal) {
+            @unlink($stampAbs);
+            throw new \RuntimeException(
+                'No se encontró el PDF original del reglamento para anexar la hoja de firma.'
+            );
         }
 
         // Sin PDF original usable: entregar la hoja de firma como evidencia.
