@@ -18,7 +18,14 @@ $findAsset = static function (array $list, string $type): ?array {
 
 $cover = $findAsset($assets, 'cover') ?? $findAsset($assets, 'exam_logo');
 $providerLogo = $findAsset($providerAssets, 'provider_logo');
-$samples = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['certificate_sample', 'badge', 'exam_logo', 'cover'], true)));
+$samples = array_values(array_filter(
+    $assets,
+    static fn ($a) => in_array($a['asset_type'] ?? '', ['certificate_sample', 'badge', 'exam_logo', 'cover', 'youtube'], true)
+));
+$youtubeAssets = array_values(array_filter(
+    $assets,
+    static fn ($a) => \App\Support\ProductAssetView::isYoutube($a)
+));
 $docs = array_values(array_filter($assets, static fn ($a) => in_array($a['asset_type'], ['syllabus_pdf', 'regulation_pdf'], true)));
 ?>
 <section class="page-head">
@@ -172,16 +179,28 @@ $examLogoAsset = $findAsset($assets, 'exam_logo') ?? $findAsset($assets, 'badge'
     </div>
 
     <?php if ($samples): ?>
-        <h2>Visuales</h2>
-        <div class="asset-gallery">
-            <?php foreach ($samples as $a): ?>
-                <a class="asset-thumb" href="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" target="_blank" rel="noopener">
-                    <?php if (str_ends_with(strtolower((string)$a['file_path']), '.pdf')): ?>
-                        <span><?= e($a['title'] ?: $a['asset_type']) ?></span>
-                    <?php else: ?>
-                        <img src="/media?f=<?= e(rawurlencode($a['file_path'])) ?>" alt="<?= e($a['title'] ?? $a['asset_type']) ?>">
-                    <?php endif; ?>
-                </a>
+        <?php
+        $galleryAssets = $samples;
+        $galleryTitle = 'Visuales';
+        require __DIR__ . '/../partials/asset_gallery.php';
+        ?>
+    <?php endif; ?>
+
+    <?php if ($youtubeAssets): ?>
+        <h2>Videos</h2>
+        <div class="asset-youtube-embeds">
+            <?php foreach ($youtubeAssets as $yt): ?>
+                <?php $embed = \App\Support\YoutubeUrl::embedUrl((string) ($yt['file_path'] ?? '')); ?>
+                <?php if ($embed): ?>
+                    <div class="asset-youtube-embed">
+                        <?php if (!empty($yt['title'])): ?>
+                            <p class="muted"><?= e((string) $yt['title']) ?></p>
+                        <?php endif; ?>
+                        <iframe src="<?= e($embed) ?>" title="<?= e((string) ($yt['title'] ?? 'Video')) ?>"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowfullscreen loading="lazy"></iframe>
+                    </div>
+                <?php endif; ?>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
@@ -276,3 +295,4 @@ $examLogoAsset = $findAsset($assets, 'exam_logo') ?? $findAsset($assets, 'badge'
         <p class="muted">Sin cursos vinculados.</p>
     <?php endif; ?>
 </section>
+<script src="/assets/js/asset-lightbox.js?v=<?= e((string) (@filemtime(BASE_PATH . '/public/assets/js/asset-lightbox.js') ?: time())) ?>" defer></script>

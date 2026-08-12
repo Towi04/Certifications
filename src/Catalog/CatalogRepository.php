@@ -5147,6 +5147,7 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function assets(string $ownerType, int $ownerId): array
     {
+        $this->ensureProductAssetsSchema();
         $stmt = $this->pdo->prepare(
             'SELECT * FROM product_assets WHERE owner_type = ? AND owner_id = ? ORDER BY sort_order, id'
         );
@@ -5164,6 +5165,7 @@ final class CatalogRepository
 
     public function saveAsset(array $data): int
     {
+        $this->ensureProductAssetsSchema();
         $stmt = $this->pdo->prepare(
             'INSERT INTO product_assets (owner_type, owner_id, asset_type, file_path, title, sort_order)
              VALUES (?,?,?,?,?,?)'
@@ -5189,15 +5191,49 @@ final class CatalogRepository
         return $asset;
     }
 
+    /** Amplía ENUM de product_assets.asset_type (youtube, course_logo). */
+    public function ensureProductAssetsSchema(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_assets' AND COLUMN_NAME = 'asset_type'"
+            );
+            $colType = (string) ($stmt?->fetchColumn() ?: '');
+            $needed = ['youtube', 'course_logo'];
+            $missing = [];
+            foreach ($needed as $val) {
+                if ($colType === '' || !str_contains($colType, "'" . $val . "'")) {
+                    $missing[] = $val;
+                }
+            }
+            if ($missing === []) {
+                return;
+            }
+            // Lista completa deseada (orden estable).
+            $enum = "ENUM('provider_logo','exam_logo','course_logo','certificate_sample','badge',"
+                . "'syllabus_pdf','regulation_pdf','cover','youtube','other') NOT NULL";
+            $this->pdo->exec('ALTER TABLE product_assets MODIFY COLUMN asset_type ' . $enum);
+        } catch (\Throwable $e) {
+            error_log('[PDV] ensureProductAssetsSchema: ' . $e->getMessage());
+        }
+    }
+
     /** @return list<string> */
     public static function assetTypesFor(string $ownerType): array
     {
         return match ($ownerType) {
             'provider' => ['provider_logo', 'other'],
             'certification' => [
-                'exam_logo', 'certificate_sample', 'badge', 'syllabus_pdf', 'regulation_pdf', 'cover', 'other',
+                'exam_logo', 'certificate_sample', 'badge', 'syllabus_pdf', 'regulation_pdf',
+                'cover', 'youtube', 'other',
             ],
-            'course' => ['cover', 'other'],
+            'course' => ['course_logo', 'cover', 'youtube', 'other'],
             'agreement' => ['regulation_pdf', 'other'],
             default => ['other'],
         };
@@ -5400,11 +5436,75 @@ final class CatalogRepository
         return $items;
     }
 
+    /**
+     * Adjunta cover/logo de curso (course_logo > cover).
+     *
+     * @param list<array<string, mixed>> $items
+     * @return list<array<string, mixed>>
+     */
+    public function attachCourseVisuals(array $items): array
+    {
+        if ($items === []) {
+            return [];
+        }
+        $this->ensureProductAssetsSchema();
+        $ids = [];
+        foreach ($items as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        $idList = array_keys($ids);
+        if ($idList === []) {
+            return $items;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($idList), '?'));
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT owner_id, asset_type, file_path
+                 FROM product_assets
+                 WHERE owner_type = 'course'
+                   AND owner_id IN ($placeholders)
+                   AND asset_type IN ('course_logo', 'cover')
+                 ORDER BY
+                   CASE asset_type
+                     WHEN 'course_logo' THEN 1
+                     ELSE 2
+                   END,
+                   sort_order, id"
+            );
+            $stmt->execute($idList);
+        } catch (\Throwable) {
+            return $items;
+        }
+        $logos = [];
+        foreach ($stmt->fetchAll() as $asset) {
+            $oid = (int) $asset['owner_id'];
+            $path = (string) ($asset['file_path'] ?? '');
+            if ($path === '' || str_starts_with($path, 'http')) {
+                continue;
+            }
+            if (!isset($logos[$oid])) {
+                $logos[$oid] = $path;
+            }
+        }
+
+        foreach ($items as &$row) {
+            $cid = (int) ($row['id'] ?? 0);
+            $row['course_logo_path'] = $logos[$cid] ?? null;
+        }
+        unset($row);
+
+        return $items;
+    }
+
     /** @return list<array<string, mixed>> */
     public function publicCourses(): array
     {
         try {
-            return $this->pdo->query(
+            $rows = $this->pdo->query(
                 'SELECT c.*, p.name AS protocol_name
                  FROM courses c
                  LEFT JOIN protocols p ON p.id = c.protocol_id
@@ -5412,10 +5512,12 @@ final class CatalogRepository
                  ORDER BY c.name'
             )->fetchAll();
         } catch (\Throwable) {
-            return $this->pdo->query(
+            $rows = $this->pdo->query(
                 'SELECT * FROM courses WHERE is_active = 1 ORDER BY name'
             )->fetchAll();
         }
+
+        return $this->attachCourseVisuals($rows);
     }
 
     /** @return list<array<string, mixed>> */

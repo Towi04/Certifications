@@ -7,6 +7,9 @@ $tabs = [
     'general' => 'General',
     'acceso' => 'Acceso',
 ];
+if ($item) {
+    $tabs['assets'] = 'Archivos';
+}
 if (!isset($tabs[$tab])) {
     $tab = 'general';
 }
@@ -77,6 +80,16 @@ require __DIR__ . '/../_ficha_head.php';
     </form>
 
     <?php if ($item): ?>
+        <div class="admin-ficha-panel" data-tab-panel="assets" <?= $tab !== 'assets' ? 'hidden' : '' ?>>
+            <?php
+            $assets = $assets ?? [];
+            $assetTypes = $assetTypes ?? \App\Catalog\CatalogRepository::assetTypesFor('course');
+            $ownerType = 'course';
+            $ownerId = (int) $item['id'];
+            $redirect = '/admin/courses/edit?id=' . (int) $item['id'] . '&tab=assets';
+            require __DIR__ . '/../_assets.php';
+            ?>
+        </div>
         <form method="post" action="/admin/courses/delete" style="margin-top:1rem"
               onsubmit="return confirm(<?= json_encode('¿Eliminar el curso “' . ($item['name'] ?? '') . '”? Si tiene matrículas Moodle, solo se desactivará.', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);">
             <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
