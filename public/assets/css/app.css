@@ -1452,19 +1452,13 @@ code { font-size: 0.9em; background: rgba(49, 82, 133, 0.08); padding: 0.1em 0.3
 
 /* —— Vitrina pública —— */
 .store-hero {
-  padding: 2.5rem 0 1.5rem;
+  padding: 2rem 0 0.75rem;
   max-width: 40rem;
-}
-.store-hero__logo {
-  display: block;
-  width: min(320px, 88vw);
-  height: auto;
-  margin: 0 0 1rem;
 }
 .store-hero h1 {
   font-family: var(--display);
   font-size: clamp(2rem, 4vw, 2.85rem);
-  margin: 0.35rem 0 0.75rem;
+  margin: 0;
   color: var(--blue-deep);
 }
 .store-section { margin: 2.5rem 0 1rem; }

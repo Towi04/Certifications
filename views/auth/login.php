@@ -1,8 +1,8 @@
 <section class="auth-card">
-    <p class="brand-mark"><img src="/assets/brand/escudo.svg" width="48" height="58" alt="Instituto DOCEO"></p>
+    <p class="brand-mark"><img src="/assets/brand/escudo.png" width="48" height="58" alt="Instituto DOCEO"></p>
     <h1>Iniciar sesión</h1>
     <p class="muted">Alumnos, Teacher Referral y equipo Doceo.</p>
-    <p class="slogan">be different, be better</p>
+    <p class="slogan">Be different, Be better!</p>
 
     <?php if (!empty($error)): ?>
         <div class="alert alert-error"><?= e($error) ?></div>
