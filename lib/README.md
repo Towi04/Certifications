@@ -9,5 +9,7 @@ digital al PDF original del reglamento.
 
 Los reglamentos subidos desde Word/Acrobat suelen ser PDF 1.5+ con
 *object streams* / xref comprimido. El parser gratuito de FPDI no los lee;
-`App\Support\PdfCompatNormalizer` los reescribe con `lib/qpdf/bin/qpdf`
-(o el `qpdf` del sistema / Ghostscript) antes de unir páginas.
+`App\Support\PdfCompatNormalizer` los reescribe con `lib/qpdf` (wrapper
+`qpdf.sh`, binario o `qpdf`/`gs` del sistema). Si el hosting no permite
+ejecutar binarios, usa el PDF compatible en `resources/regulations/` y
+sustituye el archivo en `storage` (queda `.pre-fpdi.bak`).
