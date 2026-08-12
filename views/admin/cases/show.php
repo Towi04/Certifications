@@ -198,6 +198,12 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
                         Constancia HTML
                     </a>
                 <?php endif; ?>
+                <form method="post" action="/admin/cases/regenerate-signed-regulation" style="display:inline">
+                    <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                    <button type="submit" class="btn btn-ghost" onclick="return confirm('¿Regenerar el PDF uniendo el reglamento original y la hoja de firma?');">
+                        Regenerar PDF (reglamento + firma)
+                    </button>
+                </form>
             </p>
             <p class="muted">El PDF incluye el reglamento original más una hoja final con la firma digital y los datos del sistema (para enviar al proveedor).</p>
         <?php else: ?>
