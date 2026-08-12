@@ -5293,11 +5293,13 @@ final class CatalogRepository
     }
 
     /**
-     * Catálogo público agrupado por proveedor (excluye estrellas si $excludeFeatured).
+     * Catálogo público agrupado por proveedor.
+     * Por defecto incluye productos estrella (también salen arriba en la vitrina).
+     * Pasa $excludeFeatured=true solo si quieres ocultarlos del listado por empresa.
      *
      * @return list<array{provider_id:int, provider_name:string, provider_code:?string, logo:?string, items:list<array<string,mixed>>}>
      */
-    public function publicCatalogGroupedByProvider(bool $excludeFeatured = true): array
+    public function publicCatalogGroupedByProvider(bool $excludeFeatured = false): array
     {
         $sql = 'SELECT c.*, p.name AS provider_name, p.code AS provider_code,
                        p.logo_icon_path, p.logo_full_path, p.logo_path

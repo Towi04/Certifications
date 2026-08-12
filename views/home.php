@@ -56,7 +56,7 @@ $courses = $courses ?? [];
 <section class="store-section" id="catalogo">
     <div class="section-head">
         <h2>Catálogo por certificadora</h2>
-        <p class="muted">Todas las certificaciones publicadas, agrupadas por empresa.</p>
+        <p class="muted">Todas las certificaciones publicadas, agrupadas por empresa (incluye las estrellas).</p>
     </div>
 
     <?php if (!$groups && !$featured): ?>
