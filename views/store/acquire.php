@@ -184,6 +184,7 @@ $minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAh
                             <?php foreach ($examSittings as $sit): ?>
                                 <?php
                                 $sitLabel = $sit['exam_date']
+                                    . (!empty($sit['exam_time']) ? ' · ' . $sit['exam_time'] : '')
                                     . ' (inscripción hasta ' . $sit['registration_deadline'] . ')'
                                     . (!empty($sit['label']) ? ' · ' . $sit['label'] : '')
                                     . (!empty($sit['venue_name']) ? ' · ' . $sit['venue_name'] : '');

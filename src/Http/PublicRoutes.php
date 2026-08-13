@@ -244,7 +244,12 @@ final class PublicRoutes
                         }
                         $examSittingId = $sittingId;
                         $examDate = (string) $found['exam_date'];
-                        $examTime = '';
+                        $examTime = trim((string) ($found['exam_time'] ?? ''));
+                        if ($examTime !== '' && preg_match('/^\d{1,2}:\d{2}/', $examTime)) {
+                            $examTime = substr($examTime, 0, 5);
+                        } else {
+                            $examTime = '';
+                        }
                     }
                 } elseif ($schedulingMode === 'flexible_home') {
                     if ($examDate === '') {

@@ -419,6 +419,7 @@ CREATE TABLE IF NOT EXISTS exam_sittings (
   certification_id BIGINT UNSIGNED NULL COMMENT 'NULL = todas las certs del proveedor con esa modalidad',
   modality ENUM('online_venue', 'paper') NOT NULL,
   exam_date DATE NOT NULL,
+  exam_time VARCHAR(16) NULL COMMENT 'Hora de aplicación (presencial)',
   registration_deadline DATE NOT NULL,
   label VARCHAR(190) NULL,
   venue_id BIGINT UNSIGNED NULL,
