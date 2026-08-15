@@ -90,5 +90,5 @@ Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRI
 - Portal del alumno con el mismo timeline y acciones por responsable.
 - Automatizar pasos `system` (OpenPay) y recordatorios por `trigger_days_after_exam`.
 - Adjuntos por paso (reglamento firmado, CSV, capturas).
-- Cambridge: subida de reglamento PDF + INE/pasaporte como gate antes de agendar; envío/paquetería y CENNI opcional en checkout.
+- Cambridge: envío/paquetería y CENNI opcional en checkout.
 - Flujo completo Red CONOCER (hoy flags + producto; falta protocolo operativo detallado).
