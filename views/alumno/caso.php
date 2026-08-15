@@ -4,8 +4,13 @@ $steps = $steps ?? [];
 $attachments = $attachments ?? [];
 $regulation = $regulation ?? null;
 $requires_regulation = !empty($requires_regulation);
-$exam_features = $exam_features ?? \App\Catalog\CatalogRepository::caseExamProductFeatures($item);
-$requiresIdDoc = !empty($exam_features['requires_id_doc']);
+$isCourseCase = (int) ($item['course_id'] ?? 0) > 0 && (int) ($item['certification_id'] ?? 0) < 1;
+$exam_features = $exam_features ?? (
+    $isCourseCase
+        ? ['mode' => 'weekday_slots', 'requires_id_doc' => false, 'requires_regulation_upload' => false, 'min_days_ahead' => 0]
+        : \App\Catalog\CatalogRepository::caseExamProductFeatures($item)
+);
+$requiresIdDoc = !$isCourseCase && !empty($exam_features['requires_id_doc']);
 $has_id_doc = !empty($has_id_doc);
 $exam_sittings = $exam_sittings ?? [];
 $cenni_statuses = $cenni_statuses ?? [];
@@ -13,7 +18,7 @@ $cenni_docs = $cenni_docs ?? [];
 
 $paid = !empty($item['payment_confirmed_at']) || in_array(strtolower((string)($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
 $signed = !empty($item['regulation_signed_at']);
-$needsSign = ($requires_regulation || $regulation) && !$signed;
+$needsSign = !$isCourseCase && ($requires_regulation || $regulation) && !$signed;
 $scheduleDeferred = !empty($item['schedule_deferred']) || ($requiresIdDoc && empty($item['exam_date']));
 $canSchedule = !$needsSign && (!$requiresIdDoc || $has_id_doc);
 $schedulingMode = (string) ($exam_features['mode'] ?? 'weekday_slots');
@@ -21,13 +26,17 @@ $minAhead = max(0, (int) ($exam_features['min_days_ahead'] ?? 0));
 $minDate = $minAhead > 0
     ? (new DateTimeImmutable('today'))->modify('+' . $minAhead . ' days')->format('Y-m-d')
     : (new DateTimeImmutable('today'))->format('Y-m-d');
-$hasAccess = trim((string) ($item['access_key'] ?? '')) !== '' || trim((string) ($item['folio_id'] ?? '')) !== '';
+$hasAccess = trim((string) ($item['access_key'] ?? '')) !== ''
+    || trim((string) ($item['folio_id'] ?? '')) !== ''
+    || ($isCourseCase && trim((string) ($item['moodle_user'] ?? '')) !== '');
 $hasMoodle = trim((string) ($item['moodle_user'] ?? '')) !== '';
 $examOutcome = (string) ($item['exam_outcome'] ?? 'pending');
-$hasResults = $examOutcome === 'delivered'
+$hasResults = !$isCourseCase && (
+    $examOutcome === 'delivered'
     || \App\Support\Str::externalUrl($item['results_url'] ?? '') !== ''
     || \App\Support\Str::externalUrl($item['score_url'] ?? '') !== ''
-    || \App\Support\Str::externalUrl($item['certificate_url'] ?? '') !== '';
+    || \App\Support\Str::externalUrl($item['certificate_url'] ?? '') !== ''
+);
 $resultsUrl = \App\Support\Str::externalUrl($item['results_url'] ?? '');
 $scoreUrl = \App\Support\Str::externalUrl($item['score_url'] ?? '');
 $certificateUrl = \App\Support\Str::externalUrl($item['certificate_url'] ?? '');
@@ -64,15 +73,17 @@ $timeline = [
         'hint' => 'Datos del candidato listos',
         'done' => true,
     ],
-    [
+];
+if (!$isCourseCase) {
+    $timeline[] = [
         'key' => 'reglamento',
         'label' => 'Firma del reglamento',
         'hint' => $signed
             ? ('Firmado' . (!empty($item['regulation_signed_at']) ? ' · ' . $item['regulation_signed_at'] : ''))
             : 'Dibuja o escribe tu firma digital',
         'done' => $signed || !$needsSign,
-    ],
-];
+    ];
+}
 if ($requiresIdDoc) {
     $timeline[] = [
         'key' => 'identificacion',
@@ -104,19 +115,23 @@ $timeline[] = [
 ];
 $timeline[] = [
     'key' => 'examen',
-    'label' => 'Acceso al examen',
-    'hint' => $hasAccess ? 'Credenciales listas' : 'Se publican cerca de tu fecha',
-    'done' => $hasAccess,
+    'label' => $isCourseCase ? 'Acceso al curso' : 'Acceso al examen',
+    'hint' => $hasAccess || $hasMoodle
+        ? 'Credenciales listas'
+        : ($isCourseCase ? 'Se habilitan al confirmar el pago o cuando el proveedor active tu cuenta' : 'Se publican cerca de tu fecha'),
+    'done' => $hasAccess || $hasMoodle,
 ];
-$timeline[] = [
-    'key' => 'resultados',
-    'label' => 'Resultados',
-    'hint' => $isInvalidated
-        ? 'Examen invalidado'
-        : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
-    'done' => $hasResults || $isInvalidated,
-];
-if ($cenniProcess !== 'none') {
+if (!$isCourseCase) {
+    $timeline[] = [
+        'key' => 'resultados',
+        'label' => 'Resultados',
+        'hint' => $isInvalidated
+            ? 'Examen invalidado'
+            : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
+        'done' => $hasResults || $isInvalidated,
+    ];
+}
+if (!$isCourseCase && $cenniProcess !== 'none') {
     $timeline[] = [
         'key' => 'cenni',
         'label' => 'Certificado / CENNI',
@@ -771,8 +786,8 @@ foreach ($course_prorrogas as $pr) {
 </section>
 <?php endif; ?>
 
-<section class="note student-stage <?= !$hasAccess ? 'student-stage-active' : '' ?>" id="examen">
-    <h2>Acceso a tu examen</h2>
+<section class="note student-stage <?= !$hasAccess && !$hasMoodle ? 'student-stage-active' : '' ?>" id="examen">
+    <h2><?= $isCourseCase ? 'Acceso a tu curso' : 'Acceso a tu examen' ?></h2>
     <?php if ($hasAccess): ?>
         <ul>
             <?php if (!empty($item['folio_id'])): ?><li><strong>ID / Folio:</strong> <code><?= e($item['folio_id']) ?></code></li><?php endif; ?>
@@ -798,6 +813,7 @@ foreach ($course_prorrogas as $pr) {
     <?php endif; ?>
 </section>
 
+<?php if (!$isCourseCase): ?>
 <section class="note student-stage <?= ($hasAccess && !$hasResults && !$isInvalidated) ? 'student-stage-active' : '' ?>" id="resultados">
     <h2>Resultados del examen</h2>
     <?php if ($isInvalidated): ?>
@@ -845,8 +861,9 @@ foreach ($course_prorrogas as $pr) {
     </form>
     <?php endif; ?>
 </section>
+<?php endif; ?>
 
-<?php if ($cenniProcess !== 'none'): ?>
+<?php if (!$isCourseCase && $cenniProcess !== 'none'): ?>
 <section class="note student-stage" id="cenni">
     <h2>Certificado y trámite CENNI</h2>
     <?php if ($cenniProcess === 'uks_external'): ?>

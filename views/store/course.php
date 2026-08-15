@@ -23,16 +23,29 @@ $youtubeAssets = array_values(array_filter(
 $platformRaw = strtolower(trim((string) ($item['platform_type'] ?? '')));
 $platformLabel = match ($platformRaw) {
     'moodle' => 'Campus',
+    'ethinking' => 'eThinking',
+    'xperienceed' => 'XperienceEd',
     '' => '',
     default => (string) ($item['platform_type'] ?? ''),
 };
+$canBuy = (int) ($item['is_published'] ?? 0) === 1
+    && $item['public_price'] !== null
+    && trim((string) ($item['slug'] ?? '')) !== '';
 ?>
 <section class="page-head">
     <div>
         <?php if ($platformLabel !== ''): ?><p class="eyebrow"><?= e($platformLabel) ?></p><?php endif; ?>
         <h1><?= e($item['name'] ?? 'Curso') ?></h1>
+        <?php if ($item['public_price'] !== null): ?>
+            <p class="price" style="margin:0.35rem 0 0">
+                <?= e(\App\Support\Str::money((float) $item['public_price'], $item['currency'] ?? 'MXN')) ?>
+            </p>
+        <?php endif; ?>
     </div>
     <div class="actions">
+        <?php if ($canBuy): ?>
+            <a class="btn" href="/adquirir-curso?slug=<?= e(rawurlencode((string) $item['slug'])) ?>">Adquirir</a>
+        <?php endif; ?>
         <a class="btn btn-ghost" href="/#cursos">Volver a cursos</a>
     </div>
 </section>

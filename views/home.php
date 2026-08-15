@@ -91,7 +91,7 @@ $courses = $courses ?? [];
             };
             ?>
             <article class="store-card store-card--course">
-                <a class="store-card-link" href="/curso?id=<?= (int) $course['id'] ?>">
+                <a class="store-card-link" href="/curso?<?= !empty($course['slug']) ? 'slug=' . e(rawurlencode((string) $course['slug'])) : 'id=' . (int) $course['id'] ?>">
                 <?php if (!empty($course['course_logo_path'])): ?>
                     <div class="catalog-card-logo store-card-logo">
                         <img src="/media?f=<?= e(rawurlencode((string) $course['course_logo_path'])) ?>" alt="" loading="lazy">
@@ -102,6 +102,12 @@ $courses = $courses ?? [];
                 <?php endif; ?>
                 <h4><?= e($course['name']) ?></h4>
                 <p class="muted"><?= e(mb_substr(trim(strip_tags((string)($course['description'] ?? $course['access_notes'] ?? ''))), 0, 120)) ?></p>
+                <?php if ($course['public_price'] !== null): ?>
+                    <p class="price"><?= e(\App\Support\Str::money((float) $course['public_price'], $course['currency'] ?? 'MXN')) ?></p>
+                <?php endif; ?>
+                <?php if (!empty($course['is_published']) && $course['public_price'] !== null && !empty($course['slug'])): ?>
+                    <span class="store-card-cta">Adquirir →</span>
+                <?php endif; ?>
                 </a>
             </article>
         <?php endforeach; ?>
