@@ -32,7 +32,7 @@ $cenniDoc = $item['cenni_doc_type'] ?? 'constancia';
 if ($cenniDoc === 'certificado' || $cenniDoc === 'diploma') {
     $cenniDoc = 'constancia_certificado_diploma';
 }
-$modality = $item['modality'] ?? 'online';
+$modality = \App\Catalog\CatalogRepository::normalizeModality((string) ($item['modality'] ?? 'online'));
 if (!isset($modalities[$modality])) {
     $modality = 'online';
 }
@@ -136,8 +136,8 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 <?php endforeach; ?>
             </select>
             <small class="muted">
-                Cambridge: <em>Online desde casa</em> (lun–vie, 10 días), <em>Presencial digital</em> (sábados en sede, ~2 semanas)
-                o <em>Presencial en papel</em> (~8 semanas). Las fechas presenciales se cargan en Proveedor → Fechas de aplicación.
+                Cambridge: protocolo <em>Online</em> (desde casa) o <em>Presencial</em>.
+                En presencial, la modalidad distingue <em>digital</em> vs <em>en papel</em>.
             </small>
         </label>
 

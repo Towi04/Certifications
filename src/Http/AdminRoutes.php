@@ -3016,10 +3016,7 @@ final class AdminRoutes
                 $slug = $alloc['slug'];
             }
 
-            $modality = (string) ($_POST['modality'] ?? 'online');
-            if (!isset(CatalogRepository::modalities()[$modality])) {
-                $modality = 'online';
-            }
+            $modality = CatalogRepository::normalizeModality((string) ($_POST['modality'] ?? 'online'));
 
             $isLevelExam = isset($_POST['is_level_exam']) ? 1 : 0;
             $skills = [];
@@ -3122,7 +3119,33 @@ final class AdminRoutes
                 }
             }
 
-            $examFeatures = CatalogRepository::examProductFeatures(null, $modality);
+            $protoCode = '';
+            if ($protocolId > 0) {
+                try {
+                    $pr = $repo()->protocol($protocolId);
+                    $protoCode = strtoupper((string) ($pr['code'] ?? ''));
+                } catch (\Throwable) {
+                }
+            }
+
+            $examFeatures = CatalogRepository::examProductFeatures(
+                $protoCode === 'CAMBRIDGE_ONLINE'
+                    ? ['product_kind' => 'cambridge_online', 'scheduling_mode' => 'flexible_home']
+                    : null,
+                $modality
+            );
+            if ($protoCode === 'CAMBRIDGE_PRESENCIAL') {
+                $examFeatures['mode'] = 'exam_sittings';
+                if ($modality === 'paper') {
+                    $examFeatures['min_days_ahead'] = 56;
+                    $examFeatures['institution_id'] = null;
+                } else {
+                    $examFeatures['min_days_ahead'] = 14;
+                    $examFeatures['institution_id'] = 'MX143';
+                }
+                $examFeatures['requires_id_doc'] = true;
+                $examFeatures['requires_regulation_upload'] = true;
+            }
             if ($examFeatures['mode'] === 'exam_sittings' || $examFeatures['mode'] === 'flexible_home') {
                 // Presencial / desde casa: no usan horario por día ni hora preferida libre
                 $modes['exam_date'] = $examFeatures['mode'] === 'flexible_home' ? 'required' : 'off';
@@ -3172,6 +3195,21 @@ final class AdminRoutes
             $featuresDecoded['scheduling_mode'] = $examFeatures['mode'];
             if ($examFeatures['institution_id']) {
                 $featuresDecoded['institution_id'] = $examFeatures['institution_id'];
+            } elseif (array_key_exists('institution_id', $featuresDecoded) && $examFeatures['institution_id'] === null
+                && $protoCode === 'CAMBRIDGE_PRESENCIAL' && $modality === 'paper') {
+                unset($featuresDecoded['institution_id']);
+            }
+            if ($protoCode === 'CAMBRIDGE_ONLINE') {
+                $featuresDecoded['product_kind'] = 'cambridge_online';
+                $featuresDecoded['requires_id_doc'] = true;
+                $featuresDecoded['requires_regulation_upload'] = true;
+                $featuresDecoded['min_days_ahead'] = 10;
+                $featuresDecoded['institution_id'] = 'MX143';
+            } elseif ($protoCode === 'CAMBRIDGE_PRESENCIAL') {
+                $featuresDecoded['product_kind'] = 'cambridge_presencial';
+                $featuresDecoded['requires_id_doc'] = true;
+                $featuresDecoded['requires_regulation_upload'] = true;
+                $featuresDecoded['min_days_ahead'] = (int) $examFeatures['min_days_ahead'];
             }
             $featuresJson = json_encode($featuresDecoded, JSON_UNESCAPED_UNICODE) ?: null;
 

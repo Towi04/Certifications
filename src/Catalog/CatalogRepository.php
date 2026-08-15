@@ -1280,11 +1280,22 @@ final class CatalogRepository
     public static function modalities(): array
     {
         return [
-            'online' => 'Online (genérico)',
-            'online_home' => 'Online desde casa',
+            'online' => 'Online',
             'online_venue' => 'Presencial digital',
             'paper' => 'Presencial en papel',
         ];
+    }
+
+    /** Normaliza modalidades legacy (online_home → online). */
+    public static function normalizeModality(string $modality): string
+    {
+        if ($modality === 'online_home') {
+            return 'online';
+        }
+        if (!isset(self::modalities()[$modality])) {
+            return 'online';
+        }
+        return $modality;
     }
 
     /** @return array<string, string> */
@@ -1300,7 +1311,7 @@ final class CatalogRepository
     /**
      * Modo de agenda según modalidad / features_json.
      * - weekday_slots: horarios por día (UKS, iTEP…)
-     * - flexible_home: Cambridge desde casa (lun–vie, sin hora fija, N días de antelación)
+     * - flexible_home: Cambridge Online (lun–vie, sin hora fija, N días de antelación)
      * - exam_sittings: fechas publicadas (presencial digital/papel)
      *
      * @return array{
@@ -1326,18 +1337,8 @@ final class CatalogRepository
             $decoded = $featuresJson;
         }
 
-        $modality = (string) ($modality ?? ($decoded['modality'] ?? 'online'));
+        $modality = self::normalizeModality((string) ($modality ?? ($decoded['modality'] ?? 'online')));
         $defaults = match ($modality) {
-            'online_home' => [
-                'mode' => 'flexible_home',
-                'min_days_ahead' => 10,
-                'institution_id' => 'MX143',
-                'requires_id_doc' => true,
-                'requires_regulation_upload' => true,
-                'allows_shipping' => false,
-                'allows_cenni_addon' => false,
-                'sitting_modality' => null,
-            ],
             'online_venue' => [
                 'mode' => 'exam_sittings',
                 'min_days_ahead' => 14,
@@ -1358,6 +1359,7 @@ final class CatalogRepository
                 'allows_cenni_addon' => true,
                 'sitting_modality' => 'paper',
             ],
+            // online: por defecto weekday (UKS/iTEP). Cambridge Online fuerza flexible_home vía features_json.
             default => [
                 'mode' => 'weekday_slots',
                 'min_days_ahead' => 0,
@@ -1373,6 +1375,16 @@ final class CatalogRepository
         $mode = (string) ($decoded['scheduling_mode'] ?? $defaults['mode']);
         if (!in_array($mode, ['weekday_slots', 'flexible_home', 'exam_sittings'], true)) {
             $mode = $defaults['mode'];
+        }
+
+        // Si el producto declara Cambridge Online (features o product_kind), agenda desde casa.
+        $productKind = (string) ($decoded['product_kind'] ?? '');
+        if ($modality === 'online' && ($productKind === 'cambridge_online' || !empty($decoded['cambridge_online']))) {
+            $mode = 'flexible_home';
+            $defaults['min_days_ahead'] = 10;
+            $defaults['institution_id'] = 'MX143';
+            $defaults['requires_id_doc'] = true;
+            $defaults['requires_regulation_upload'] = true;
         }
 
         return [
@@ -2658,8 +2670,8 @@ final class CatalogRepository
             if ($cambridgeProviderId > 0) {
                 $protoStmt->execute([
                     $cambridgeProviderId,
-                    'CAMBRIDGE_ONLINE_HOME',
-                    'Cambridge — Online desde casa',
+                    'CAMBRIDGE_ONLINE',
+                    'Cambridge Online',
                     'online',
                     '<p>Examen en línea desde casa (lun–vie 9:00–18:00). Agendar con 10 días de antelación. '
                     . 'Documentos: reglamento PDF + INE (ambos lados) o pasaporte. '
@@ -2671,40 +2683,172 @@ final class CatalogRepository
                 ]);
                 $protoStmt->execute([
                     $cambridgeProviderId,
-                    'CAMBRIDGE_ONLINE_VENUE',
-                    'Cambridge — Presencial digital',
-                    'online',
-                    '<p>Examen digital en sede con supervisor (sábados). Inscripción ~2 semanas. '
-                    . 'Fechas publicadas por el proveedor. Reglamento + INE/pasaporte. '
-                    . 'Correo con sede/credenciales e instrucciones; certificado en sede o envío.</p>',
-                    1,
-                    'none',
-                    null,
-                    'cambridge_acceso',
-                ]);
-                $protoStmt->execute([
-                    $cambridgeProviderId,
-                    'CAMBRIDGE_PAPER',
-                    'Cambridge — Presencial en papel',
-                    'paper',
-                    '<p>Examen en papel en sede (sábados). Inscripción ~8 semanas. '
-                    . 'Fechas publicadas por el proveedor. Reglamento + INE/pasaporte.</p>',
+                    'CAMBRIDGE_PRESENCIAL',
+                    'Cambridge Presencial',
+                    'hybrid',
+                    '<p>Examen presencial en sede (sábados): digital en computadora o en papel según la modalidad de la certificación. '
+                    . 'Fechas publicadas por el proveedor (~2 semanas digital / ~8 semanas papel). '
+                    . 'Documentos: reglamento + INE/pasaporte. Certificado en sede o envío; CENNI opcional si aplica.</p>',
                     1,
                     'none',
                     null,
                     'cambridge_sede',
                 ]);
-                $protoStmt->execute([
-                    $cambridgeProviderId,
-                    'CAMBRIDGE_ONLINE',
-                    'Cambridge Online (legacy → desde casa)',
-                    'online',
-                    '<p>Protocolo legacy. Preferir CAMBRIDGE_ONLINE_HOME.</p>',
-                    1,
-                    'none',
-                    null,
-                    'cambridge_acceso',
-                ]);
+
+                // Antes de migrar: fijar modalidad según el protocolo antiguo
+                try {
+                    $this->pdo->exec(
+                        "UPDATE certifications c
+                         JOIN protocols pr ON pr.id = c.protocol_id
+                         SET c.modality = 'online'
+                         WHERE pr.code IN ('CAMBRIDGE_ONLINE_HOME')"
+                    );
+                    $this->pdo->exec(
+                        "UPDATE certifications c
+                         JOIN protocols pr ON pr.id = c.protocol_id
+                         SET c.modality = 'online_venue'
+                         WHERE pr.code = 'CAMBRIDGE_ONLINE_VENUE'"
+                    );
+                    $this->pdo->exec(
+                        "UPDATE certifications c
+                         JOIN protocols pr ON pr.id = c.protocol_id
+                         SET c.modality = 'paper'
+                         WHERE pr.code = 'CAMBRIDGE_PAPER'"
+                    );
+                } catch (\Throwable) {
+                }
+
+                // Desactivar protocolos antiguos (digital/papel/home) y migrar certs al consolidado
+                $this->pdo->exec(
+                    "UPDATE protocols SET is_active = 0,
+                        name = CASE code
+                          WHEN 'CAMBRIDGE_ONLINE_HOME' THEN 'Cambridge Online (obsoleto → Cambridge Online)'
+                          WHEN 'CAMBRIDGE_ONLINE_VENUE' THEN 'Cambridge Presencial digital (obsoleto → Cambridge Presencial)'
+                          WHEN 'CAMBRIDGE_PAPER' THEN 'Cambridge Presencial papel (obsoleto → Cambridge Presencial)'
+                          ELSE name
+                        END
+                     WHERE code IN ('CAMBRIDGE_ONLINE_HOME','CAMBRIDGE_ONLINE_VENUE','CAMBRIDGE_PAPER')"
+                );
+
+                $onlineId = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = 'CAMBRIDGE_ONLINE' LIMIT 1"
+                )->fetchColumn();
+                $presencialId = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = 'CAMBRIDGE_PRESENCIAL' LIMIT 1"
+                )->fetchColumn();
+                if ($onlineId > 0) {
+                    $this->pdo->prepare(
+                        "UPDATE certifications SET protocol_id = ?
+                         WHERE protocol_id IN (SELECT id FROM (SELECT id FROM protocols WHERE code IN ('CAMBRIDGE_ONLINE_HOME')) t)"
+                    )->execute([$onlineId]);
+                }
+                if ($presencialId > 0) {
+                    $this->pdo->prepare(
+                        "UPDATE certifications SET protocol_id = ?
+                         WHERE protocol_id IN (
+                           SELECT id FROM (
+                             SELECT id FROM protocols WHERE code IN ('CAMBRIDGE_ONLINE_VENUE','CAMBRIDGE_PAPER')
+                           ) t
+                         )"
+                    )->execute([$presencialId]);
+                }
+
+                // Certs Cambridge Online: features para agenda desde casa
+                try {
+                    $this->pdo->exec(
+                        "UPDATE certifications c
+                         JOIN protocols pr ON pr.id = c.protocol_id
+                         SET c.features_json = JSON_SET(
+                           COALESCE(c.features_json, '{}'),
+                           '$.scheduling_mode', 'flexible_home',
+                           '$.product_kind', 'cambridge_online',
+                           '$.institution_id', 'MX143',
+                           '$.requires_id_doc', true,
+                           '$.requires_regulation_upload', true,
+                           '$.min_days_ahead', 10
+                         ),
+                         c.modality = IF(c.modality = 'online_home', 'online', c.modality)
+                         WHERE pr.code = 'CAMBRIDGE_ONLINE'"
+                    );
+                } catch (\Throwable) {
+                    // MariaDB sin JSON_SET: fallback por fila
+                    try {
+                        $rows = $this->pdo->query(
+                            "SELECT c.id, c.features_json, c.modality FROM certifications c
+                             JOIN protocols pr ON pr.id = c.protocol_id WHERE pr.code = 'CAMBRIDGE_ONLINE'"
+                        )->fetchAll();
+                        $upd = $this->pdo->prepare(
+                            'UPDATE certifications SET features_json = ?, modality = ? WHERE id = ?'
+                        );
+                        foreach ($rows as $row) {
+                            $feat = [];
+                            if (!empty($row['features_json'])) {
+                                $tmp = json_decode((string) $row['features_json'], true);
+                                if (is_array($tmp)) {
+                                    $feat = $tmp;
+                                }
+                            }
+                            $feat['scheduling_mode'] = 'flexible_home';
+                            $feat['product_kind'] = 'cambridge_online';
+                            $feat['institution_id'] = 'MX143';
+                            $feat['requires_id_doc'] = true;
+                            $feat['requires_regulation_upload'] = true;
+                            $feat['min_days_ahead'] = 10;
+                            $mod = self::normalizeModality((string) ($row['modality'] ?? 'online'));
+                            $upd->execute([
+                                json_encode($feat, JSON_UNESCAPED_UNICODE),
+                                $mod,
+                                (int) $row['id'],
+                            ]);
+                        }
+                    } catch (\Throwable) {
+                    }
+                }
+
+                // Certs Cambridge Presencial: features de fechas publicadas según modalidad
+                try {
+                    $rows = $this->pdo->query(
+                        "SELECT c.id, c.features_json, c.modality FROM certifications c
+                         JOIN protocols pr ON pr.id = c.protocol_id WHERE pr.code = 'CAMBRIDGE_PRESENCIAL'"
+                    )->fetchAll();
+                    $upd = $this->pdo->prepare(
+                        'UPDATE certifications SET features_json = ? WHERE id = ?'
+                    );
+                    foreach ($rows as $row) {
+                        $feat = [];
+                        if (!empty($row['features_json'])) {
+                            $tmp = json_decode((string) $row['features_json'], true);
+                            if (is_array($tmp)) {
+                                $feat = $tmp;
+                            }
+                        }
+                        $mod = self::normalizeModality((string) ($row['modality'] ?? 'online_venue'));
+                        $feat['scheduling_mode'] = 'exam_sittings';
+                        $feat['product_kind'] = 'cambridge_presencial';
+                        $feat['requires_id_doc'] = true;
+                        $feat['requires_regulation_upload'] = true;
+                        if ($mod === 'paper') {
+                            $feat['min_days_ahead'] = 56;
+                            unset($feat['institution_id']);
+                        } else {
+                            $feat['min_days_ahead'] = 14;
+                            $feat['institution_id'] = 'MX143';
+                        }
+                        $upd->execute([
+                            json_encode($feat, JSON_UNESCAPED_UNICODE),
+                            (int) $row['id'],
+                        ]);
+                    }
+                } catch (\Throwable) {
+                }
+
+                // Normalizar modalidad online_home → online en todo el catálogo
+                try {
+                    $this->pdo->exec(
+                        "UPDATE certifications SET modality = 'online' WHERE modality = 'online_home'"
+                    );
+                } catch (\Throwable) {
+                }
             }
             if ($sepProviderId > 0) {
                 $protoStmt->execute([

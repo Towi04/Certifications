@@ -23,29 +23,19 @@ INSERT INTO partner_tiers (code, name, sort_order, description, is_active) VALUE
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 INSERT INTO protocols (provider_id, code, name, modality, procedure_html, requires_regulation_signature, uses_inventory, is_active)
-SELECT p.id, 'CAMBRIDGE_ONLINE_HOME', 'Cambridge — Online desde casa', 'online',
+SELECT p.id, 'CAMBRIDGE_ONLINE', 'Cambridge Online', 'online',
   '<p>Examen en línea desde casa (lun–vie 9:00–18:00). Agendar con 10 días de antelación. Documentos: reglamento PDF firmado + INE (ambos lados) o pasaporte. Correos: info del examen y, aparte, Username / Password / Institution ID MX143.</p>', 1, 0, 1
 FROM providers p WHERE p.code = 'CAMBRIDGE'
-ON DUPLICATE KEY UPDATE name = VALUES(name), procedure_html = VALUES(procedure_html);
+ON DUPLICATE KEY UPDATE name = VALUES(name), procedure_html = VALUES(procedure_html), is_active = 1;
 
 INSERT INTO protocols (provider_id, code, name, modality, procedure_html, requires_regulation_signature, uses_inventory, is_active)
-SELECT p.id, 'CAMBRIDGE_ONLINE_VENUE', 'Cambridge — Presencial digital', 'online',
-  '<p>Examen en computadora en sede con supervisor (sábados). Inscripción ~2 semanas antes. Fechas publicadas por el proveedor. Documentos: reglamento + INE/pasaporte. Entrega de certificado en sede o envío (costo extra); CENNI opcional si aplica.</p>', 1, 0, 1
+SELECT p.id, 'CAMBRIDGE_PRESENCIAL', 'Cambridge Presencial', 'hybrid',
+  '<p>Examen presencial en sede (sábados): digital o papel según la modalidad de la certificación. Fechas publicadas por el proveedor. Documentos: reglamento + INE/pasaporte.</p>', 1, 0, 1
 FROM providers p WHERE p.code = 'CAMBRIDGE'
-ON DUPLICATE KEY UPDATE name = VALUES(name), procedure_html = VALUES(procedure_html);
+ON DUPLICATE KEY UPDATE name = VALUES(name), procedure_html = VALUES(procedure_html), is_active = 1;
 
-INSERT INTO protocols (provider_id, code, name, modality, procedure_html, requires_regulation_signature, uses_inventory, is_active)
-SELECT p.id, 'CAMBRIDGE_PAPER', 'Cambridge — Presencial en papel', 'paper',
-  '<p>Examen en papel en sede (sábados). Inscripción ~8 semanas antes. Fechas publicadas por el proveedor. Documentos: reglamento + INE/pasaporte. Certificado en sede o paquetería; CENNI opcional si el examen lo permite.</p>', 1, 0, 1
-FROM providers p WHERE p.code = 'CAMBRIDGE'
-ON DUPLICATE KEY UPDATE name = VALUES(name), procedure_html = VALUES(procedure_html);
-
--- Compat: mantener códigos legacy apuntando a los mismos flujos
-INSERT INTO protocols (provider_id, code, name, modality, procedure_html, requires_regulation_signature, uses_inventory, is_active)
-SELECT p.id, 'CAMBRIDGE_ONLINE', 'Cambridge Online (legacy → desde casa)', 'online',
-  '<p>Usar CAMBRIDGE_ONLINE_HOME. Protocolo legacy conservado por compatibilidad.</p>', 1, 0, 1
-FROM providers p WHERE p.code = 'CAMBRIDGE'
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+UPDATE protocols SET is_active = 0
+WHERE code IN ('CAMBRIDGE_ONLINE_HOME', 'CAMBRIDGE_ONLINE_VENUE', 'CAMBRIDGE_PAPER');
 
 INSERT INTO protocols (provider_id, code, name, modality, procedure_html, requires_regulation_signature, uses_inventory, is_active)
 SELECT p.id, 'SEP_CENNI', 'Trámite CENNI ante SEP', 'other',

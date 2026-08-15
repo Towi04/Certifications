@@ -51,23 +51,24 @@ Siguen existiendo los flags `cenni_*` / `conocer_*` en cada certificación de ex
 
 Migración / seed runtime: `sql/migration_tramites_sep_cambridge.sql` y `CatalogRepository::ensureCambridgeAndSepSchemaAndSeeds()`.
 
-## Cambridge — modalidades y fechas
+## Cambridge — modalidades y protocolos
 
-| Modalidad (`certifications.modality`) | Agenda | Antelación típica |
-|---------------------------------------|--------|-------------------|
-| `online_home` | Fecha preferida lun–vie 9–18 (sin hora fija) | 10 días |
-| `online_venue` | Fechas publicadas (`exam_sittings`) — sábados en sede con supervisor | ~2 semanas |
-| `paper` | Fechas publicadas (`exam_sittings`) — sábados en papel | ~8 semanas |
+| Protocolo | Uso |
+|-----------|-----|
+| `CAMBRIDGE_ONLINE` | Examen desde casa |
+| `CAMBRIDGE_PRESENCIAL` | Examen en sede (digital o papel) |
 
-Importante: un examen “online” o en computadora **no** implica que sea desde casa. La modalidad presencial digital se aplica en sede.
+| Modalidad | Agenda | Antelación típica |
+|-----------|--------|-------------------|
+| `online` (+ protocolo Online) | Fecha preferida lun–vie 9–18 (sin hora fija) | 10 días |
+| `online_venue` | Fechas publicadas (`exam_sittings`) — sábados, digital en sede | ~2 semanas |
+| `paper` | Fechas publicadas (`exam_sittings`) — sábados, papel | ~8 semanas |
 
-Admin: **Proveedores → Fechas de aplicación** para cargar las 3–4 fechas que envía el proveedor cada ~6 meses (con límite de inscripción). Si no hay fechas publicadas, el alumno puede adquirir y agendar después (`schedule_deferred`).
+La distinción digital vs papel es **modalidad**, no protocolo. Un examen “online” en computadora en sede usa modalidad `online_venue` + protocolo Presencial.
 
-Documentos previos al agendado: reglamento (formulario PDF descargable / re-subida) + INE (ambos lados) o pasaporte.
+Admin: **Proveedores → Fechas de aplicación** para cargar las 3–4 fechas del proveedor. Si no hay fechas, el alumno puede adquirir y agendar después.
 
-Correos: `cambridge_info` (material / info) y `cambridge_acceso` (Username, Password, Institution ID `MX143`); presencial usa `cambridge_sede`. El supervisor de soporte vive en contactos del proveedor Cambridge.
-
-Protocolos: `CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER` (+ legacy `CAMBRIDGE_ONLINE`).
+Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER`) se desactivan y las certs migran a los dos códigos anteriores.
 
 ## Cómo usarlo en admin
 
@@ -76,7 +77,7 @@ Protocolos: `CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER`
    - `sql/seed_protocol_elet.sql`
    - `sql/migration_tramites_sep_cambridge.sql` (Trámites SEP + fechas Cambridge)
 2. **Protocolos** → edita o crea → agrega pasos con fase y responsable.
-3. En la ficha de la **certificación**, asigna el protocolo (ej. `UKS_ELET` o `CAMBRIDGE_ONLINE_HOME`).
+3. En la ficha de la **certificación**, asigna el protocolo (ej. `UKS_ELET`, `CAMBRIDGE_ONLINE` o `CAMBRIDGE_PRESENCIAL`) y la modalidad.
 4. **Casos** → Abrir caso (alumno + certificación) → ver timeline y marcar pasos hechos.
 
 ## Próximos pasos (producto)
