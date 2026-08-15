@@ -2578,6 +2578,7 @@ final class CatalogRepository
                   certification_id BIGINT UNSIGNED NULL,
                   modality ENUM('online_venue','paper') NOT NULL,
                   exam_date DATE NOT NULL,
+                  exam_time VARCHAR(16) NULL,
                   registration_deadline DATE NOT NULL,
                   label VARCHAR(190) NULL,
                   venue_id BIGINT UNSIGNED NULL,
@@ -2592,6 +2593,16 @@ final class CatalogRepository
                   KEY idx_exam_sittings_deadline (registration_deadline, is_published, is_active)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             );
+        } catch (\Throwable) {
+        }
+
+        try {
+            if (!$hasColumn('exam_sittings', 'exam_time')) {
+                $this->pdo->exec(
+                    "ALTER TABLE exam_sittings
+                     ADD COLUMN exam_time VARCHAR(16) NULL COMMENT 'Hora de aplicación (presencial)' AFTER exam_date"
+                );
+            }
         } catch (\Throwable) {
         }
 
@@ -3207,11 +3218,18 @@ final class CatalogRepository
         if ($examDate === '' || $deadline === '') {
             throw new \RuntimeException('Fecha de aplicación y fecha límite de inscripción son obligatorias.');
         }
+        $examTime = trim((string) ($data['exam_time'] ?? ''));
+        if ($examTime !== '' && preg_match('/^\d{1,2}:\d{2}/', $examTime)) {
+            $examTime = substr($examTime, 0, 5);
+        } else {
+            $examTime = null;
+        }
         $fields = [
             (int) $data['provider_id'],
             !empty($data['certification_id']) ? (int) $data['certification_id'] : null,
             $modality,
             $examDate,
+            $examTime,
             $deadline,
             trim((string) ($data['label'] ?? '')) ?: null,
             !empty($data['venue_id']) ? (int) $data['venue_id'] : null,
@@ -3222,7 +3240,7 @@ final class CatalogRepository
         ];
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE exam_sittings SET provider_id=?, certification_id=?, modality=?, exam_date=?,
+                'UPDATE exam_sittings SET provider_id=?, certification_id=?, modality=?, exam_date=?, exam_time=?,
                  registration_deadline=?, label=?, venue_id=?, capacity=?, notes=?, is_published=?, is_active=?
                  WHERE id=?'
             );
@@ -3231,12 +3249,37 @@ final class CatalogRepository
         }
         $stmt = $this->pdo->prepare(
             'INSERT INTO exam_sittings
-             (provider_id, certification_id, modality, exam_date, registration_deadline,
+             (provider_id, certification_id, modality, exam_date, exam_time, registration_deadline,
               label, venue_id, capacity, notes, is_published, is_active)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Fechas del proveedor aplicables a una certificación (todas + las de esta cert).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function examSittingsForCertificationAdmin(int $providerId, int $certificationId, ?string $modality = null): array
+    {
+        $this->ensureCambridgeAndSepSchemaAndSeeds();
+        $sql = 'SELECT s.*, c.name AS certification_name, v.name AS venue_name
+                FROM exam_sittings s
+                LEFT JOIN certifications c ON c.id = s.certification_id
+                LEFT JOIN provider_venues v ON v.id = s.venue_id
+                WHERE s.provider_id = ?
+                  AND (s.certification_id IS NULL OR s.certification_id = ?)';
+        $params = [$providerId, $certificationId];
+        if ($modality !== null && in_array($modality, ['online_venue', 'paper'], true)) {
+            $sql .= ' AND s.modality = ?';
+            $params[] = $modality;
+        }
+        $sql .= ' ORDER BY s.exam_date ASC, s.exam_time ASC, s.id ASC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
     }
 
     public function deleteExamSitting(int $id): void

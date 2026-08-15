@@ -265,10 +265,6 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
             <div class="form-grid">
         <fieldset class="field-wide">
             <legend>Campos del formulario de adquisición</legend>
-            <p class="muted">
-                Activa u oculta campos built-in, define horario de examen y agrega campos nuevos
-                (dirección, etc.) cuando una certificadora lo pida.
-            </p>
             <?php
             $regConfig = \App\Catalog\CatalogRepository::decodeRegistrationConfig($item['registration_fields_json'] ?? null);
             $regFields = $regConfig['modes'];
@@ -276,6 +272,16 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
             $regCustom = $regConfig['custom'];
             $schedule = $regConfig['schedule'];
             $modeLabels = ['off' => 'No pedir', 'optional' => 'Opcional', 'required' => 'Obligatorio'];
+            $examFeatures = \App\Catalog\CatalogRepository::examProductFeatures(
+                null,
+                (string) ($item['modality'] ?? 'online')
+            );
+            $schedulingMode = $examFeatures['mode'];
+            $examSittings = $exam_sittings ?? [];
+            $providerVenues = $provider_venues ?? [];
+            $certId = (int) ($item['id'] ?? 0);
+            $providerIdCert = (int) ($item['provider_id'] ?? 0);
+            $sittingModality = $examFeatures['sitting_modality'] ?? 'online_venue';
             if ($providerAvailableFields === []) {
                 foreach ($regCatalog as $key => $meta) {
                     if (!empty($meta['locked'])) {
@@ -289,6 +295,24 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 }
             }
             ?>
+            <?php if ($schedulingMode === 'exam_sittings'): ?>
+                <p class="muted">
+                    Modalidad <strong>presencial</strong> (digital o papel): el alumno elige entre las
+                    <strong>fechas de aplicación publicadas</strong> (con hora). No se configura horario por día de la semana.
+                    Guarda la modalidad en General si acabas de cambiarla.
+                </p>
+            <?php elseif ($schedulingMode === 'flexible_home'): ?>
+                <p class="muted">
+                    Modalidad <strong>online desde casa</strong>: el alumno elige fecha (lun–vie) con
+                    <?= (int)$examFeatures['min_days_ahead'] ?> días de antelación; no se pide hora fija.
+                </p>
+            <?php else: ?>
+                <p class="muted">
+                    Activa u oculta campos built-in, define horario de examen y agrega campos nuevos
+                    (dirección, etc.) cuando una certificadora lo pida.
+                </p>
+            <?php endif; ?>
+
             <h3 class="reg-subtitle">Campos del proveedor</h3>
             <p class="muted">
                 Solo puedes elegir entre los campos definidos en <strong>Proveedores → Campos</strong>.
@@ -300,10 +324,20 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 foreach ($regCustom as $cf) {
                     $customModeMap[(string) ($cf['key'] ?? '')] = (string) ($cf['mode'] ?? 'off');
                 }
+                $hideScheduleFields = $schedulingMode === 'exam_sittings' || $schedulingMode === 'flexible_home';
                 foreach ($providerAvailableFields as $af):
                     $key = (string) ($af['key'] ?? '');
                     if ($key === '') {
                         continue;
+                    }
+                    if ($hideScheduleFields && in_array($key, ['exam_date', 'exam_time'], true)) {
+                        // Presencial: fechas vía sittings. Desde casa: fecha se fuerza en guardado.
+                        if ($schedulingMode === 'exam_sittings') {
+                            continue;
+                        }
+                        if ($key === 'exam_time') {
+                            continue;
+                        }
                     }
                     $meta = $regCatalog[$key] ?? ['label' => $af['label'], 'locked' => false, 'default' => 'optional'];
                     $locked = !empty($meta['locked']);
@@ -311,6 +345,10 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                     $mode = $isProviderCustom
                         ? ($customModeMap[$key] ?? 'off')
                         : ($regFields[$key] ?? ($meta['default'] ?? 'off'));
+                    if ($schedulingMode === 'flexible_home' && $key === 'exam_date') {
+                        $mode = 'required';
+                        $locked = true;
+                    }
                     $label = (string) ($meta['label'] ?? $af['label'] ?? $key);
                 ?>
                     <label class="reg-field-row" data-field-key="<?= e($key) ?>">
@@ -334,8 +372,125 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                         <?php endif; ?>
                     </label>
                 <?php endforeach; ?>
+                <?php if ($schedulingMode === 'exam_sittings'): ?>
+                    <input type="hidden" name="registration_fields[exam_date]" value="off">
+                    <input type="hidden" name="registration_fields[exam_time]" value="off">
+                <?php elseif ($schedulingMode === 'flexible_home'): ?>
+                    <input type="hidden" name="registration_fields[exam_time]" value="off">
+                <?php endif; ?>
             </div>
 
+            <?php if ($schedulingMode === 'exam_sittings' && $certId > 0 && $providerIdCert > 0): ?>
+                <h3 class="reg-subtitle">Fechas de aplicación disponibles</h3>
+                <p class="muted">
+                    Publica aquí todas las fechas futuras (sábados) con su hora y el límite de inscripción.
+                    Digital ~2 semanas antes; papel ~8 semanas. Si no hay fechas, el alumno puede adquirir y agendar después.
+                    También puedes gestionarlas en
+                    <a href="/admin/providers/edit?id=<?= $providerIdCert ?>&tab=fechas">Proveedor → Fechas de aplicación</a>.
+                </p>
+
+                <div class="inline-form-panel" style="margin-bottom:1rem">
+                    <h4 style="margin:0 0 0.75rem">Agregar fecha</h4>
+                    <div class="form-grid">
+                        <label>Fecha de aplicación
+                            <input type="date" name="exam_date" form="certSittingSave" required>
+                        </label>
+                        <label>Hora
+                            <input type="time" name="exam_time" form="certSittingSave" required value="09:00">
+                        </label>
+                        <label>Límite de inscripción
+                            <input type="date" name="registration_deadline" form="certSittingSave" required>
+                        </label>
+                        <label>Etiqueta (opcional)
+                            <input name="label" form="certSittingSave" placeholder="Ej. Sesión junio">
+                        </label>
+                        <label>Sede (opcional)
+                            <select name="venue_id" form="certSittingSave">
+                                <option value="">—</option>
+                                <?php foreach ($providerVenues as $v): ?>
+                                    <option value="<?= (int)$v['id'] ?>"><?= e($v['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label>Cupo (opcional)
+                            <input type="number" min="1" name="capacity" form="certSittingSave">
+                        </label>
+                        <label class="field-wide">Notas
+                            <textarea name="notes" form="certSittingSave" rows="2"></textarea>
+                        </label>
+                        <div class="actions">
+                            <button class="btn" type="submit" form="certSittingSave">Agregar fecha</button>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if ($examSittings): ?>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Aplicación</th>
+                                    <th>Hora</th>
+                                    <th>Límite inscripción</th>
+                                    <th>Alcance</th>
+                                    <th>Estado</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($examSittings as $s): ?>
+                                <tr>
+                                    <td>
+                                        <strong><?= e($s['exam_date']) ?></strong>
+                                        <?php if (!empty($s['label'])): ?><br><span class="muted"><?= e($s['label']) ?></span><?php endif; ?>
+                                    </td>
+                                    <td><?= e($s['exam_time'] ?? '—') ?></td>
+                                    <td><?= e($s['registration_deadline']) ?></td>
+                                    <td>
+                                        <?= empty($s['certification_id']) ? 'Todas (modalidad)' : 'Solo esta cert' ?>
+                                        <?php if (!empty($s['venue_name'])): ?><br><span class="muted"><?= e($s['venue_name']) ?></span><?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?= !empty($s['is_published']) ? 'Publicada' : 'Borrador' ?>
+                                        · <?= !empty($s['is_active']) ? 'Activa' : 'Inactiva' ?>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-ghost" type="submit" form="certSittingDelete"
+                                                name="sitting_id" value="<?= (int)$s['id'] ?>"
+                                                onclick="return confirm('¿Eliminar esta fecha?');">Eliminar</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <p class="muted">Aún no hay fechas. Agrega las que te envió el proveedor (normalmente 3–4 cada semestre).</p>
+                <?php endif; ?>
+
+                <input type="hidden" name="exam_slot_minutes" value="<?= e((string)($schedule['slot_minutes'] ?? 30)) ?>">
+                <input type="hidden" name="exam_extraordinary_fee" value="0">
+                <input type="hidden" name="exam_extraordinary_warning" value="">
+                <input type="hidden" name="exam_time_start" value="09:00">
+                <input type="hidden" name="exam_time_end" value="18:00">
+            <?php elseif ($schedulingMode === 'flexible_home'): ?>
+                <h3 class="reg-subtitle">Agenda desde casa</h3>
+                <p class="muted">
+                    No hay fechas fijas del proveedor: el alumno elige cualquier día hábil (lun–vie) con al menos
+                    <?= (int)$examFeatures['min_days_ahead'] ?> días de antelación, entre 9:00 y 18:00 (sin hora fija).
+                </p>
+                <input type="hidden" name="exam_slot_minutes" value="30">
+                <input type="hidden" name="exam_extraordinary_fee" value="0">
+                <input type="hidden" name="exam_extraordinary_warning" value="">
+                <input type="hidden" name="exam_time_start" value="09:00">
+                <input type="hidden" name="exam_time_end" value="18:00">
+                <?php foreach ([1, 2, 3, 4, 5] as $n): ?>
+                    <input type="hidden" name="exam_weekday[<?= $n ?>][enabled]" value="1">
+                    <input type="hidden" name="exam_weekday[<?= $n ?>][kind]" value="range">
+                    <input type="hidden" name="exam_weekday[<?= $n ?>][time_start]" value="09:00">
+                    <input type="hidden" name="exam_weekday[<?= $n ?>][time_end]" value="18:00">
+                <?php endforeach; ?>
+            <?php else: ?>
             <h3 class="reg-subtitle">Horario de examen por día</h3>
             <p class="muted">
                 Define rango o horas fijas según el día (ej. UKS entre semana vs sábado, TOEFL solo sábados).
@@ -420,7 +575,7 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                             <td>
                                 <input type="text" name="exam_weekday[<?= (int)$n ?>][times]" data-fixed-fields
                                        value="<?= e($timesStr) ?>"
-                                       placeholder="11:00, 13:00" <?= $kind === 'fixed' ? '' : '' ?>>
+                                       placeholder="11:00, 13:00">
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -433,6 +588,7 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 En horas fijas escribe HH:MM separadas por coma. Presets: UKS lun–vie 10:00–17:30 y sáb 08:00–12:00 sin extraordinarias;
                 iTEP mismo rango todos los días; TOEFL solo sábado 11:00 y 13:00 con extraordinarias.
             </p>
+            <?php endif; ?>
         </fieldset>
 
             </div>
@@ -544,6 +700,28 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
             <a class="btn btn-ghost" href="/admin/certifications">Volver</a>
         </div>
     </form>
+
+    <?php
+    $examFeaturesFooter = \App\Catalog\CatalogRepository::examProductFeatures(
+        null,
+        (string) ($item['modality'] ?? 'online')
+    );
+    if ($item && ($examFeaturesFooter['mode'] ?? '') === 'exam_sittings'):
+        $sittingModalityFooter = $examFeaturesFooter['sitting_modality'] ?? 'online_venue';
+    ?>
+        <form id="certSittingSave" method="post" action="/admin/providers/sitting/save" hidden>
+            <input type="hidden" name="provider_id" value="<?= (int)$item['provider_id'] ?>">
+            <input type="hidden" name="return_cert_id" value="<?= (int)$item['id'] ?>">
+            <input type="hidden" name="certification_id" value="<?= (int)$item['id'] ?>">
+            <input type="hidden" name="modality" value="<?= e($sittingModalityFooter) ?>">
+            <input type="hidden" name="is_published" value="1">
+            <input type="hidden" name="is_active" value="1">
+        </form>
+        <form id="certSittingDelete" method="post" action="/admin/providers/sitting/delete" hidden>
+            <input type="hidden" name="provider_id" value="<?= (int)$item['provider_id'] ?>">
+            <input type="hidden" name="return_cert_id" value="<?= (int)$item['id'] ?>">
+        </form>
+    <?php endif; ?>
 
     <?php if ($item): ?>
         <div class="admin-ficha-panel" data-tab-panel="cursos" <?= $tab !== 'cursos' ? 'hidden' : '' ?>>

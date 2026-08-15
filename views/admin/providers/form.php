@@ -472,6 +472,10 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                             <label>Fecha de aplicación
                                 <input type="date" name="exam_date" required value="<?= e($editSitting['exam_date'] ?? '') ?>">
                             </label>
+                            <label>Hora
+                                <input type="time" name="exam_time" value="<?= e($editSitting['exam_time'] ?? '09:00') ?>">
+                                <small class="muted">Hora de aplicación en sede.</small>
+                            </label>
                             <label>Límite de inscripción
                                 <input type="date" name="registration_deadline" required value="<?= e($editSitting['registration_deadline'] ?? '') ?>">
                                 <small class="muted">Digital ~2 semanas antes; papel ~8 semanas.</small>
@@ -524,6 +528,7 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                             <thead>
                                 <tr>
                                     <th>Aplicación</th>
+                                    <th>Hora</th>
                                     <th>Límite inscripción</th>
                                     <th>Modalidad</th>
                                     <th>Alcance</th>
@@ -538,6 +543,7 @@ $iconCopy = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8"
                                         <strong><?= e($s['exam_date']) ?></strong>
                                         <?php if (!empty($s['label'])): ?><br><span class="muted"><?= e($s['label']) ?></span><?php endif; ?>
                                     </td>
+                                    <td><?= e($s['exam_time'] ?? '—') ?></td>
                                     <td><?= e($s['registration_deadline']) ?></td>
                                     <td><?= e($sittingModalities[$s['modality']] ?? $s['modality']) ?></td>
                                     <td><?= e($s['certification_name'] ?? 'Todas') ?><?php if (!empty($s['venue_name'])): ?><br><span class="muted"><?= e($s['venue_name']) ?></span><?php endif; ?></td>
