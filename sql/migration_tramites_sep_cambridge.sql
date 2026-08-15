@@ -58,3 +58,10 @@ ON DUPLICATE KEY UPDATE
   is_active = 1;
 
 UPDATE providers SET org_kind = 'tramites' WHERE code = 'TRAMITES_SEP';
+
+-- Consolidación Cambridge (también en ensureCambridgeAndSepSchemaAndSeeds):
+-- Protocolos activos: CAMBRIDGE_ONLINE + CAMBRIDGE_PRESENCIAL
+-- Modalidad: online | online_venue (digital sede) | paper
+-- online_home es legacy y se normaliza a online en runtime.
+UPDATE protocols SET is_active = 0
+WHERE code IN ('CAMBRIDGE_ONLINE_HOME', 'CAMBRIDGE_ONLINE_VENUE', 'CAMBRIDGE_PAPER');

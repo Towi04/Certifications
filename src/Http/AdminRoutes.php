@@ -2990,10 +2990,7 @@ final class AdminRoutes
                 $slug = $alloc['slug'];
             }
 
-            $modality = (string) ($_POST['modality'] ?? 'online');
-            if (!isset(CatalogRepository::modalities()[$modality])) {
-                $modality = 'online';
-            }
+            $modality = CatalogRepository::normalizeModality((string) ($_POST['modality'] ?? 'online'));
 
             $isLevelExam = isset($_POST['is_level_exam']) ? 1 : 0;
             $skills = [];
@@ -3177,6 +3174,49 @@ final class AdminRoutes
                     'is_featured' => isset($_POST['is_featured']) ? 1 : 0,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ], $id);
+
+                // Features de agenda según protocolo Cambridge / modalidad presencial
+                try {
+                    $protoCode = '';
+                    if ($protocolId > 0) {
+                        $pr = $repo()->protocol($protocolId);
+                        $protoCode = strtoupper((string) ($pr['code'] ?? ''));
+                    }
+                    $feat = [];
+                    if (is_array($existing) && !empty($existing['features_json'])) {
+                        $tmp = json_decode((string) $existing['features_json'], true);
+                        if (is_array($tmp)) {
+                            $feat = $tmp;
+                        }
+                    }
+                    if ($protoCode === 'CAMBRIDGE_ONLINE') {
+                        $feat['scheduling_mode'] = 'flexible_home';
+                        $feat['product_kind'] = 'cambridge_online';
+                        $feat['institution_id'] = 'MX143';
+                        $feat['requires_id_doc'] = true;
+                        $feat['requires_regulation_upload'] = true;
+                        $feat['min_days_ahead'] = 10;
+                    } elseif ($protoCode === 'CAMBRIDGE_PRESENCIAL') {
+                        $feat['scheduling_mode'] = 'exam_sittings';
+                        $feat['product_kind'] = 'cambridge_presencial';
+                        $feat['requires_id_doc'] = true;
+                        $feat['requires_regulation_upload'] = true;
+                        if ($modality === 'online_venue') {
+                            $feat['institution_id'] = 'MX143';
+                            $feat['min_days_ahead'] = 14;
+                        } elseif ($modality === 'paper') {
+                            $feat['institution_id'] = null;
+                            $feat['min_days_ahead'] = 56;
+                        }
+                    }
+                    if ($feat !== []) {
+                        $repo()->setCertificationFeaturesJson(
+                            $savedId,
+                            json_encode($feat, JSON_UNESCAPED_UNICODE) ?: null
+                        );
+                    }
+                } catch (\Throwable) {
+                }
 
                 // Solo persistir precios de niveles activos conocidos
                 $allowedTiers = [];

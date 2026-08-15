@@ -105,6 +105,7 @@ final class CertIcons
 
     public static function modalityHtml(string $modality, string $sizeClass = ''): string
     {
+        $modality = \App\Catalog\CatalogRepository::normalizeModality($modality);
         $svg = self::modalitySvg($modality);
         if ($svg === '') {
             return '';
