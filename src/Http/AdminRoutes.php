@@ -3599,7 +3599,19 @@ final class AdminRoutes
                     if (empty($_FILES['file']) || (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
                         throw new \RuntimeException('Selecciona un archivo.');
                     }
-                    $path = Uploader::store($_FILES['file'], $ownerType);
+                    $logoTypes = [
+                        'course_logo', 'exam_logo', 'badge', 'cover', 'provider_logo',
+                    ];
+                    $origName = (string) ($_FILES['file']['name'] ?? '');
+                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                    $isRaster = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true);
+                    if (in_array($assetType, $logoTypes, true) && $isRaster) {
+                        // Redimensionar logos para que no rompan las fichas del catálogo
+                        $max = $assetType === 'cover' ? 1200 : 640;
+                        $path = Uploader::storeImage($_FILES['file'], $ownerType, $max, $max);
+                    } else {
+                        $path = Uploader::store($_FILES['file'], $ownerType);
+                    }
                 }
                 $repo()->saveAsset([
                     'owner_type' => $ownerType,

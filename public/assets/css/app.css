@@ -1622,13 +1622,31 @@ body.asset-lightbox-open { overflow: hidden; }
   padding: 0.55rem;
   border-radius: 12px;
   background: rgba(49, 82, 133, 0.06);
+  overflow: hidden;
 }
-.catalog-card-logo img {
+.catalog-card-logo img,
+.store-card-logo img {
   max-width: 100%;
   max-height: 4.25rem;
   width: auto;
   height: auto;
   object-fit: contain;
+  display: block;
+}
+.store-card-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.5rem;
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.55rem;
+  border-radius: 12px;
+  background: rgba(49, 82, 133, 0.06);
+  overflow: hidden;
+}
+.store-card--course .catalog-card-logo,
+.store-card--course .store-card-logo {
+  margin-bottom: 0.5rem;
 }
 .catalog-value-list {
   list-style: none;
@@ -1666,11 +1684,15 @@ body.asset-lightbox-open { overflow: hidden; }
   display: flex;
   justify-content: center;
   margin: 0 0 0.85rem;
+  overflow: hidden;
 }
 .value-block-logo img {
   max-width: min(100%, 220px);
   max-height: 110px;
+  width: auto;
+  height: auto;
   object-fit: contain;
+  display: block;
 }
 .catalog-card .catalog-card-logo { margin-top: 0.35rem; }
 .store-provider-block { margin: 1.75rem 0; }
