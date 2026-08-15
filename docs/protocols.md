@@ -66,6 +66,11 @@ Migración / seed runtime: `sql/migration_tramites_sep_cambridge.sql` y `Catalog
 
 La distinción digital vs papel es **modalidad**, no protocolo. Un examen “online” en computadora en sede usa modalidad `online_venue` + protocolo Presencial.
 
+**Documentos obligatorios antes de agendar** (ambos protocolos Cambridge):
+1. Firma digital del reglamento en la ficha del alumno.
+2. Subida de **INE en PDF (ambos lados en un solo archivo)** o pasaporte PDF (`POST /alumno/caso/upload-id-doc`).
+3. Luego el alumno agenda (`POST /alumno/caso/schedule`). En adquisición la fecha queda diferida (`schedule_deferred`).
+
 Admin: **Proveedores → Fechas de aplicación** para cargar las 3–4 fechas del proveedor. Si no hay fechas, el alumno puede adquirir y agendar después.
 
 Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER`) se desactivan y las certs migran a los dos códigos anteriores.
@@ -85,5 +90,5 @@ Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRI
 - Portal del alumno con el mismo timeline y acciones por responsable.
 - Automatizar pasos `system` (OpenPay) y recordatorios por `trigger_days_after_exam`.
 - Adjuntos por paso (reglamento firmado, CSV, capturas).
-- Cambridge: subida de reglamento PDF + INE/pasaporte como gate antes de agendar; envío/paquetería y CENNI opcional en checkout.
+- Cambridge: envío/paquetería y CENNI opcional en checkout.
 - Flujo completo Red CONOCER (hoy flags + producto; falta protocolo operativo detallado).

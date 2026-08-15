@@ -169,7 +169,17 @@ $minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAh
             </label>
         <?php endif; ?>
 
-        <?php if ($schedulingMode === 'exam_sittings'): ?>
+        <?php if (!empty($examFeatures['requires_id_doc'])): ?>
+            <div class="field-wide note" style="grid-column:1/-1">
+                <h3 style="margin-top:0">Agenda después de tus documentos</h3>
+                <p class="muted" style="margin-bottom:0">
+                    Tras el registro firmarás el <strong>reglamento</strong> y subirás tu
+                    <strong>INE escaneada por ambos lados en un solo PDF</strong>
+                    (o pasaporte en PDF). <strong>Sin la identificación no se puede agendar</strong>
+                    la fecha del examen; lo harás en tu ficha de alumno.
+                </p>
+            </div>
+        <?php elseif ($schedulingMode === 'exam_sittings'): ?>
             <div class="field-wide note" style="grid-column:1/-1">
                 <h3 style="margin-top:0">Fecha de aplicación</h3>
                 <p class="muted">
@@ -271,19 +281,11 @@ $minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAh
         <?php endif; ?>
         <?php endif; ?>
 
-        <?php if (!empty($examFeatures['requires_id_doc']) || !empty($examFeatures['requires_regulation_upload'])): ?>
+        <?php if (empty($examFeatures['requires_id_doc']) && (!empty($examFeatures['requires_regulation_upload']))): ?>
             <div class="field-wide note" style="grid-column:1/-1">
-                <h3 style="margin-top:0">Documentos antes de agendar</h3>
+                <h3 style="margin-top:0">Documentos</h3>
                 <p class="muted" style="margin-bottom:0">
-                    Después del registro deberás subir en tu ficha:
-                    <?php if (!empty($examFeatures['requires_regulation_upload'])): ?>
-                        el <strong>reglamento</strong> (formulario PDF descargable, llenado y vuelto a subir)
-                    <?php endif; ?>
-                    <?php if (!empty($examFeatures['requires_id_doc'])): ?>
-                        <?= !empty($examFeatures['requires_regulation_upload']) ? ' y ' : '' ?>
-                        tu <strong>INE</strong> (PDF ambos lados) o <strong>pasaporte</strong>
-                    <?php endif; ?>
-                    . Sin estos documentos no se puede agendar el examen.
+                    Después del registro firmarás el <strong>reglamento</strong> en tu ficha de alumno.
                 </p>
             </div>
         <?php endif; ?>

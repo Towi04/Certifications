@@ -964,8 +964,17 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         <?php if ($attachments): ?>
             <ul>
                 <?php foreach ($attachments as $att): ?>
+                    <?php
+                    $kindLabel = match ((string) ($att['kind'] ?? '')) {
+                        'ine' => 'INE (PDF)',
+                        'passport' => 'Pasaporte (PDF)',
+                        'payment' => 'Comprobante de pago',
+                        'regulation_signed_pdf' => 'Reglamento firmado',
+                        default => (string) ($att['kind'] ?? 'archivo'),
+                    };
+                    ?>
                     <li>
-                        <?= e($att['kind']) ?> — <?= e($att['label'] ?? basename((string)$att['file_path'])) ?>
+                        <?= e($kindLabel) ?> — <?= e($att['label'] ?? basename((string)$att['file_path'])) ?>
                         · <a href="/media?f=<?= e(rawurlencode((string)$att['file_path'])) ?>" target="_blank" rel="noopener">ver</a>
                         <small class="muted"><?= e($att['created_at']) ?></small>
                     </li>

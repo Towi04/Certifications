@@ -202,6 +202,15 @@ final class PublicRoutes
                     $regCfg['exam_time'] = 'off';
                 }
 
+                // Cambridge: primero firma + INE; la fecha se agenda después en la ficha del alumno
+                $requiresIdDoc = !empty($examFeatures['requires_id_doc']);
+                if ($requiresIdDoc) {
+                    $scheduleDeferred = true;
+                    $examSittingId = null;
+                    $examDate = '';
+                    $examTime = '';
+                }
+
                 foreach ($regCfg as $key => $fieldMode) {
                     if ($fieldMode === 'off') {
                         $posted[$key] = '';
@@ -219,7 +228,7 @@ final class PublicRoutes
                     $sex = '';
                 }
 
-                if ($schedulingMode === 'exam_sittings') {
+                if (!$requiresIdDoc && $schedulingMode === 'exam_sittings') {
                     $sittingRaw = trim((string) ($_POST['exam_sitting_id'] ?? ''));
                     $wantLater = $sittingRaw === '__later__' || isset($_POST['schedule_later']);
                     $available = $repo()->availableExamSittingsForCertification($item);
@@ -251,7 +260,7 @@ final class PublicRoutes
                             $examTime = '';
                         }
                     }
-                } elseif ($schedulingMode === 'flexible_home') {
+                } elseif (!$requiresIdDoc && $schedulingMode === 'flexible_home') {
                     if ($examDate === '') {
                         throw new \RuntimeException('Indica la fecha preferida de examen.');
                     }
@@ -267,7 +276,7 @@ final class PublicRoutes
                         throw new \RuntimeException('Los exámenes desde casa se presentan de lunes a viernes.');
                     }
                     $examTime = ''; // ventana 9–18 sin hora fija
-                } else {
+                } elseif ($schedulingMode === 'weekday_slots') {
                     if (CatalogRepository::registrationFieldEnabled($regCfg, 'exam_date') && $examDate !== '') {
                         if (!CatalogRepository::isExamDateOpen($examDate, $schedule) && empty($schedule['extraordinary_enabled'])) {
                             throw new \RuntimeException('Ese día no hay horario de aplicación para esta certificación.');
@@ -454,7 +463,11 @@ final class PublicRoutes
                     );
                 }
 
-                flash('info', 'Registro listo. Firma el reglamento (si aplica) y realiza tu pago.' . $payNote . ' Te enviamos un correo con el acceso a tu cuenta.');
+                $docsNote = '';
+                if ($requiresIdDoc) {
+                    $docsNote = ' Sube tu INE (PDF ambos lados) o pasaporte y agenda tu fecha en tu ficha.';
+                }
+                flash('info', 'Registro listo. Firma el reglamento (si aplica) y realiza tu pago.' . $docsNote . $payNote . ' Te enviamos un correo con el acceso a tu cuenta.');
                 header('Location: /alumno/caso?id=' . $caseId);
                 exit;
             } catch (\Throwable $e) {
@@ -492,6 +505,13 @@ final class PublicRoutes
                 }
             }
 
+            $examFeatures = CatalogRepository::caseExamProductFeatures($item);
+            $certForSittings = [
+                'id' => (int) ($item['certification_id'] ?? 0),
+                'provider_id' => (int) ($item['provider_id'] ?? 0),
+                'modality' => (string) ($item['certification_modality'] ?? 'online'),
+                'features_json' => $item['features_json'] ?? null,
+            ];
             view('alumno/caso', [
                 'title' => 'Caso #' . $id,
                 'item' => $item,
@@ -499,6 +519,9 @@ final class PublicRoutes
                 'attachments' => $repo()->caseAttachments($id),
                 'regulation' => $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
                 'requires_regulation' => !empty($item['requires_regulation_signature']),
+                'exam_features' => $examFeatures,
+                'has_id_doc' => $repo()->caseHasRequiredIdDoc($id, $item),
+                'exam_sittings' => $repo()->availableExamSittingsForCertification($certForSittings),
                 'cenni_docs' => $repo()->certificationDocumentsByStage((int) ($item['certification_id'] ?? 0), 'cenni'),
                 'moodle_enrolments' => $repo()->caseMoodleEnrolments($id),
                 'course_prorrogas' => $repo()->courseProrrogasForCase($id),
@@ -592,6 +615,149 @@ final class PublicRoutes
             exit;
         });
 
+        $router->post('/alumno/caso/upload-id-doc', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            $features = CatalogRepository::caseExamProductFeatures($item);
+            if (empty($features['requires_id_doc'])) {
+                flash('error', 'Esta certificación no requiere identificación digital.');
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            }
+            try {
+                $kind = strtolower(trim((string) ($_POST['id_doc_kind'] ?? 'ine')));
+                if (!in_array($kind, ['ine', 'passport'], true)) {
+                    $kind = 'ine';
+                }
+                $file = $_FILES['id_doc'] ?? null;
+                if (!$file || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                    throw new \RuntimeException('Selecciona el PDF de tu identificación.');
+                }
+                $orig = (string) ($file['name'] ?? '');
+                $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+                if ($ext !== 'pdf') {
+                    throw new \RuntimeException('La identificación debe ser un archivo PDF (INE ambos lados o pasaporte).');
+                }
+                $path = \App\Support\Uploader::storeDocument($file, 'cases/' . $caseId . '/id');
+                $label = $kind === 'passport'
+                    ? 'Pasaporte (PDF)'
+                    : 'INE escaneada ambos lados (PDF)';
+                $repo()->addCaseAttachment($caseId, $kind, $label, $path, (int) $user['id']);
+                $repo()->markCaseStepDoneByKeywords(
+                    $caseId,
+                    ['ine', 'identific', 'pasaporte', 'documento'],
+                    (int) $user['id'],
+                    'Identificación PDF subida por el alumno'
+                );
+                flash('info', 'Identificación recibida. Ya puedes agendar tu fecha de examen.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#identificacion');
+            exit;
+        });
+
+        $router->post('/alumno/caso/schedule', static function () use ($repo): void {
+            Auth::requireStudent();
+            $user = Auth::user();
+            $caseId = (int) ($_POST['case_id'] ?? 0);
+            $item = $repo()->certificationCaseDetailed($caseId);
+            if (!$item || (int) ($item['student_user_id'] ?? 0) !== (int) $user['id']) {
+                flash('error', 'Caso no encontrado.');
+                header('Location: /alumno');
+                exit;
+            }
+            try {
+                $repo()->assertCaseReadyToSchedule($item);
+                $features = CatalogRepository::caseExamProductFeatures($item);
+                $mode = (string) ($features['mode'] ?? 'weekday_slots');
+                $examDate = '';
+                $examTime = '';
+                $sittingId = null;
+
+                if ($mode === 'exam_sittings') {
+                    $sittingRaw = trim((string) ($_POST['exam_sitting_id'] ?? ''));
+                    $cert = [
+                        'id' => (int) ($item['certification_id'] ?? 0),
+                        'provider_id' => (int) ($item['provider_id'] ?? 0),
+                        'modality' => (string) ($item['certification_modality'] ?? 'online'),
+                        'features_json' => $item['features_json'] ?? null,
+                    ];
+                    $available = $repo()->availableExamSittingsForCertification($cert);
+                    if ($sittingRaw === '' || !ctype_digit($sittingRaw)) {
+                        throw new \RuntimeException('Selecciona una fecha de aplicación publicada.');
+                    }
+                    $sid = (int) $sittingRaw;
+                    $found = null;
+                    foreach ($available as $sit) {
+                        if ((int) $sit['id'] === $sid) {
+                            $found = $sit;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        throw new \RuntimeException('La fecha seleccionada ya no está disponible.');
+                    }
+                    $sittingId = $sid;
+                    $examDate = (string) $found['exam_date'];
+                    $examTime = trim((string) ($found['exam_time'] ?? ''));
+                    if ($examTime !== '' && preg_match('/^\d{1,2}:\d{2}/', $examTime)) {
+                        $examTime = substr($examTime, 0, 5);
+                    } else {
+                        $examTime = '';
+                    }
+                } elseif ($mode === 'flexible_home') {
+                    $examDate = trim((string) ($_POST['exam_date'] ?? ''));
+                    if ($examDate === '') {
+                        throw new \RuntimeException('Indica la fecha preferida de examen.');
+                    }
+                    $minAhead = max(0, (int) $features['min_days_ahead']);
+                    $minDate = (new \DateTimeImmutable('today'))->modify('+' . $minAhead . ' days')->format('Y-m-d');
+                    if ($examDate < $minDate) {
+                        throw new \RuntimeException(
+                            'Debes agendar con al menos ' . $minAhead . ' días de antelación (a partir del ' . $minDate . ').'
+                        );
+                    }
+                    $dow = (int) (new \DateTimeImmutable($examDate))->format('N');
+                    if ($dow > 5) {
+                        throw new \RuntimeException('Los exámenes desde casa se presentan de lunes a viernes.');
+                    }
+                } else {
+                    throw new \RuntimeException('Esta certificación no usa agenda diferida.');
+                }
+
+                $fields = [
+                    'exam_date' => $examDate !== '' ? $examDate : null,
+                    'exam_time' => $examTime !== '' ? $examTime : null,
+                    'schedule_deferred' => 0,
+                    'exam_sitting_id' => $sittingId,
+                ];
+                if (!empty($features['institution_id'])) {
+                    $fields['institution_id'] = $features['institution_id'];
+                }
+                $repo()->updateCertificationCase($caseId, $fields);
+                $repo()->markCaseStepDoneByKeywords(
+                    $caseId,
+                    ['agendar', 'fecha', 'aplicación', 'aplicacion'],
+                    (int) $user['id'],
+                    'Fecha de examen agendada por el alumno'
+                );
+                flash('info', 'Fecha de examen registrada: ' . $examDate
+                    . ($examTime !== '' ? ' · ' . $examTime : '') . '.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /alumno/caso?id=' . $caseId . '#agendar');
+            exit;
+        });
+
         $router->post('/alumno/caso/reschedule', static function () use ($repo): void {
             Auth::requireStudent();
             $user = Auth::user();
@@ -610,6 +776,7 @@ final class PublicRoutes
                 exit;
             }
             try {
+                $repo()->assertCaseReadyToSchedule($item);
                 $svc = new \App\Mail\CaseMailService($repo());
                 $result = $svc->rescheduleAndNotifyProvider(
                     $caseId,

@@ -1410,6 +1410,93 @@ final class CatalogRepository
         ];
     }
 
+    /**
+     * Features de agenda/docs para un caso (cert + protocolo Cambridge).
+     *
+     * @param array<string, mixed> $case
+     * @return array{
+     *   mode:string,
+     *   min_days_ahead:int,
+     *   institution_id:?string,
+     *   requires_id_doc:bool,
+     *   requires_regulation_upload:bool,
+     *   allows_shipping:bool,
+     *   allows_cenni_addon:bool,
+     *   sitting_modality:?string
+     * }
+     */
+    public static function caseExamProductFeatures(array $case): array
+    {
+        $modality = self::normalizeModality((string) (
+            $case['certification_modality'] ?? $case['modality'] ?? 'online'
+        ));
+        $features = self::examProductFeatures($case['features_json'] ?? null, $modality);
+        $proto = strtoupper((string) ($case['protocol_code'] ?? ''));
+        if (str_starts_with($proto, 'CAMBRIDGE')) {
+            $features['requires_id_doc'] = true;
+            $features['requires_regulation_upload'] = true;
+            if ($proto === 'CAMBRIDGE_ONLINE') {
+                $features['mode'] = 'flexible_home';
+                $features['min_days_ahead'] = max(10, (int) $features['min_days_ahead']);
+                $features['institution_id'] = $features['institution_id'] ?: 'MX143';
+            } elseif ($proto === 'CAMBRIDGE_PRESENCIAL') {
+                $features['mode'] = 'exam_sittings';
+            }
+        }
+
+        return $features;
+    }
+
+    /** @param array<string, mixed> $case */
+    public function caseHasRequiredIdDoc(int $caseId, ?array $case = null): bool
+    {
+        $case = $case ?? $this->certificationCaseDetailed($caseId);
+        if (!$case) {
+            return false;
+        }
+        $features = self::caseExamProductFeatures($case);
+        if (empty($features['requires_id_doc'])) {
+            return true;
+        }
+        foreach (['ine', 'passport'] as $kind) {
+            $att = $this->latestCaseAttachment($caseId, $kind);
+            if (!$att) {
+                continue;
+            }
+            $status = strtolower(trim((string) ($att['review_status'] ?? '')));
+            if ($status === 'rejected') {
+                continue;
+            }
+            $path = strtolower((string) ($att['file_path'] ?? ''));
+            if ($path !== '' && str_ends_with($path, '.pdf')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Bloquea agenda/reagenda si faltan docs Cambridge.
+     *
+     * @param array<string, mixed> $case
+     */
+    public function assertCaseReadyToSchedule(array $case): void
+    {
+        $features = self::caseExamProductFeatures($case);
+        $requiresReg = !empty($case['requires_regulation_signature'])
+            || !empty($features['requires_regulation_upload']);
+        if ($requiresReg && empty($case['regulation_signed_at'])) {
+            throw new \RuntimeException('Primero debes firmar el reglamento antes de agendar el examen.');
+        }
+        if (!empty($features['requires_id_doc']) && !$this->caseHasRequiredIdDoc((int) ($case['id'] ?? 0), $case)) {
+            throw new \RuntimeException(
+                'Para agendar Cambridge debes subir tu INE escaneada por ambos lados en un solo PDF '
+                . '(o pasaporte en PDF).'
+            );
+        }
+    }
+
     /** @return array<string, string> */
     public static function courseRelationTypes(): array
     {
@@ -3668,7 +3755,7 @@ final class CatalogRepository
             'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
                     cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
                     cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
-                    cert.cenni_late_certification_id,
+                    cert.cenni_late_certification_id, cert.features_json, cert.modality AS certification_modality,
                     pr.code AS protocol_code, pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.requires_software, pr.requires_zoom, pr.requires_vm, pr.uses_inventory,
@@ -3825,6 +3912,7 @@ final class CatalogRepository
             'student_name', 'student_last_name_p', 'student_last_name_m', 'student_email', 'student_phone',
             'student_curp', 'student_birth_date', 'student_sex', 'student_nationality',
             'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
+            'exam_sitting_id', 'schedule_deferred', 'institution_id',
             'exam_extraordinary', 'exam_extraordinary_fee', 'registration_extra_json',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
@@ -6563,6 +6651,7 @@ final class CatalogRepository
         return [
             'needs_admin' => 'Requiere acción Doceo',
             'awaiting_signature' => 'Pendiente firma reglamento',
+            'awaiting_id_doc' => 'Pendiente INE / identificación',
             'awaiting_payment' => 'Pendiente de pago',
             'awaiting_provider_request' => 'Falta solicitar al proveedor',
             'awaiting_access' => 'Falta enviar datos de acceso',
@@ -6719,6 +6808,19 @@ final class CatalogRepository
             ];
         }
 
+        $examFeatures = self::caseExamProductFeatures($case);
+        if (!empty($examFeatures['requires_id_doc'])) {
+            $caseId = (int) ($case['id'] ?? 0);
+            if ($caseId > 0 && !$this->caseHasRequiredIdDoc($caseId, $case)) {
+                return [
+                    'key' => 'awaiting_id_doc',
+                    'label' => 'Pendiente INE / ID',
+                    'hint' => 'El alumno debe subir INE (PDF ambos lados) o pasaporte',
+                    'needs_admin' => false,
+                ];
+            }
+        }
+
         $paid = !empty($case['payment_confirmed_at'])
             || in_array(strtolower((string) ($case['openpay_status'] ?? '')), ['completed', 'paid'], true);
         if (!$paid) {
@@ -6783,6 +6885,7 @@ final class CatalogRepository
             'in_progress' => ($row['status'] ?? '') === 'in_progress',
             'needs_admin' => !empty($row['needs_admin']),
             'awaiting_signature',
+            'awaiting_id_doc',
             'awaiting_payment',
             'awaiting_provider_request',
             'awaiting_access',
