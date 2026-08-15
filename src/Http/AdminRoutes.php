@@ -1125,6 +1125,7 @@ final class AdminRoutes
                     'certification_id' => (int) ($_POST['certification_id'] ?? 0) ?: null,
                     'modality' => (string) ($_POST['modality'] ?? 'online_venue'),
                     'exam_date' => trim((string) ($_POST['exam_date'] ?? '')),
+                    'exam_time' => trim((string) ($_POST['exam_time'] ?? '')),
                     'registration_deadline' => trim((string) ($_POST['registration_deadline'] ?? '')),
                     'label' => trim((string) ($_POST['label'] ?? '')),
                     'venue_id' => (int) ($_POST['venue_id'] ?? 0) ?: null,
@@ -1136,8 +1137,18 @@ final class AdminRoutes
                 flash('info', 'Fecha de aplicación guardada.');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
+                $returnCert = (int) ($_POST['return_cert_id'] ?? 0);
+                if ($returnCert > 0) {
+                    header('Location: /admin/certifications/edit?id=' . $returnCert . '&tab=adquisicion');
+                    exit;
+                }
                 $loc = $providerTabUrl($providerId, 'fechas') . ($sittingId ? '&edit_sitting=' . $sittingId : '&form=1');
                 header('Location: ' . $loc);
+                exit;
+            }
+            $returnCert = (int) ($_POST['return_cert_id'] ?? 0);
+            if ($returnCert > 0) {
+                header('Location: /admin/certifications/edit?id=' . $returnCert . '&tab=adquisicion');
                 exit;
             }
             header('Location: ' . $providerTabUrl($providerId, 'fechas'));
@@ -1148,12 +1159,17 @@ final class AdminRoutes
             Auth::requireAdmin();
             $providerId = (int) ($_POST['provider_id'] ?? 0);
             $sittingId = (int) ($_POST['sitting_id'] ?? 0);
+            $returnCert = (int) ($_POST['return_cert_id'] ?? 0);
             if ($providerId > 0 && $sittingId > 0) {
                 $row = $repo()->examSitting($sittingId);
                 if ($row && (int) $row['provider_id'] === $providerId) {
                     $repo()->deleteExamSitting($sittingId);
                     flash('info', 'Fecha eliminada.');
                 }
+            }
+            if ($returnCert > 0) {
+                header('Location: /admin/certifications/edit?id=' . $returnCert . '&tab=adquisicion');
+                exit;
             }
             header('Location: ' . $providerTabUrl($providerId, 'fechas'));
             exit;
@@ -2956,6 +2972,16 @@ final class AdminRoutes
                 'cenni_product_options' => $repo()->certifications(null),
                 'provider_groups' => $providerId > 0 ? $repo()->providerGroups($providerId, true) : [],
                 'provider_available_fields' => $providerId > 0 ? $repo()->availableFieldsForCertification($providerId) : [],
+                'exam_sittings' => $providerId > 0
+                    ? $repo()->examSittingsForCertificationAdmin(
+                        $providerId,
+                        $id,
+                        in_array((string) ($item['modality'] ?? ''), ['online_venue', 'paper'], true)
+                            ? (string) $item['modality']
+                            : null
+                    )
+                    : [],
+                'provider_venues' => $providerId > 0 ? $repo()->providerVenues($providerId) : [],
                 'info' => flash('info'),
                 'error' => flash('error'),
             ]);
@@ -3095,6 +3121,14 @@ final class AdminRoutes
                     $modes[$k] = $mode;
                 }
             }
+
+            $examFeatures = CatalogRepository::examProductFeatures(null, $modality);
+            if ($examFeatures['mode'] === 'exam_sittings' || $examFeatures['mode'] === 'flexible_home') {
+                // Presencial / desde casa: no usan horario por día ni hora preferida libre
+                $modes['exam_date'] = $examFeatures['mode'] === 'flexible_home' ? 'required' : 'off';
+                $modes['exam_time'] = 'off';
+            }
+
             $weekdaysPost = $_POST['exam_weekday'] ?? [];
             if (!is_array($weekdaysPost)) {
                 $weekdaysPost = [];
@@ -3127,6 +3161,19 @@ final class AdminRoutes
                 'custom' => $customFields,
                 'schedule' => $schedule,
             ]);
+
+            $featuresDecoded = [];
+            if (is_array($existing) && !empty($existing['features_json'])) {
+                $tmp = json_decode((string) $existing['features_json'], true);
+                if (is_array($tmp)) {
+                    $featuresDecoded = $tmp;
+                }
+            }
+            $featuresDecoded['scheduling_mode'] = $examFeatures['mode'];
+            if ($examFeatures['institution_id']) {
+                $featuresDecoded['institution_id'] = $examFeatures['institution_id'];
+            }
+            $featuresJson = json_encode($featuresDecoded, JSON_UNESCAPED_UNICODE) ?: null;
 
             $rawTierPrices = $_POST['tier_prices'] ?? [];
             if (!is_array($rawTierPrices)) {
@@ -3177,6 +3224,13 @@ final class AdminRoutes
                     'is_featured' => isset($_POST['is_featured']) ? 1 : 0,
                     'sort_order' => (int) ($_POST['sort_order'] ?? 0),
                 ], $id);
+
+                try {
+                    if (!empty($featuresJson)) {
+                        $repo()->setCertificationFeaturesJson($savedId, $featuresJson);
+                    }
+                } catch (\Throwable) {
+                }
 
                 // Solo persistir precios de niveles activos conocidos
                 $allowedTiers = [];
