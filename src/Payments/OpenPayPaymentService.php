@@ -293,6 +293,10 @@ final class OpenPayPaymentService
     public function amountForCase(array $case): float
     {
         $price = (float) ($case['public_price'] ?? 0);
+        // Caso solo-curso: public_price ya viene del JOIN a courses
+        if ((int) ($case['course_id'] ?? 0) > 0 && (int) ($case['certification_id'] ?? 0) < 1) {
+            return round(max(0, $price), 2);
+        }
         $cenniProcess = (string) ($case['cenni_process'] ?? 'none');
         $cenniIncluded = (int) ($case['cenni_included'] ?? 0) === 1;
         $cenniFee = (float) ($case['cenni_fee'] ?? 0);

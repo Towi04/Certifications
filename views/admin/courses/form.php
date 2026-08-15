@@ -32,20 +32,30 @@ require __DIR__ . '/../_ficha_head.php';
             <div class="form-grid">
             <label>Código<input name="code" required value="<?= e($item['code'] ?? '') ?>"></label>
             <label>Nombre<input name="name" required value="<?= e($item['name'] ?? '') ?>"></label>
-            <label>Protocolo (opcional)
+            <label>Slug (URL)
+                <input name="slug" value="<?= e($item['slug'] ?? '') ?>" placeholder="auto desde el nombre">
+            </label>
+            <label>Protocolo
                 <select name="protocol_id">
-                    <option value="">— Sin protocolo —</option>
+                    <option value="">— Auto según plataforma —</option>
                     <?php foreach ($protocols as $pr): ?>
                         <option value="<?= (int)$pr['id'] ?>" <?= (int)($item['protocol_id'] ?? 0) === (int)$pr['id'] ? 'selected' : '' ?>>
                             <?= e($pr['code']) ?> · <?= e($pr['name']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <span class="muted" style="font-weight:400;display:block;margin-top:0.25rem">
+                    Moodle → COURSE_MOODLE · eThinking → COURSE_ETHINKING · XperienceEd → COURSE_XPERIENCEED
+                </span>
+            </label>
+            <label>Precio público (MXN)
+                <input type="number" step="0.01" min="0" name="public_price" value="<?= e((string)($item['public_price'] ?? '')) ?>" placeholder="Ej. 1500">
             </label>
             <label class="field-wide">Descripción<textarea name="description" rows="4"><?= e($item['description'] ?? '') ?></textarea></label>
             <label class="check"><input type="checkbox" name="is_active" <?= !isset($item) || (int)($item['is_active'] ?? 1) ? 'checked' : '' ?>> Activo</label>
+            <label class="check"><input type="checkbox" name="is_published" <?= (int)($item['is_published'] ?? 0) ? 'checked' : '' ?>> Publicado en catálogo (vendible)</label>
             <label class="check"><input type="checkbox" name="standalone" <?= (int)($item['standalone'] ?? 0) ? 'checked' : '' ?>> No requiere certificación</label>
-            <p class="muted" style="margin:0">Marca esta opción si el curso se vende o usa solo, sin vincularlo a una certificación.</p>
+            <p class="muted" style="margin:0">Marca “No requiere certificación” si se vende solo. Con precio + publicado aparece en /#cursos con botón Adquirir.</p>
             </div>
         </div>
 

@@ -40,8 +40,15 @@ final class PublicRoutes
         });
 
         $router->get('/curso', static function () use ($repo): void {
+            $repo()->ensureCourseAccessTables();
+            $slug = trim((string) ($_GET['slug'] ?? ''));
             $id = (int) ($_GET['id'] ?? 0);
-            $item = $id > 0 ? $repo()->course($id) : null;
+            $item = null;
+            if ($slug !== '') {
+                $item = $repo()->courseBySlug($slug);
+            } elseif ($id > 0) {
+                $item = $repo()->course($id);
+            }
             if (!$item || !(int) ($item['is_active'] ?? 0)) {
                 http_response_code(404);
                 echo 'Curso no encontrado.';
@@ -52,6 +59,176 @@ final class PublicRoutes
                 'item' => $item,
                 'assets' => $repo()->assets('course', (int) $item['id']),
             ]);
+        });
+
+        $router->get('/adquirir-curso', static function () use ($repo): void {
+            $repo()->ensureCourseAccessTables();
+            $slug = trim((string) ($_GET['slug'] ?? ''));
+            $item = $slug !== '' ? $repo()->courseBySlug($slug) : null;
+            if (!$item || !(int) ($item['is_active'] ?? 0) || !(int) ($item['is_published'] ?? 0)) {
+                http_response_code(404);
+                echo 'Curso no encontrado.';
+                exit;
+            }
+            if (Auth::check()) {
+                $role = Auth::user()['role'] ?? '';
+                if ($role === 'partner') {
+                    flash('info', 'La compra de cursos es para alumnos. Como TR usa el panel partner si aplica.');
+                    header('Location: /partner');
+                    exit;
+                }
+            }
+            $old = flash('old') ?? [];
+            if (!is_array($old)) {
+                $old = [];
+            }
+            if (isset($_GET['login']) && !Auth::check()) {
+                $old['show_login'] = '1';
+            }
+            view('store/acquire_course', [
+                'title' => 'Adquirir · ' . $item['name'],
+                'item' => $item,
+                'user' => Auth::check() ? Auth::user() : null,
+                'logged_in' => Auth::check(),
+                'error' => flash('error'),
+                'info' => flash('info'),
+                'old' => $old,
+            ]);
+        });
+
+        $router->post('/adquirir-curso', static function () use ($repo): void {
+            $repo()->ensureCourseAccessTables();
+            $slug = trim((string) ($_POST['slug'] ?? ''));
+            $item = $slug !== '' ? $repo()->courseBySlug($slug) : null;
+            if (!$item || !(int) ($item['is_active'] ?? 0) || !(int) ($item['is_published'] ?? 0)) {
+                flash('error', 'Curso no encontrado.');
+                header('Location: /');
+                exit;
+            }
+
+            $mode = (string) ($_POST['mode'] ?? 'register');
+            $oldPayload = static function () use ($mode): array {
+                return [
+                    'first_name' => (string) ($_POST['first_name'] ?? ''),
+                    'last_name_p' => (string) ($_POST['last_name_p'] ?? ''),
+                    'last_name_m' => (string) ($_POST['last_name_m'] ?? ''),
+                    'email' => (string) ($_POST['email'] ?? ''),
+                    'phone' => (string) ($_POST['phone'] ?? ''),
+                    'show_login' => $mode === 'login' ? '1' : '',
+                ];
+            };
+
+            try {
+                $user = Auth::user();
+                $plainPassword = null;
+
+                if ($mode === 'login' && !Auth::check()) {
+                    $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+                    $password = (string) ($_POST['password'] ?? '');
+                    if (!Auth::attempt($email, $password)) {
+                        throw new \RuntimeException('Correo o contraseña incorrectos.');
+                    }
+                    if ((Auth::user()['role'] ?? '') === 'partner') {
+                        throw new \RuntimeException('Las cuentas Teacher Referral no usan la compra pública de cursos.');
+                    }
+                    flash('info', 'Sesión iniciada. Completa tus datos para continuar.');
+                    header('Location: /adquirir-curso?slug=' . rawurlencode($slug));
+                    exit;
+                }
+
+                $plainPassword = null;
+                if (!Auth::check()) {
+                    $first = trim((string) ($_POST['first_name'] ?? ''));
+                    $lastP = trim((string) ($_POST['last_name_p'] ?? ''));
+                    $lastM = trim((string) ($_POST['last_name_m'] ?? ''));
+                    $email = strtolower(trim((string) ($_POST['email'] ?? '')));
+                    $phone = trim((string) ($_POST['phone'] ?? ''));
+                    if ($first === '' || $lastP === '' || $email === '') {
+                        throw new \RuntimeException('Completa nombre, apellido paterno y correo.');
+                    }
+                    if (Auth::findUserByEmail($email)) {
+                        flash('error', 'Ya tienes cuenta con ese correo. Inicia sesión para adquirir.');
+                        flash('old', $oldPayload() + ['show_login' => '1']);
+                        header('Location: /adquirir-curso?slug=' . rawurlencode($slug));
+                        exit;
+                    }
+                    $created = Auth::registerStudent([
+                        'email' => $email,
+                        'first_name' => $first,
+                        'last_name' => trim($lastP . ' ' . $lastM),
+                        'phone' => $phone !== '' ? $phone : null,
+                        'auto_password' => true,
+                    ]);
+                    $plainPassword = $created['plain_password'];
+                    Auth::loginById((int) $created['id']);
+                } else {
+                    if ((Auth::user()['role'] ?? '') === 'partner') {
+                        throw new \RuntimeException('Las cuentas Teacher Referral no compran cursos en la tienda pública.');
+                    }
+                }
+
+                $user = Auth::refreshUserFromDatabase() ?? Auth::user();
+                if ($user === null || (int) ($user['id'] ?? 0) < 1) {
+                    throw new \RuntimeException('No se pudo autenticar. Cierra sesión e intenta de nuevo.');
+                }
+
+                $first = trim((string) ($_POST['first_name'] ?? ($user['first_name'] ?? '')));
+                $lastP = trim((string) ($_POST['last_name_p'] ?? ($user['last_name'] ?? '')));
+                $lastM = trim((string) ($_POST['last_name_m'] ?? ''));
+                $email = strtolower(trim((string) ($_POST['email'] ?? ($user['email'] ?? ''))));
+                $phone = trim((string) ($_POST['phone'] ?? ($user['phone'] ?? '')));
+                if ($first === '' || $lastP === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw new \RuntimeException('Nombre, apellido paterno y correo válido son obligatorios.');
+                }
+
+                $caseId = $repo()->openCourseCase([
+                    'course_id' => (int) $item['id'],
+                    'student_user_id' => (int) $user['id'],
+                    'student_email' => $email,
+                    'student_name' => $first,
+                    'student_last_name_p' => $lastP,
+                    'student_last_name_m' => $lastM !== '' ? $lastM : null,
+                    'student_phone' => $phone !== '' ? $phone : null,
+                    'notes' => 'Adquisición pública de curso · ' . trim($first . ' ' . $lastP . ' ' . $lastM),
+                ]);
+
+                $repo()->markCaseStepDoneByKeywords($caseId, ['registro', 'candidato'], (int) $user['id'], 'Datos capturados en adquisición de curso');
+
+                $payNote = '';
+                try {
+                    $pay = new \App\Payments\OpenPayPaymentService($repo());
+                    $pay->ensureSpeiCharge($caseId, false, true);
+                    $repo()->markCaseStepDoneByKeywords($caseId, ['openpay', 'link de pago', 'pago'], (int) $user['id'], 'CLABE generada automáticamente');
+                    $payNote = ' Ya tienes tu ficha SPEI para pagar.';
+                } catch (\Throwable $payErr) {
+                    error_log('[PDV] OpenPay al adquirir curso caso #' . $caseId . ': ' . $payErr->getMessage());
+                    $payNote = ' El equipo generará tu liga/CLABE de pago en breve.';
+                }
+
+                if ($plainPassword) {
+                    Auth::sendPurchaseAccountEmail(
+                        (int) $user['id'],
+                        $plainPassword,
+                        (string) $item['name'],
+                        $caseId
+                    );
+                }
+
+                $platform = strtolower((string) ($item['platform_type'] ?? ''));
+                $accessNote = match ($platform) {
+                    'moodle' => ' Al confirmar el pago se habilita tu acceso Moodle.',
+                    'ethinking', 'xperienceed' => ' Tras el pago, Doceo solicita el curso al proveedor y te enviará los accesos.',
+                    default => '',
+                };
+                flash('info', 'Registro del curso listo. Realiza tu pago.' . $accessNote . $payNote);
+                header('Location: /alumno/caso?id=' . $caseId);
+                exit;
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+                flash('old', $oldPayload());
+                header('Location: /adquirir-curso?slug=' . rawurlencode($slug));
+                exit;
+            }
         });
 
         $router->get('/adquirir', static function () use ($repo): void {
@@ -505,7 +682,19 @@ final class PublicRoutes
                 }
             }
 
-            $examFeatures = CatalogRepository::caseExamProductFeatures($item);
+            $isCourseCase = (int) ($item['course_id'] ?? 0) > 0 && (int) ($item['certification_id'] ?? 0) < 1;
+            $examFeatures = $isCourseCase
+                ? [
+                    'mode' => 'weekday_slots',
+                    'min_days_ahead' => 0,
+                    'institution_id' => null,
+                    'requires_id_doc' => false,
+                    'requires_regulation_upload' => false,
+                    'allows_shipping' => false,
+                    'allows_cenni_addon' => false,
+                    'sitting_modality' => null,
+                ]
+                : CatalogRepository::caseExamProductFeatures($item);
             $certForSittings = [
                 'id' => (int) ($item['certification_id'] ?? 0),
                 'provider_id' => (int) ($item['provider_id'] ?? 0),
@@ -517,16 +706,23 @@ final class PublicRoutes
                 'item' => $item,
                 'steps' => $repo()->certificationCaseSteps($id),
                 'attachments' => $repo()->caseAttachments($id),
-                'regulation' => $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
-                'requires_regulation' => !empty($item['requires_regulation_signature']),
+                'regulation' => $isCourseCase
+                    ? null
+                    : $repo()->regulationDocumentForCertification((int) ($item['certification_id'] ?? 0)),
+                'requires_regulation' => !$isCourseCase && !empty($item['requires_regulation_signature']),
                 'exam_features' => $examFeatures,
-                'has_id_doc' => $repo()->caseHasRequiredIdDoc($id, $item),
-                'exam_sittings' => $repo()->availableExamSittingsForCertification($certForSittings),
-                'cenni_docs' => $repo()->certificationDocumentsByStage((int) ($item['certification_id'] ?? 0), 'cenni'),
+                'has_id_doc' => $isCourseCase ? true : $repo()->caseHasRequiredIdDoc($id, $item),
+                'exam_sittings' => $isCourseCase ? [] : $repo()->availableExamSittingsForCertification($certForSittings),
+                'cenni_docs' => $isCourseCase
+                    ? []
+                    : $repo()->certificationDocumentsByStage((int) ($item['certification_id'] ?? 0), 'cenni'),
                 'moodle_enrolments' => $repo()->caseMoodleEnrolments($id),
                 'course_prorrogas' => $repo()->courseProrrogasForCase($id),
                 'cenni_statuses' => \App\Payments\OpenPayPaymentService::cenniStatuses(),
-                'late_cenni_product' => (static function () use ($repo, $item) {
+                'late_cenni_product' => (static function () use ($repo, $item, $isCourseCase) {
+                    if ($isCourseCase) {
+                        return null;
+                    }
                     $lateId = (int) ($item['cenni_late_certification_id'] ?? 0);
                     if ($lateId < 1) {
                         return null;

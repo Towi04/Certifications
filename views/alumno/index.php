@@ -5,7 +5,7 @@ $cases = $cases ?? [];
 <section class="page-head">
     <div>
         <h1>Mi seguimiento</h1>
-        <p class="muted">Hola, <?= e($user['name'] ?? $user['email'] ?? '') ?>. Aquí ves el avance de tus certificaciones.</p>
+        <p class="muted">Hola, <?= e($user['name'] ?? $user['email'] ?? '') ?>. Aquí ves el avance de tus certificaciones y cursos.</p>
     </div>
     <a class="btn btn-ghost" href="/">Catálogo</a>
 </section>
@@ -14,13 +14,13 @@ $cases = $cases ?? [];
 
 <section class="note">
     <?php if (!$cases): ?>
-        <p class="muted">Aún no tienes certificaciones en seguimiento. <a href="/">Explora el catálogo</a> y pulsa Adquirir.</p>
+        <p class="muted">Aún no tienes productos en seguimiento. <a href="/">Explora el catálogo</a> y pulsa Adquirir.</p>
     <?php else: ?>
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                 <tr>
-                    <th>Certificación</th>
+                    <th>Producto</th>
                     <th>Paso actual</th>
                     <th>Estado</th>
                     <th></th>
@@ -30,8 +30,11 @@ $cases = $cases ?? [];
                 <?php foreach ($cases as $c): ?>
                     <tr>
                         <td>
-                            <strong><?= e($c['certification_name']) ?></strong><br>
-                            <span class="muted"><?= e($c['certification_code']) ?></span>
+                            <strong><?= e($c['certification_name'] ?? 'Caso') ?></strong><br>
+                            <span class="muted">
+                                <?= e($c['certification_code'] ?? '') ?>
+                                <?php if (!empty($c['course_id'])): ?> · Curso<?php endif; ?>
+                            </span>
                         </td>
                         <td>
                             <?php if (!empty($c['current_step_title'])): ?>

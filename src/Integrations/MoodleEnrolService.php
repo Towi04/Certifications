@@ -65,7 +65,20 @@ final class MoodleEnrolService
         }
 
         $certId = (int) ($case['certification_id'] ?? 0);
-        $courses = $certId > 0 ? $this->repo->moodleCoursesForCertification($certId) : [];
+        $caseCourseId = (int) ($case['course_id'] ?? $case['case_course_id'] ?? 0);
+        $courses = [];
+        if ($caseCourseId > 0) {
+            $course = $this->repo->course($caseCourseId);
+            if (
+                $course
+                && strtolower((string) ($course['platform_type'] ?? '')) === 'moodle'
+                && !empty($course['moodle_course_id'])
+            ) {
+                $courses = [$course];
+            }
+        } elseif ($certId > 0) {
+            $courses = $this->repo->moodleCoursesForCertification($certId);
+        }
         if ($courses === []) {
             return ['skipped' => true, 'reason' => 'no_moodle_courses'];
         }

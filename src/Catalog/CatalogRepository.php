@@ -2034,11 +2034,15 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function certificationCases(int $limit = 100): array
     {
+        $this->ensureCourseAccessTables();
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+            'SELECT c.*,
+                    COALESCE(cert.name, co.name) AS certification_name,
+                    COALESCE(cert.code, co.code) AS certification_code,
                     pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN courses co ON co.id = c.course_id
              JOIN protocols pr ON pr.id = c.protocol_id
              LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
              ORDER BY c.updated_at DESC, c.id DESC
@@ -2050,11 +2054,15 @@ final class CatalogRepository
 
     public function certificationCase(int $id): ?array
     {
+        $this->ensureCourseAccessTables();
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+            'SELECT c.*,
+                    COALESCE(cert.name, co.name) AS certification_name,
+                    COALESCE(cert.code, co.code) AS certification_code,
                     pr.name AS protocol_name
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN courses co ON co.id = c.course_id
              JOIN protocols pr ON pr.id = c.protocol_id
              WHERE c.id = ?'
         );
@@ -3751,20 +3759,32 @@ final class CatalogRepository
     public function certificationCaseDetailed(int $id): ?array
     {
         $this->ensureUksFlowSchemaAndSeeds();
+        $this->ensureCourseAccessTables();
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
-                    cert.public_price, cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
+            'SELECT c.*,
+                    COALESCE(cert.name, co.name) AS certification_name,
+                    COALESCE(cert.code, co.code) AS certification_code,
+                    COALESCE(cert.public_price, co.public_price) AS public_price,
+                    cert.cenni_eligible, cert.cenni_doc_type, cert.cenni_included,
                     cert.cenni_fee, cert.cenni_process, cert.provider_group_id,
-                    cert.cenni_late_certification_id, cert.features_json, cert.modality AS certification_modality,
+                    cert.cenni_late_certification_id, cert.features_json,
+                    cert.modality AS certification_modality,
+                    cert.slug AS certification_slug,
+                    co.id AS case_course_id, co.code AS course_code, co.name AS course_name,
+                    co.slug AS course_slug, co.platform_type AS course_platform_type,
+                    co.moodle_course_id AS course_moodle_course_id,
+                    co.access_notes AS course_access_notes,
+                    co.external_url AS course_external_url,
                     pr.code AS protocol_code, pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.requires_software, pr.requires_zoom, pr.requires_vm, pr.uses_inventory,
                     cert.registration_fields_json,
-                    prov.code AS provider_code, prov.name AS provider_name,
+                    prov.code AS provider_code, COALESCE(prov.name, \'Doceo\') AS provider_name,
                     prov.contact_email AS provider_contact_email,
                     pu.email AS partner_email, p.organization AS partner_organization
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN courses co ON co.id = c.course_id
              JOIN protocols pr ON pr.id = c.protocol_id
              LEFT JOIN providers prov ON prov.id = pr.provider_id
              LEFT JOIN partners p ON p.id = c.partner_id
@@ -4686,25 +4706,71 @@ final class CatalogRepository
         } else {
             $prorroga = round((float) $prorroga, 2);
         }
+        $publicPrice = $data['public_price'] ?? null;
+        if ($publicPrice === '' || $publicPrice === null) {
+            $publicPrice = null;
+        } else {
+            $publicPrice = round((float) $publicPrice, 2);
+        }
+        $platform = (string) ($data['platform_type'] ?? 'moodle');
+        $protocolId = !empty($data['protocol_id']) ? (int) $data['protocol_id'] : null;
+        if ($protocolId === null || $protocolId < 1) {
+            $code = self::defaultProtocolCodeForPlatform($platform);
+            $protocolId = $code ? $this->protocolIdByCode($code) : null;
+        }
+        $slug = trim((string) ($data['slug'] ?? ''));
+        if ($slug === '') {
+            $slug = \App\Support\Str::slug((string) ($data['name'] ?? $data['code'] ?? 'curso'));
+        }
+        $slug = \App\Support\Str::slug($slug);
+        if ($slug === '') {
+            $slug = 'curso';
+        }
+        // Unique slug
+        $baseSlug = $slug;
+        $n = 2;
+        while (true) {
+            $chk = $this->pdo->prepare('SELECT id FROM courses WHERE slug = ? AND id <> ? LIMIT 1');
+            $chk->execute([$slug, (int) ($id ?? 0)]);
+            if (!$chk->fetchColumn()) {
+                break;
+            }
+            $slug = $baseSlug . '-' . $n;
+            $n++;
+        }
+
         $fields = [
-            $data['protocol_id'] ?? null,
-            $data['code'], $data['name'], $data['platform_type'], $data['external_url'],
-            $data['moodle_course_id'], $accessMonths, $prorroga,
-            $data['access_notes'], $data['description'], $data['is_active'],
+            $protocolId,
+            $data['code'],
+            $slug,
+            $data['name'],
+            $platform,
+            $data['external_url'],
+            $data['moodle_course_id'],
+            $accessMonths,
+            $prorroga,
+            $data['access_notes'],
+            $data['description'],
+            $publicPrice,
+            strtoupper(trim((string) ($data['currency'] ?? 'MXN'))) ?: 'MXN',
+            $data['is_active'],
+            (int) ($data['is_published'] ?? 0) ? 1 : 0,
             (int) ($data['standalone'] ?? 0) ? 1 : 0,
         ];
         if ($id) {
             $stmt = $this->pdo->prepare(
-                'UPDATE courses SET protocol_id=?, code=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
-                 access_months=?, prorroga_price=?, access_notes=?, description=?, is_active=?, standalone=? WHERE id=?'
+                'UPDATE courses SET protocol_id=?, code=?, slug=?, name=?, platform_type=?, external_url=?, moodle_course_id=?,
+                 access_months=?, prorroga_price=?, access_notes=?, description=?, public_price=?, currency=?,
+                 is_active=?, is_published=?, standalone=? WHERE id=?'
             );
             $stmt->execute([...$fields, $id]);
             return $id;
         }
         $stmt = $this->pdo->prepare(
-            'INSERT INTO courses (protocol_id, code, name, platform_type, external_url, moodle_course_id,
-             access_months, prorroga_price, access_notes, description, is_active, standalone)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+            'INSERT INTO courses (protocol_id, code, slug, name, platform_type, external_url, moodle_course_id,
+             access_months, prorroga_price, access_notes, description, public_price, currency,
+             is_active, is_published, standalone)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $stmt->execute($fields);
         return (int) $this->pdo->lastInsertId();
@@ -4840,7 +4906,430 @@ final class CatalogRepository
             );
         } catch (\Throwable) {
         }
+        $this->ensureCourseCommerceAndProtocols();
         $done = true;
+    }
+
+    /**
+     * Columnas de venta pública + protocolos Moodle / eThinking / XperienceEd.
+     */
+    public function ensureCourseCommerceAndProtocols(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $hasColumn = function (string $table, string $column): bool {
+            try {
+                $stmt = $this->pdo->prepare(
+                    'SELECT COUNT(*) FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+                );
+                $stmt->execute([$table, $column]);
+                return (int) $stmt->fetchColumn() > 0;
+            } catch (\Throwable) {
+                return false;
+            }
+        };
+
+        $courseCols = [
+            'slug' => 'VARCHAR(190) NULL AFTER code',
+            'public_price' => 'DECIMAL(12,2) NULL AFTER description',
+            'currency' => "CHAR(3) NOT NULL DEFAULT 'MXN' AFTER public_price",
+            'is_published' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active',
+        ];
+        foreach ($courseCols as $col => $def) {
+            try {
+                if (!$hasColumn('courses', $col)) {
+                    $this->pdo->exec('ALTER TABLE courses ADD COLUMN ' . $col . ' ' . $def);
+                }
+            } catch (\Throwable) {
+            }
+        }
+        try {
+            $this->pdo->exec('ALTER TABLE courses ADD UNIQUE KEY uq_courses_slug (slug)');
+        } catch (\Throwable) {
+        }
+
+        try {
+            if (!$hasColumn('certification_cases', 'course_id')) {
+                $this->pdo->exec(
+                    'ALTER TABLE certification_cases
+                     ADD COLUMN course_id BIGINT UNSIGNED NULL
+                     COMMENT \'Caso de curso standalone\'
+                     AFTER certification_id'
+                );
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $this->pdo->exec(
+                'ALTER TABLE certification_cases
+                 MODIFY COLUMN certification_id BIGINT UNSIGNED NULL'
+            );
+        } catch (\Throwable) {
+        }
+        try {
+            $this->pdo->exec('ALTER TABLE certification_cases ADD KEY idx_cases_course (course_id)');
+        } catch (\Throwable) {
+        }
+
+        // Plantillas correo cursos externos
+        $templates = [
+            [
+                'curso_solicitud_proveedor',
+                'Solicitud de curso al proveedor',
+                'provider',
+                'provider_contact',
+                '',
+                'Doceo · solicitud de curso · {{Certificación}}',
+                '<p>Hola,</p><p>Solicitamos la habilitación del curso <strong>{{Certificación}}</strong> '
+                . 'para el alumno <strong>{{Nombre Completo}}</strong> ({{Correo}}).</p>'
+                . '<p>Adjunto o enlaces: comprobante de pago Doceo → proveedor.</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+                0,
+                0,
+            ],
+            [
+                'curso_acceso_externo',
+                'Acceso a curso (plataforma externa)',
+                'student',
+                'student',
+                '',
+                'Doceo · acceso a tu curso {{Certificación}}',
+                '<p>Hola {{Nombre}},</p>'
+                . '<p>Ya está listo tu acceso al curso <strong>{{Certificación}}</strong>.</p>'
+                . '<p><strong>Usuario / ID:</strong> {{Folio / ID}}<br>'
+                . '<strong>Clave / código:</strong> {{Clave}}</p>'
+                . '<p>Instituto DOCEO<br>{{Contacto Doceo}}</p>',
+                0,
+                0,
+            ],
+        ];
+        foreach ($templates as $tpl) {
+            try {
+                if ($this->mailTemplateByCode($tpl[0])) {
+                    continue;
+                }
+                $this->saveMailTemplate([
+                    'code' => $tpl[0],
+                    'name' => $tpl[1],
+                    'audience' => $tpl[2],
+                    'to_mode' => $tpl[3],
+                    'to_fixed' => (string) ($tpl[4] ?? ''),
+                    'cc_mode' => $tpl[2] === 'student' ? 'case_cc' : 'none',
+                    'cc_fixed' => '',
+                    'subject' => $tpl[5],
+                    'body_html' => $tpl[6],
+                    'attach_export' => $tpl[7],
+                    'attach_regulation' => $tpl[8],
+                    'is_active' => 1,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+
+        $defs = [
+            'COURSE_MOODLE' => [
+                'name' => 'Curso · Campus Moodle Doceo',
+                'html' => '<p>Registro, pago y alta automática en campus Doceo al confirmar el pago.</p>',
+                'request' => null,
+                'access' => 'moodle_acceso',
+                'steps' => [
+                    [1, 'pre_exam', 'Registro del alumno', 'Datos del comprador capturados en adquisición.', 'student'],
+                    [2, 'pre_exam', 'Pago del curso', 'SPEI OpenPay o comprobante confirmado por Doceo.', 'student'],
+                    [3, 'pre_exam', 'Alta en Moodle', 'El sistema crea usuario y matricula al confirmar el pago.', 'system'],
+                ],
+                'actions' => ['fulfill_after_payment'],
+            ],
+            'COURSE_ETHINKING' => [
+                'name' => 'Curso · eThinking',
+                'html' => '<p>Registro, pago, compra/solicitud a eThinking con comprobante, y envío de accesos al alumno.</p>',
+                'request' => 'curso_solicitud_proveedor',
+                'access' => 'curso_acceso_externo',
+                'steps' => [
+                    [1, 'pre_exam', 'Registro del alumno', 'Datos del comprador capturados en adquisición.', 'student'],
+                    [2, 'pre_exam', 'Pago del curso', 'SPEI OpenPay o comprobante confirmado por Doceo.', 'student'],
+                    [3, 'pre_exam', 'Comprar / solicitar a eThinking', 'Doceo paga o solicita el cupo y envía comprobante al proveedor.', 'admin'],
+                    [4, 'pre_exam', 'Enviar accesos al alumno', 'Cuando eThinking habilite la cuenta, capturar credenciales y notificar.', 'admin'],
+                ],
+                'actions' => ['request_provider', 'send_student_access'],
+            ],
+            'COURSE_XPERIENCEED' => [
+                'name' => 'Curso · XperienceEd',
+                'html' => '<p>Registro, pago, solicitud a XperienceEd y envío de accesos cuando el proveedor habilite.</p>',
+                'request' => 'curso_solicitud_proveedor',
+                'access' => 'curso_acceso_externo',
+                'steps' => [
+                    [1, 'pre_exam', 'Registro del alumno', 'Datos del comprador capturados en adquisición.', 'student'],
+                    [2, 'pre_exam', 'Pago del curso', 'SPEI OpenPay o comprobante confirmado por Doceo.', 'student'],
+                    [3, 'pre_exam', 'Solicitar a XperienceEd', 'Doceo solicita el curso al proveedor.', 'admin'],
+                    [4, 'pre_exam', 'Enviar accesos al alumno', 'Capturar credenciales del proveedor y notificar al alumno.', 'admin'],
+                ],
+                'actions' => ['request_provider', 'send_student_access'],
+            ],
+        ];
+
+        try {
+            $protoStmt = $this->pdo->prepare(
+                'INSERT INTO protocols
+                 (provider_id, code, name, modality, procedure_html,
+                  requires_regulation_signature, requires_software, requires_zoom, requires_vm,
+                  uses_inventory, export_format, provider_request_template, student_access_template, is_active)
+                 VALUES (NULL,?,?,?,?,0,0,0,0,0,?,?,?,1)
+                 ON DUPLICATE KEY UPDATE
+                   name = VALUES(name),
+                   procedure_html = VALUES(procedure_html),
+                   provider_request_template = VALUES(provider_request_template),
+                   student_access_template = VALUES(student_access_template),
+                   is_active = 1'
+            );
+            foreach ($defs as $code => $def) {
+                $protoStmt->execute([
+                    $code,
+                    $def['name'],
+                    'other',
+                    $def['html'],
+                    'none',
+                    $def['request'],
+                    $def['access'],
+                ]);
+            }
+        } catch (\Throwable) {
+        }
+
+        foreach ($defs as $code => $def) {
+            try {
+                $protoId = (int) $this->pdo->query(
+                    "SELECT id FROM protocols WHERE code = " . $this->pdo->quote($code) . " LIMIT 1"
+                )->fetchColumn();
+                if ($protoId < 1) {
+                    continue;
+                }
+                $stepCount = (int) $this->pdo->query(
+                    'SELECT COUNT(*) FROM protocol_steps WHERE protocol_id = ' . $protoId
+                )->fetchColumn();
+                if ($stepCount === 0) {
+                    $ins = $this->pdo->prepare(
+                        'INSERT INTO protocol_steps
+                         (protocol_id, sort_order, phase, title, description, responsible, is_active)
+                         VALUES (?,?,?,?,?,?,1)'
+                    );
+                    foreach ($def['steps'] as $step) {
+                        $ins->execute([$protoId, $step[0], $step[1], $step[2], $step[3], $step[4]]);
+                    }
+                }
+                // Wire protocol_actions
+                $actions = new \App\Workflow\ActionRepository($this->pdo);
+                $actions->ensureSchema();
+                $existingPa = (int) $this->pdo->query(
+                    'SELECT COUNT(*) FROM protocol_actions WHERE protocol_id = ' . $protoId
+                )->fetchColumn();
+                if ($existingPa === 0) {
+                    $ids = [];
+                    foreach ($def['actions'] as $actionCode) {
+                        $aid = (int) $this->pdo->query(
+                            'SELECT id FROM workflow_actions WHERE code = ' . $this->pdo->quote($actionCode) . ' LIMIT 1'
+                        )->fetchColumn();
+                        if ($aid > 0) {
+                            $ids[] = $aid;
+                        }
+                    }
+                    if ($ids !== []) {
+                        $actions->setProtocolActions($protoId, $ids);
+                    }
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        // Soft-relabel request_provider for clarity (exam or course)
+        try {
+            $this->pdo->exec(
+                "UPDATE workflow_actions
+                 SET name = 'Solicitar al proveedor',
+                     button_label = 'Solicitar al proveedor',
+                     description = 'Exportación/correo al proveedor (examen o curso) con comprobante.'
+                 WHERE code = 'request_provider'"
+            );
+        } catch (\Throwable) {
+        }
+
+        // Asignar protocolo por plataforma si el curso no tiene uno
+        try {
+            $map = [
+                'moodle' => 'COURSE_MOODLE',
+                'ethinking' => 'COURSE_ETHINKING',
+                'xperienceed' => 'COURSE_XPERIENCEED',
+            ];
+            foreach ($map as $platform => $pcode) {
+                $pid = (int) $this->pdo->query(
+                    'SELECT id FROM protocols WHERE code = ' . $this->pdo->quote($pcode) . ' LIMIT 1'
+                )->fetchColumn();
+                if ($pid < 1) {
+                    continue;
+                }
+                $this->pdo->prepare(
+                    'UPDATE courses SET protocol_id = ?
+                     WHERE protocol_id IS NULL AND platform_type = ?'
+                )->execute([$pid, $platform]);
+            }
+        } catch (\Throwable) {
+        }
+
+        // Slugs faltantes
+        try {
+            $rows = $this->pdo->query(
+                "SELECT id, code, name FROM courses WHERE slug IS NULL OR slug = ''"
+            )->fetchAll();
+            $upd = $this->pdo->prepare('UPDATE courses SET slug = ? WHERE id = ?');
+            foreach ($rows as $row) {
+                $base = \App\Support\Str::slug((string) ($row['name'] ?: $row['code']));
+                if ($base === '') {
+                    $base = 'curso-' . (int) $row['id'];
+                }
+                $slug = $base;
+                $n = 2;
+                while (true) {
+                    $chk = $this->pdo->prepare('SELECT id FROM courses WHERE slug = ? AND id <> ? LIMIT 1');
+                    $chk->execute([$slug, (int) $row['id']]);
+                    if (!$chk->fetchColumn()) {
+                        break;
+                    }
+                    $slug = $base . '-' . $n;
+                    $n++;
+                }
+                $upd->execute([$slug, (int) $row['id']]);
+            }
+        } catch (\Throwable) {
+        }
+
+        $done = true;
+    }
+
+    public static function defaultProtocolCodeForPlatform(string $platform): ?string
+    {
+        return match (strtolower(trim($platform))) {
+            'moodle' => 'COURSE_MOODLE',
+            'ethinking' => 'COURSE_ETHINKING',
+            'xperienceed' => 'COURSE_XPERIENCEED',
+            default => null,
+        };
+    }
+
+    public function protocolIdByCode(string $code): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM protocols WHERE code = ? LIMIT 1');
+        $stmt->execute([$code]);
+        $id = (int) $stmt->fetchColumn();
+
+        return $id > 0 ? $id : null;
+    }
+
+    public function courseBySlug(string $slug): ?array
+    {
+        $this->ensureCourseAccessTables();
+        $stmt = $this->pdo->prepare('SELECT * FROM courses WHERE slug = ? LIMIT 1');
+        $stmt->execute([$slug]);
+        $row = $stmt->fetch();
+
+        return $row ?: null;
+    }
+
+    /**
+     * Abre un caso de compra de curso (standalone) clonando pasos del protocolo.
+     */
+    public function openCourseCase(array $data): int
+    {
+        $this->ensureCourseAccessTables();
+        $courseId = (int) ($data['course_id'] ?? 0);
+        $course = $this->course($courseId);
+        if (!$course || !(int) ($course['is_active'] ?? 0)) {
+            throw new \RuntimeException('Curso no encontrado.');
+        }
+        if (!(int) ($course['is_published'] ?? 0) && empty($data['allow_unpublished'])) {
+            throw new \RuntimeException('Este curso aún no está publicado para venta.');
+        }
+
+        $protocolId = (int) ($data['protocol_id'] ?? ($course['protocol_id'] ?? 0));
+        if ($protocolId <= 0) {
+            $code = self::defaultProtocolCodeForPlatform((string) ($course['platform_type'] ?? ''));
+            if ($code) {
+                $protocolId = (int) ($this->protocolIdByCode($code) ?? 0);
+            }
+        }
+        if ($protocolId <= 0) {
+            throw new \RuntimeException('El curso no tiene protocolo asignado. Asigna Moodle, eThinking o XperienceEd.');
+        }
+        $steps = $this->protocolSteps($protocolId, true);
+        if ($steps === []) {
+            throw new \RuntimeException('El protocolo del curso no tiene pasos activos.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $firstStepId = (int) $steps[0]['id'];
+            $studentUserId = array_key_exists('student_user_id', $data) && $data['student_user_id'] !== null && $data['student_user_id'] !== ''
+                ? (int) $data['student_user_id']
+                : 0;
+            if ($studentUserId > 0) {
+                $userChk = $this->pdo->prepare('SELECT id FROM users WHERE id = ? LIMIT 1');
+                $userChk->execute([$studentUserId]);
+                if (!(int) $userChk->fetchColumn()) {
+                    throw new \RuntimeException(
+                        'La cuenta de alumno no existe o tu sesión expiró. Cierra sesión e inicia de nuevo.'
+                    );
+                }
+            } else {
+                $studentUserId = null;
+            }
+
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO certification_cases
+                 (certification_id, course_id, protocol_id, student_user_id, partner_id, student_email, student_name,
+                  student_last_name_p, student_last_name_m, student_phone, student_curp, student_birth_date,
+                  student_sex, student_nationality, cc_email, cenni_status, status, current_step_id, notes)
+                 VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,\'none\',\'in_progress\',?,?)'
+            );
+            $stmt->execute([
+                $courseId,
+                $protocolId,
+                $studentUserId,
+                null,
+                $data['student_email'],
+                $data['student_name'],
+                $data['student_last_name_p'] ?? null,
+                $data['student_last_name_m'] ?? null,
+                $data['student_phone'] ?? null,
+                $data['student_curp'] ?? null,
+                $data['student_birth_date'] ?? null,
+                $data['student_sex'] ?? null,
+                $data['student_nationality'] ?? null,
+                $data['cc_email'] ?? null,
+                $firstStepId,
+                $data['notes'] ?? null,
+            ]);
+            $caseId = (int) $this->pdo->lastInsertId();
+
+            $ins = $this->pdo->prepare(
+                'INSERT INTO certification_case_steps
+                 (case_id, protocol_step_id, sort_order, status) VALUES (?,?,?,?)'
+            );
+            foreach ($steps as $i => $step) {
+                $ins->execute([
+                    $caseId,
+                    (int) $step['id'],
+                    (int) $step['sort_order'],
+                    $i === 0 ? 'current' : 'pending',
+                ]);
+            }
+
+            $this->pdo->commit();
+            return $caseId;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function caseMoodleEnrolment(int $id): ?array
@@ -6592,18 +7081,29 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function publicCourses(): array
     {
+        $this->ensureCourseAccessTables();
         try {
             $rows = $this->pdo->query(
                 'SELECT c.*, p.name AS protocol_name
                  FROM courses c
                  LEFT JOIN protocols p ON p.id = c.protocol_id
-                 WHERE c.is_active = 1
+                 WHERE c.is_active = 1 AND c.is_published = 1
                  ORDER BY c.name'
             )->fetchAll();
         } catch (\Throwable) {
-            $rows = $this->pdo->query(
-                'SELECT * FROM courses WHERE is_active = 1 ORDER BY name'
-            )->fetchAll();
+            try {
+                $rows = $this->pdo->query(
+                    'SELECT c.*, p.name AS protocol_name
+                     FROM courses c
+                     LEFT JOIN protocols p ON p.id = c.protocol_id
+                     WHERE c.is_active = 1
+                     ORDER BY c.name'
+                )->fetchAll();
+            } catch (\Throwable) {
+                $rows = $this->pdo->query(
+                    'SELECT * FROM courses WHERE is_active = 1 ORDER BY name'
+                )->fetchAll();
+            }
         }
 
         return $this->attachCourseVisuals($rows);
@@ -6612,12 +7112,19 @@ final class CatalogRepository
     /** @return list<array<string, mixed>> */
     public function casesForStudentUser(int $userId): array
     {
+        $this->ensureCourseAccessTables();
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code, cert.slug AS certification_slug,
+            'SELECT c.*,
+                    COALESCE(cert.name, co.name) AS certification_name,
+                    COALESCE(cert.code, co.code) AS certification_code,
+                    cert.slug AS certification_slug,
+                    co.slug AS course_slug,
+                    co.platform_type AS course_platform_type,
                     pr.code AS protocol_code, pr.name AS protocol_name, ps.title AS current_step_title, ps.sort_order AS current_step_order,
                     ps.phase AS current_step_phase
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN courses co ON co.id = c.course_id
              JOIN protocols pr ON pr.id = c.protocol_id
              LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
              WHERE c.student_user_id = ?
@@ -6678,7 +7185,7 @@ final class CatalogRepository
         $stmt = $this->pdo->prepare(
             "SELECT c.*, cert.cenni_process, pr.requires_regulation_signature, pr.provider_request_template
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
              JOIN protocols pr ON pr.id = c.protocol_id
              WHERE c.student_user_id IN ($placeholders)
              ORDER BY c.updated_at DESC"
@@ -6743,14 +7250,17 @@ final class CatalogRepository
     {
         $limit = max(1, min(500, $limit));
         $stmt = $this->pdo->prepare(
-            'SELECT c.*, cert.name AS certification_name, cert.code AS certification_code,
+            'SELECT c.*,
+                    COALESCE(cert.name, co.name) AS certification_name,
+                    COALESCE(cert.code, co.code) AS certification_code,
                     cert.cenni_process,
                     pr.name AS protocol_name, pr.export_format, pr.provider_request_template,
                     pr.requires_regulation_signature,
                     ps.title AS current_step_title, ps.sort_order AS current_step_order,
                     ps.responsible AS current_step_responsible
              FROM certification_cases c
-             JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN certifications cert ON cert.id = c.certification_id
+             LEFT JOIN courses co ON co.id = c.course_id
              JOIN protocols pr ON pr.id = c.protocol_id
              LEFT JOIN protocol_steps ps ON ps.id = c.current_step_id
              ORDER BY c.updated_at DESC, c.id DESC

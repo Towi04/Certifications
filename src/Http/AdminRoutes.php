@@ -2440,6 +2440,7 @@ final class AdminRoutes
                 'assets' => $repo()->assets('course', $id),
                 'assetTypes' => CatalogRepository::assetTypesFor('course'),
                 'error' => flash('error'),
+                'info' => flash('info'),
             ]);
         });
 
@@ -2457,11 +2458,14 @@ final class AdminRoutes
                 $moodleId = trim((string) ($_POST['moodle_course_id'] ?? ''));
                 $protocolId = (int) ($_POST['protocol_id'] ?? 0);
                 $standalone = isset($_POST['standalone']) ? 1 : 0;
+                $platform = (string) ($_POST['platform_type'] ?? 'moodle');
+                $publicPrice = trim((string) ($_POST['public_price'] ?? ''));
                 $savedId = $repo()->saveCourse([
                     'protocol_id' => $protocolId > 0 ? $protocolId : null,
                     'code' => $code,
+                    'slug' => trim((string) ($_POST['slug'] ?? '')) ?: null,
                     'name' => $name,
-                    'platform_type' => (string) ($_POST['platform_type'] ?? 'moodle'),
+                    'platform_type' => $platform,
                     'external_url' => trim((string) ($_POST['external_url'] ?? '')) ?: null,
                     'moodle_course_id' => $moodleId !== '' ? (int) $moodleId : null,
                     'access_months' => (int) ($_POST['access_months'] ?? 6) ?: 6,
@@ -2470,14 +2474,17 @@ final class AdminRoutes
                         : null,
                     'access_notes' => trim((string) ($_POST['access_notes'] ?? '')) ?: null,
                     'description' => trim((string) ($_POST['description'] ?? '')) ?: null,
+                    'public_price' => $publicPrice !== '' ? (float) $publicPrice : null,
+                    'currency' => 'MXN',
                     'is_active' => isset($_POST['is_active']) ? 1 : 0,
+                    'is_published' => isset($_POST['is_published']) ? 1 : 0,
                     'standalone' => $standalone,
                 ], $id);
                 if ($standalone === 1) {
                     $repo()->setCourseStandalone($savedId, true);
                 }
                 flash('info', 'Curso guardado.');
-                header('Location: /admin/courses');
+                header('Location: /admin/courses/edit?id=' . $savedId);
                 exit;
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());

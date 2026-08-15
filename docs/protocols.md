@@ -75,15 +75,31 @@ Admin: **Proveedores → Fechas de aplicación** para cargar las 3–4 fechas de
 
 Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRIDGE_PAPER`) se desactivan y las certs migran a los dos códigos anteriores.
 
+## Cursos vendibles (protocolos por plataforma)
+
+Los cursos pueden venderse **solos** (sin certificación). Cada uno lleva un protocolo según plataforma:
+
+| Protocolo | Plataforma | Tras el pago |
+|-----------|------------|--------------|
+| `COURSE_MOODLE` | Campus Doceo | Alta automática Moodle (`fulfill_after_payment`) |
+| `COURSE_ETHINKING` | eThinking | Admin solicita/compra al proveedor (`request_provider`) y luego envía accesos |
+| `COURSE_XPERIENCEED` | XperienceEd | Igual: solicitar al proveedor y enviar accesos al alumno |
+
+Flujo alumno: `/curso?slug=…` → `/adquirir-curso` (formulario) → caso → pago → acceso.
+
+En admin: **Cursos** → precio, publicado, plataforma y protocolo (auto si se deja vacío). Migración: `sql/migration_course_protocols.sql` + `ensureCourseCommerceAndProtocols()`.
+
 ## Cómo usarlo en admin
 
 1. Ejecuta en MariaDB:
    - `sql/migration_protocol_steps.sql`
    - `sql/seed_protocol_elet.sql`
    - `sql/migration_tramites_sep_cambridge.sql` (Trámites SEP + fechas Cambridge)
+   - `sql/migration_course_protocols.sql` (cursos vendibles)
 2. **Protocolos** → edita o crea → agrega pasos con fase y responsable.
 3. En la ficha de la **certificación**, asigna el protocolo (ej. `UKS_ELET`, `CAMBRIDGE_ONLINE` o `CAMBRIDGE_PRESENCIAL`) y la modalidad.
-4. **Casos** → Abrir caso (alumno + certificación) → ver timeline y marcar pasos hechos.
+4. En **Cursos**, asigna protocolo Moodle/eThinking/XperienceEd, precio y “Publicado”.
+5. **Casos** → Abrir caso (alumno + certificación o curso) → ver timeline y marcar pasos hechos.
 
 ## Próximos pasos (producto)
 
@@ -92,3 +108,4 @@ Protocolos obsoletos (`CAMBRIDGE_ONLINE_HOME`, `CAMBRIDGE_ONLINE_VENUE`, `CAMBRI
 - Adjuntos por paso (reglamento firmado, CSV, capturas).
 - Cambridge: envío/paquetería y CENNI opcional en checkout.
 - Flujo completo Red CONOCER (hoy flags + producto; falta protocolo operativo detallado).
+- Integraciones API eThinking / XperienceEd (hoy solicitud manual por correo).
