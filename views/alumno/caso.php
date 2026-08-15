@@ -4,12 +4,23 @@ $steps = $steps ?? [];
 $attachments = $attachments ?? [];
 $regulation = $regulation ?? null;
 $requires_regulation = !empty($requires_regulation);
+$exam_features = $exam_features ?? \App\Catalog\CatalogRepository::caseExamProductFeatures($item);
+$requiresIdDoc = !empty($exam_features['requires_id_doc']);
+$has_id_doc = !empty($has_id_doc);
+$exam_sittings = $exam_sittings ?? [];
 $cenni_statuses = $cenni_statuses ?? [];
 $cenni_docs = $cenni_docs ?? [];
 
 $paid = !empty($item['payment_confirmed_at']) || in_array(strtolower((string)($item['openpay_status'] ?? '')), ['completed', 'paid'], true);
 $signed = !empty($item['regulation_signed_at']);
 $needsSign = ($requires_regulation || $regulation) && !$signed;
+$scheduleDeferred = !empty($item['schedule_deferred']) || ($requiresIdDoc && empty($item['exam_date']));
+$canSchedule = !$needsSign && (!$requiresIdDoc || $has_id_doc);
+$schedulingMode = (string) ($exam_features['mode'] ?? 'weekday_slots');
+$minAhead = max(0, (int) ($exam_features['min_days_ahead'] ?? 0));
+$minDate = $minAhead > 0
+    ? (new DateTimeImmutable('today'))->modify('+' . $minAhead . ' days')->format('Y-m-d')
+    : (new DateTimeImmutable('today'))->format('Y-m-d');
 $hasAccess = trim((string) ($item['access_key'] ?? '')) !== '' || trim((string) ($item['folio_id'] ?? '')) !== '';
 $hasMoodle = trim((string) ($item['moodle_user'] ?? '')) !== '';
 $examOutcome = (string) ($item['exam_outcome'] ?? 'pending');
@@ -61,31 +72,49 @@ $timeline = [
             : 'Dibuja o escribe tu firma digital',
         'done' => $signed || !$needsSign,
     ],
-    [
-        'key' => 'pago',
-        'label' => 'Pago',
-        'hint' => $paid
-            ? ('Confirmado' . ($paymentMethodLabel !== '' ? ' · ' . $paymentMethodLabel : '')
-                . (!empty($item['payment_confirmed_at']) ? ' · ' . $item['payment_confirmed_at'] : ''))
-            : (trim((string) ($item['payment_proof_path'] ?? '')) !== ''
-                ? 'Comprobante enviado · pendiente de confirmación Doceo'
-                : 'Pendiente de pago (SPEI, efectivo o transferencia)'),
-        'done' => $paid,
-    ],
-    [
-        'key' => 'examen',
-        'label' => 'Acceso al examen',
-        'hint' => $hasAccess ? 'Credenciales listas' : 'Se publican cerca de tu fecha',
-        'done' => $hasAccess,
-    ],
-    [
-        'key' => 'resultados',
-        'label' => 'Resultados',
-        'hint' => $isInvalidated
-            ? 'Examen invalidado'
-            : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
-        'done' => $hasResults || $isInvalidated,
-    ],
+];
+if ($requiresIdDoc) {
+    $timeline[] = [
+        'key' => 'identificacion',
+        'label' => 'Identificación (INE / pasaporte)',
+        'hint' => $has_id_doc
+            ? 'PDF recibido'
+            : 'Sube tu INE escaneada por ambos lados en un solo PDF (o pasaporte)',
+        'done' => $has_id_doc,
+    ];
+    $timeline[] = [
+        'key' => 'agendar',
+        'label' => 'Agendar examen',
+        'hint' => !empty($item['exam_date']) && !$scheduleDeferred
+            ? ('Fecha: ' . $item['exam_date'] . (!empty($item['exam_time']) ? ' · ' . $item['exam_time'] : ''))
+            : ($canSchedule ? 'Elige tu fecha de aplicación' : 'Disponible al firmar el reglamento y subir tu INE'),
+        'done' => !empty($item['exam_date']) && empty($item['schedule_deferred']),
+    ];
+}
+$timeline[] = [
+    'key' => 'pago',
+    'label' => 'Pago',
+    'hint' => $paid
+        ? ('Confirmado' . ($paymentMethodLabel !== '' ? ' · ' . $paymentMethodLabel : '')
+            . (!empty($item['payment_confirmed_at']) ? ' · ' . $item['payment_confirmed_at'] : ''))
+        : (trim((string) ($item['payment_proof_path'] ?? '')) !== ''
+            ? 'Comprobante enviado · pendiente de confirmación Doceo'
+            : 'Pendiente de pago (SPEI, efectivo o transferencia)'),
+    'done' => $paid,
+];
+$timeline[] = [
+    'key' => 'examen',
+    'label' => 'Acceso al examen',
+    'hint' => $hasAccess ? 'Credenciales listas' : 'Se publican cerca de tu fecha',
+    'done' => $hasAccess,
+];
+$timeline[] = [
+    'key' => 'resultados',
+    'label' => 'Resultados',
+    'hint' => $isInvalidated
+        ? 'Examen invalidado'
+        : ($hasResults ? 'Enlaces disponibles' : 'Pendiente de publicación'),
+    'done' => $hasResults || $isInvalidated,
 ];
 if ($cenniProcess !== 'none') {
     $timeline[] = [
@@ -106,6 +135,10 @@ foreach ($timeline as $row) {
 }
 if ($needsSign) {
     $currentKey = 'reglamento';
+} elseif ($requiresIdDoc && !$has_id_doc) {
+    $currentKey = 'identificacion';
+} elseif ($requiresIdDoc && ($scheduleDeferred || empty($item['exam_date']))) {
+    $currentKey = 'agendar';
 } elseif (!$paid) {
     $currentKey = 'pago';
 } elseif (!$hasAccess) {
@@ -432,6 +465,111 @@ if ($needsSign) {
 </section>
 <?php endif; ?>
 
+<?php if ($requiresIdDoc): ?>
+<?php
+$idAtt = null;
+foreach ($attachments as $att) {
+    if (in_array((string) ($att['kind'] ?? ''), ['ine', 'passport'], true)) {
+        $status = strtolower(trim((string) ($att['review_status'] ?? '')));
+        if ($status === 'rejected') {
+            continue;
+        }
+        $path = strtolower((string) ($att['file_path'] ?? ''));
+        if (str_ends_with($path, '.pdf')) {
+            $idAtt = $att;
+            break;
+        }
+    }
+}
+?>
+<section class="note student-stage <?= (!$needsSign && !$has_id_doc) ? 'student-stage-active' : '' ?>" id="identificacion">
+    <h2>Identificación oficial</h2>
+    <p>
+        Para agendar Cambridge debes subir un <strong>PDF</strong> con tu
+        <strong>INE escaneada por ambos lados</strong> (frente y reverso en el mismo archivo).
+        Si no tienes INE, puedes subir tu <strong>pasaporte</strong> en PDF.
+    </p>
+    <?php if ($idAtt): ?>
+        <p class="alert alert-ok">
+            Documento recibido: <?= e($idAtt['label'] ?? $idAtt['kind']) ?>
+            · <a href="/media?f=<?= e(rawurlencode((string)$idAtt['file_path'])) ?>" target="_blank" rel="noopener">Ver PDF</a>
+        </p>
+        <p class="muted">Si necesitas reemplazarlo, sube un archivo nuevo (quedará el más reciente).</p>
+    <?php elseif ($needsSign): ?>
+        <p class="alert alert-warn">Primero firma el reglamento; después podrás subir tu identificación.</p>
+    <?php endif; ?>
+
+    <?php if (!$needsSign): ?>
+        <form method="post" action="/alumno/caso/upload-id-doc" enctype="multipart/form-data" class="stack form-grid">
+            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+            <label>Tipo de documento
+                <select name="id_doc_kind" required>
+                    <option value="ine" selected>INE (ambos lados en un PDF)</option>
+                    <option value="passport">Pasaporte (PDF)</option>
+                </select>
+            </label>
+            <label class="field-wide">Archivo PDF
+                <input type="file" name="id_doc" accept=".pdf,application/pdf" required>
+            </label>
+            <div class="actions"><button class="btn" type="submit"><?= $idAtt ? 'Reemplazar PDF' : 'Subir identificación' ?></button></div>
+        </form>
+    <?php endif; ?>
+</section>
+
+<section class="note student-stage <?= ($canSchedule && ($scheduleDeferred || empty($item['exam_date']))) ? 'student-stage-active' : '' ?>" id="agendar">
+    <h2>Agendar examen</h2>
+    <?php if (!empty($item['exam_date']) && empty($item['schedule_deferred'])): ?>
+        <p class="alert alert-ok">
+            Fecha registrada: <strong><?= e($item['exam_date']) ?></strong>
+            <?= !empty($item['exam_time']) ? ' · ' . e($item['exam_time']) : '' ?>
+        </p>
+        <p class="muted">Si necesitas cambiarla después del pago, usa la sección de reagenda.</p>
+    <?php elseif (!$canSchedule): ?>
+        <p class="alert alert-warn">
+            Completa la firma del reglamento y la subida de tu INE/pasaporte (PDF) para poder agendar.
+        </p>
+    <?php elseif ($schedulingMode === 'exam_sittings'): ?>
+        <p class="muted">Elige una fecha publicada por Cambridge (sábados en sede).</p>
+        <?php if ($exam_sittings !== []): ?>
+            <form method="post" action="/alumno/caso/schedule" class="stack form-grid">
+                <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+                <label class="field-wide">Fecha de aplicación
+                    <select name="exam_sitting_id" required>
+                        <option value="">— Selecciona —</option>
+                        <?php foreach ($exam_sittings as $sit): ?>
+                            <?php
+                            $sitLabel = $sit['exam_date']
+                                . (!empty($sit['exam_time']) ? ' · ' . $sit['exam_time'] : '')
+                                . ' (inscripción hasta ' . $sit['registration_deadline'] . ')'
+                                . (!empty($sit['label']) ? ' · ' . $sit['label'] : '');
+                            ?>
+                            <option value="<?= (int)$sit['id'] ?>"><?= e($sitLabel) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <div class="actions"><button class="btn" type="submit">Confirmar fecha</button></div>
+            </form>
+        <?php else: ?>
+            <p class="muted">Aún no hay fechas publicadas. Cuando Doceo las cargue podrás agendar aquí.</p>
+        <?php endif; ?>
+    <?php elseif ($schedulingMode === 'flexible_home'): ?>
+        <p class="muted">
+            Examen desde casa, lunes a viernes 9:00–18:00 (sin hora fija).
+            Antelación mínima: <?= (int)$minAhead ?> días.
+        </p>
+        <form method="post" action="/alumno/caso/schedule" class="stack form-grid">
+            <input type="hidden" name="case_id" value="<?= (int)$item['id'] ?>">
+            <label>Fecha preferida
+                <input type="date" name="exam_date" min="<?= e($minDate) ?>" required>
+            </label>
+            <div class="actions"><button class="btn" type="submit">Confirmar fecha</button></div>
+        </form>
+    <?php else: ?>
+        <p class="muted">Contacta a Instituto Doceo para agendar esta certificación.</p>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
+
 <?php if (!$needsSign): ?>
 <section class="note student-stage <?= !$paid ? 'student-stage-active' : '' ?>" id="pago">
     <h2><?= $paid ? 'Pago' : 'Pendiente de pago' ?></h2>
@@ -691,6 +829,9 @@ foreach ($course_prorrogas as $pr) {
 
 <section class="note student-stage" id="reagenda">
     <h2>Solicitar reagenda</h2>
+    <?php if ($requiresIdDoc && !$has_id_doc): ?>
+        <p class="alert alert-warn">Sube tu INE/pasaporte en PDF antes de solicitar una reagenda.</p>
+    <?php else: ?>
     <p class="muted">
         Si necesitas cambiar la fecha u hora, indícala aquí. Se notificará automáticamente al proveedor
         (y el equipo Doceo verá la solicitud en tu caso).
@@ -702,6 +843,7 @@ foreach ($course_prorrogas as $pr) {
         <label class="field-wide">Motivo (opcional)<input name="reschedule_reason" placeholder="Ej. conflicto de trabajo"></label>
         <div class="actions"><button class="btn" type="submit">Solicitar reagenda</button></div>
     </form>
+    <?php endif; ?>
 </section>
 
 <?php if ($cenniProcess !== 'none'): ?>
