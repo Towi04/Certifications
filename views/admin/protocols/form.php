@@ -42,6 +42,12 @@ $protocol_action_ids = $protocol_action_ids ?? [];
     <?php if (!empty($info)): ?><p class="alert alert-ok"><?= e($info) ?></p><?php endif; ?>
     <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
 
+    <?php if ($item): ?>
+    <form id="protocolPackForm" method="post" action="/admin/protocols/actions/pack" class="hidden-form">
+        <input type="hidden" name="protocol_id" value="<?= $protocolId ?>">
+    </form>
+    <?php endif; ?>
+
     <form method="post" action="/admin/protocols/save" id="protocolForm" class="stack">
         <?php if ($item): ?><input type="hidden" name="id" value="<?= $protocolId ?>"><?php endif; ?>
         <input type="hidden" name="tab" value="<?= e($tab) ?>">
@@ -123,9 +129,18 @@ $protocol_action_ids = $protocol_action_ids ?? [];
         <div class="admin-ficha-panel" data-tab-panel="acciones" <?= $tab !== 'acciones' ? 'hidden' : '' ?>>
             <h3>Acciones del protocolo</h3>
             <p class="muted">
-                Elige del catálogo <a href="/admin/actions">Acciones</a>. El orden de los checks (arriba→abajo en la lista)
-                define el orden de los botones en Casos. Cada acción puede ser botón y/o trigger automático.
+                Marca las acciones que este protocolo usará como botones en el caso.
+                No hace falta crearlas una por una: usa el <strong>paquete estándar</strong> y ajusta.
             </p>
+            <?php if ($item): ?>
+                <div class="actions" style="margin-bottom:1rem">
+                    <button class="btn" type="submit" form="protocolPackForm"
+                            onclick="return confirm('¿Activar el paquete estándar (confirmar pago, solicitar proveedor, cumplir, enviar accesos)?');">
+                        Activar paquete estándar
+                    </button>
+                    <span class="muted"> Confirmar pago · Solicitar proveedor · Cumplir tras pago · Enviar accesos</span>
+                </div>
+            <?php endif; ?>
             <?php if ($workflow_actions): ?>
                 <div class="reg-fields-grid">
                     <?php foreach ($workflow_actions as $wa): ?>
@@ -138,7 +153,7 @@ $protocol_action_ids = $protocol_action_ids ?? [];
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
-                <p class="muted">Aún no hay acciones. Crea algunas en Admin → Acciones.</p>
+                <p class="muted">Aún no hay acciones. Crea algunas en Admin → Acciones o usa el paquete estándar.</p>
             <?php endif; ?>
         </div>
 

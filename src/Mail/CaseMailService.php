@@ -743,7 +743,287 @@ final class CaseMailService
             'Comprobante Boton' => $fileLinks['payment_button'],
             'Exportacion URL' => $fileLinks['export_url'],
             'Exportacion Boton' => $fileLinks['export_button'],
-        ], $linkTokens);
+        ], $linkTokens, $this->documentTokensForCase($case, $appUrl), $this->flexibleFieldTokens($case, $appUrl));
+    }
+
+    /**
+     * Tokens de documentos del catálogo (Proveedor → Documentos) aplicables al caso.
+     *
+     * @param array<string, mixed> $case
+     * @return array<string, string>
+     */
+    private function documentTokensForCase(array $case, string $appUrl): array
+    {
+        $tokens = [
+            'Docs Lista' => '',
+        ];
+        $providerId = (int) ($case['provider_id'] ?? 0);
+        $certId = (int) ($case['certification_id'] ?? 0);
+        $groupId = (int) ($case['provider_group_id'] ?? 0);
+        if ($providerId < 1) {
+            return $tokens;
+        }
+        try {
+            $docs = $this->repo->documents($providerId, true);
+        } catch (\Throwable) {
+            return $tokens;
+        }
+        $lines = [];
+        foreach ($docs as $doc) {
+            $scope = (string) ($doc['scope_type'] ?? 'provider');
+            if ($scope === 'certification' && (int) ($doc['certification_id'] ?? 0) !== $certId) {
+                continue;
+            }
+            if ($scope === 'group' && (int) ($doc['provider_group_id'] ?? 0) !== $groupId) {
+                continue;
+            }
+            $code = strtoupper(trim((string) ($doc['code'] ?? '')));
+            if ($code === '') {
+                continue;
+            }
+            $title = trim((string) ($doc['title'] ?? $code));
+            $share = trim((string) ($doc['share_token'] ?? ''));
+            if ($share === '' && isset($doc['id'])) {
+                try {
+                    $share = (string) ($this->repo->ensureDocumentShareToken((int) $doc['id']) ?? '');
+                } catch (\Throwable) {
+                    $share = '';
+                }
+            }
+            $url = \App\Catalog\FlexibleFieldService::documentPublicUrl($share, $appUrl);
+            if ($url === '') {
+                continue;
+            }
+            $tokens['Doc ' . $code] = self::linkLine($title, $url);
+            $tokens['Doc ' . $code . ' URL'] = $url;
+            $tokens['Doc ' . $code . ' Boton'] = self::linkButton($title, $url);
+            $lines[] = self::linkLine($title, $url);
+        }
+        if ($lines !== []) {
+            $tokens['Docs Lista'] = implode('', $lines);
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * Tokens de campos personalizados del alumno y adjuntos del caso (kind = key / access_key).
+     *
+     * @param array<string, mixed> $case
+     * @return array<string, string>
+     */
+    private function flexibleFieldTokens(array $case, string $appUrl): array
+    {
+        $tokens = [];
+        $extra = [];
+        $raw = $case['registration_extra_json'] ?? null;
+        if (is_string($raw) && $raw !== '') {
+            $tmp = json_decode($raw, true);
+            if (is_array($tmp)) {
+                $extra = $tmp;
+            }
+        }
+        foreach ($extra as $key => $val) {
+            $key = (string) $key;
+            $label = $key;
+            if (str_starts_with($key, 'custom_')) {
+                $label = ucwords(str_replace('_', ' ', substr($key, 7)));
+            }
+            $tokens['Campo ' . $key] = (string) $val;
+            $tokens['Campo ' . $label] = (string) $val;
+        }
+
+        $accessExtra = [];
+        $rawA = $case['access_extra_json'] ?? null;
+        if (is_string($rawA) && $rawA !== '') {
+            $tmp = json_decode($rawA, true);
+            if (is_array($tmp)) {
+                $accessExtra = $tmp;
+            }
+        }
+        foreach ($accessExtra as $key => $val) {
+            $tokens['Acceso ' . $key] = (string) $val;
+            $tokens['Acceso ' . $key . ' URL'] = (string) $val;
+        }
+
+        $caseId = (int) ($case['id'] ?? 0);
+        if ($caseId < 1) {
+            return $tokens;
+        }
+        try {
+            $atts = $this->repo->caseAttachments($caseId);
+        } catch (\Throwable) {
+            return $tokens;
+        }
+        foreach ($atts as $att) {
+            $kind = trim((string) ($att['kind'] ?? ''));
+            if ($kind === '') {
+                continue;
+            }
+            $url = $this->repo->caseAttachmentShareUrl($att, $appUrl);
+            if ($url === '') {
+                continue;
+            }
+            $label = trim((string) ($att['label'] ?? $kind));
+            $code = strtoupper(preg_replace('/[^a-z0-9]+/i', '_', $kind) ?: $kind);
+            $tokens['Adjunto ' . $kind] = self::linkLine($label, $url);
+            $tokens['Adjunto ' . $kind . ' URL'] = $url;
+            $tokens['Adjunto ' . $kind . ' Boton'] = self::linkButton($label, $url);
+            $tokens['Adjunto ' . $code . ' URL'] = $url;
+            $tokens['Adjunto ' . $code . ' Boton'] = self::linkButton($label, $url);
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * Envía la plantilla al correo indicado con tokens de ejemplo (o de un caso real).
+     *
+     * @return array{ok:bool,to:string,subject:string,message:string}
+     */
+    public function sendTestTemplate(int $templateId, string $toEmail, ?int $caseId = null): array
+    {
+        $tpl = $this->repo->mailTemplate($templateId);
+        if (!$tpl) {
+            throw new \RuntimeException('Plantilla no encontrada.');
+        }
+        $toEmail = strtolower(trim($toEmail));
+        if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Correo de prueba inválido.');
+        }
+
+        if ($caseId !== null && $caseId > 0) {
+            $case = $this->repo->certificationCaseDetailed($caseId);
+            if (!$case) {
+                throw new \RuntimeException('Caso de muestra no encontrado.');
+            }
+            $this->ensureCaseShareLinks($case);
+            $tokens = $this->tokens($case);
+        } else {
+            $tokens = $this->sampleTokens();
+        }
+
+        $subject = '[PRUEBA] ' . $this->render((string) $tpl['subject'], $tokens);
+        $bodyInner = $this->render((string) $tpl['body_html'], $tokens);
+        $body = $this->wrapBrandedHtml($bodyInner, $tokens);
+
+        $this->mailer->send($toEmail, $subject, $body, [
+            'html' => true,
+            'body_html' => $body,
+        ]);
+
+        return [
+            'ok' => true,
+            'to' => $toEmail,
+            'subject' => $subject,
+            'message' => 'Correo de prueba enviado a ' . $toEmail . '.',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function sampleTokens(): array
+    {
+        $appUrl = rtrim((string) (Env::get('APP_URL', 'https://pdv.institutodoceo.com') ?? ''), '/');
+        $sample = [
+            'Nombre' => 'Ana',
+            'Apellido P' => 'García',
+            'Apellido M' => 'López',
+            'Nombre Completo' => 'Ana García López',
+            'e-mail' => 'ana.ejemplo@correo.com',
+            'Teléfono' => '5551234567',
+            'CURP' => 'GALA900101MDFRPN09',
+            'Certificación' => 'Certificación de ejemplo',
+            'Fecha' => date('Y-m-d', strtotime('+14 days')),
+            'Hora' => '10:00',
+            'Fecha2' => '',
+            'Hora2' => '',
+            'Folio / ID' => 'DEMO-12345',
+            'Clave' => 'clave-demo',
+            'Institution ID' => 'MX143',
+            'Username' => 'DEMO-12345',
+            'Password' => 'clave-demo',
+            'Supervisor Cambridge' => 'Soporte Demo · demo@proveedor.com',
+            'Hora Line' => ' · 10:00',
+            'Zoom' => $appUrl . '/ejemplo-zoom',
+            'TOKEN' => $appUrl . '/ejemplo-guia',
+            'CC' => '',
+            'iTEP Results' => $appUrl . '/ejemplo-resultados',
+            'Score URL' => $appUrl . '/ejemplo-score',
+            'Certificate URL' => $appUrl . '/ejemplo-cert',
+            'Resultados Line' => self::linkLine('Resultados', $appUrl . '/ejemplo-resultados'),
+            'Score Line' => self::linkLine('Score report', $appUrl . '/ejemplo-score'),
+            'Certificate Line' => self::linkLine('Certificate', $appUrl . '/ejemplo-cert'),
+            'Canceled' => '',
+            'user' => 'ana.garcia',
+            'password' => 'Doceo2024!',
+            'Contacto Doceo' => (string) (Env::get('DOCEO_CONTACT_EMAIL', 'info@institutodoceo.com') ?? 'info@institutodoceo.com'),
+            'OpenPay CLABE' => '012345678901234567',
+            'OpenPay Banco' => 'STP',
+            'OpenPay Referencia' => '1234567',
+            'OpenPay Monto' => '1,500.00',
+            'OpenPay Beneficiario' => 'Instituto DOCEO',
+            'OpenPay SPEI URL' => $appUrl . '/pago/spei?id=0',
+            'Logo URL' => MailBranding::logoUrl(),
+            'Escudo URL' => $appUrl . '/assets/brand/escudo.png',
+            'CENNI Estatus' => 'En trámite',
+            'CENNI Folio Line' => '',
+            'CENNI Notas Line' => '',
+            'CENNI Folio Suffix' => '',
+            'CENNI Descarga URL' => '',
+            'CENNI Descarga Line' => '',
+            'CENNI SEP URL' => '',
+            'CENNI SEP Line' => '',
+            'CENNI Doc URL' => '',
+            'CENNI Tramite Line' => '',
+            'App URL' => $appUrl,
+            'Reglamento URL' => $appUrl . '/d/ejemplo',
+            'Reglamento Firmado URL' => $appUrl . '/c/ejemplo',
+            'Reglamento Boton' => self::linkButton('Descargar reglamento', $appUrl . '/d/ejemplo'),
+            'Reglamento Firmado Boton' => self::linkButton('Reglamento firmado', $appUrl . '/c/ejemplo'),
+            'Comprobante URL' => $appUrl . '/c/ejemplo-comprobante',
+            'Comprobante Boton' => self::linkButton('Descargar comprobante', $appUrl . '/c/ejemplo-comprobante'),
+            'Exportacion URL' => $appUrl . '/c/ejemplo-export',
+            'Exportacion Boton' => self::linkButton('Descargar exportación', $appUrl . '/c/ejemplo-export'),
+            'Links Alumno' => self::linkLine('Material de estudio', $appUrl . '/ejemplo-link'),
+            'Links Estudio' => self::linkLine('Material de estudio', $appUrl . '/ejemplo-link'),
+            'Links Software' => '',
+            'Links Examen' => '',
+            'Docs Lista' => self::linkLine('Documento de ejemplo', $appUrl . '/d/ejemplo'),
+            'Doc EJEMPLO' => self::linkLine('Documento de ejemplo', $appUrl . '/d/ejemplo'),
+            'Doc EJEMPLO URL' => $appUrl . '/d/ejemplo',
+            'Doc EJEMPLO Boton' => self::linkButton('Documento de ejemplo', $appUrl . '/d/ejemplo'),
+            'Adjunto custom_ine URL' => $appUrl . '/c/ejemplo-ine',
+            'Adjunto custom_ine Boton' => self::linkButton('INE', $appUrl . '/c/ejemplo-ine'),
+        ];
+
+        try {
+            foreach ($this->repo->allProviderLinks(true) as $link) {
+                $code = strtoupper(trim((string) ($link['code'] ?? '')));
+                if ($code === '') {
+                    continue;
+                }
+                $label = trim((string) ($link['label'] ?? $code));
+                $url = trim((string) ($link['url'] ?? $appUrl));
+                $sample['Link ' . $code] = self::linkLine($label, $url);
+                $sample['Link ' . $code . ' URL'] = $url;
+                $sample['Link ' . $code . ' Boton'] = self::linkButton($label, $url);
+            }
+            foreach ($this->repo->documents(null, true) as $doc) {
+                $code = strtoupper(trim((string) ($doc['code'] ?? '')));
+                if ($code === '') {
+                    continue;
+                }
+                $title = trim((string) ($doc['title'] ?? $code));
+                $share = trim((string) ($doc['share_token'] ?? ''));
+                $url = \App\Catalog\FlexibleFieldService::documentPublicUrl($share, $appUrl) ?: ($appUrl . '/d/ejemplo');
+                $sample['Doc ' . $code] = self::linkLine($title, $url);
+                $sample['Doc ' . $code . ' URL'] = $url;
+                $sample['Doc ' . $code . ' Boton'] = self::linkButton($title, $url);
+            }
+        } catch (\Throwable) {
+        }
+
+        return $sample;
     }
 
     /** @param array<string, mixed> $case */
@@ -1507,6 +1787,14 @@ final class CaseMailService
             'Links Estudio' => 'Lista HTML de links tipo material de estudio',
             'Links Software' => 'Lista HTML de links tipo software / descarga',
             'Links Examen' => 'Lista HTML de links tipo portal de examen',
+            'Docs Lista' => 'Lista HTML de documentos del proveedor aplicables al caso',
+            'Doc CODIGO' => 'Línea HTML del documento con ese código (Admin → Documentos)',
+            'Doc CODIGO URL' => 'URL pública /d/{token} del documento',
+            'Doc CODIGO Boton' => 'Botón HTML del documento',
+            'Adjunto kind URL' => 'URL pública del adjunto del caso (kind = clave del campo archivo)',
+            'Adjunto kind Boton' => 'Botón HTML del adjunto del caso',
+            'Campo custom_clave' => 'Valor de un campo personalizado del alumno',
+            'Acceso clave' => 'Valor libre de un slot de acceso no mapeado',
         ];
 
         try {
@@ -1532,6 +1820,16 @@ final class CaseMailService
                 $base['Link ' . $code] = 'Línea HTML: ' . $hint;
                 $base['Link ' . $code . ' URL'] = 'URL cruda: ' . $hint;
                 $base['Link ' . $code . ' Boton'] = 'Botón HTML: ' . $hint;
+            }
+            foreach ($repo->documents(null, true) as $doc) {
+                $code = strtoupper(trim((string) ($doc['code'] ?? '')));
+                if ($code === '') {
+                    continue;
+                }
+                $title = trim((string) ($doc['title'] ?? $code));
+                $base['Doc ' . $code] = 'Documento: ' . $title;
+                $base['Doc ' . $code . ' URL'] = 'URL del documento: ' . $title;
+                $base['Doc ' . $code . ' Boton'] = 'Botón del documento: ' . $title;
             }
         } catch (\Throwable) {
             $base['Link CODIGO'] = 'Línea HTML del link con ese código (alta en Proveedor → Links)';

@@ -246,7 +246,7 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
         ));
         ?>
 
-        <form id="caseAccessSaveForm" method="post" action="/admin/cases/update" class="hidden-form">
+        <form id="caseAccessSaveForm" method="post" action="/admin/cases/update" class="hidden-form" enctype="multipart/form-data">
             <input type="hidden" name="case_id" value="<?= $caseId ?>">
             <input type="hidden" name="tab" value="accesos">
         </form>
@@ -263,9 +263,82 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             <input type="hidden" name="tab" value="accesos">
         </form>
 
-        <div class="case-access-row">
-            <label>Folio / ID<input form="caseAccessSaveForm" name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
-            <label>Clave<input form="caseAccessSaveForm" name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
+        <div class="case-access-row case-access-flexible">
+            <?php
+            $flexSvc = new \App\Catalog\FlexibleFieldService();
+            $flexSvc->ensureAccessFieldsColumn();
+            $accessSlots = \App\Catalog\FlexibleFieldService::decodeCertAccessFields(
+                $item['access_fields_json'] ?? null,
+                null
+            );
+            if ($accessSlots === []) {
+                $pid = (int) ($item['provider_id'] ?? 0);
+                $accessSlots = $pid > 0
+                    ? $flexSvc->getProviderAccessFields($pid)
+                    : \App\Catalog\FlexibleFieldService::defaultAccessFields();
+            }
+            $accessExtra = [];
+            $rawExtra = $item['access_extra_json'] ?? null;
+            if (is_string($rawExtra) && $rawExtra !== '') {
+                $tmp = json_decode($rawExtra, true);
+                if (is_array($tmp)) {
+                    $accessExtra = $tmp;
+                }
+            }
+            foreach ($accessSlots as $slot):
+                $skey = (string) ($slot['key'] ?? '');
+                if ($skey === '') {
+                    continue;
+                }
+                $stype = (string) ($slot['type'] ?? 'text');
+                $mapsTo = $slot['maps_to'] ?? null;
+                $inputName = is_string($mapsTo) && $mapsTo !== '' ? $mapsTo : ('access_extra[' . $skey . ']');
+                if (is_string($mapsTo) && $mapsTo !== '') {
+                    $sval = (string) ($item[$mapsTo] ?? '');
+                } else {
+                    $sval = (string) ($accessExtra[$skey] ?? '');
+                }
+                $inputType = match ($stype) {
+                    'password' => 'text',
+                    'url' => 'url',
+                    'file' => 'file',
+                    default => 'text',
+                };
+                ?>
+                <?php if ($stype === 'file'): ?>
+                    <label class="field-wide">
+                        <?= e($slot['label'] ?? $skey) ?>
+                        <?php
+                        $att = null;
+                        foreach ($attachments ?? [] as $a) {
+                            if (($a['kind'] ?? '') === 'access_' . $skey) {
+                                $att = $a;
+                                break;
+                            }
+                        }
+                        if ($att):
+                            $share = \App\Catalog\CatalogRepository::class;
+                            ?>
+                            <p class="muted" style="margin:0.25rem 0">
+                                Actual:
+                                <?php if (!empty($att['share_token'])): ?>
+                                    <a href="/c/<?= e($att['share_token']) ?>" target="_blank" rel="noopener"><?= e($att['label'] ?? 'archivo') ?></a>
+                                <?php else: ?>
+                                    <?= e($att['label'] ?? 'archivo') ?>
+                                <?php endif; ?>
+                            </p>
+                        <?php endif; ?>
+                        <input form="caseAccessSaveForm" type="file" name="access_file[<?= e($skey) ?>]" accept=".pdf,.png,.jpg,.jpeg,.webp">
+                    </label>
+                <?php else: ?>
+                    <label class="<?= $stype === 'url' ? 'field-wide' : '' ?>">
+                        <?= e($slot['label'] ?? $skey) ?>
+                        <input form="caseAccessSaveForm" type="<?= e($inputType) ?>" name="<?= e($inputName) ?>"
+                               value="<?= e($sval) ?>" placeholder="<?= $stype === 'url' ? 'https://…' : '' ?>"
+                            <?= !empty($slot['required']) ? 'required' : '' ?>>
+                    </label>
+                <?php endif; ?>
+            <?php endforeach; ?>
             <div class="case-inline-actions">
                 <?php if (!empty($item['uses_inventory']) && !$hasInventoryAssigned): ?>
                     <button class="btn btn-ghost" type="submit" form="caseAssignInventoryForm"
@@ -281,12 +354,15 @@ $defaultPayMethod = in_array($payMethod, ['cash', 'transfer', 'openpay', 'other'
             </div>
         </div>
 
-        <?php if ($requiresZoom): ?>
-            <div class="case-access-row">
-                <label class="field-wide">Zoom<input form="caseAccessSaveForm" name="zoom_url" value="<?= e($item['zoom_url'] ?? '') ?>" placeholder="https://…"></label>
-            </div>
+        <?php /* Moodle / inventario siguen aparte (integraciones) */ ?>
+        <?php if (false): /* legacy hardcode replaced by access slots */ ?>
+        <div class="case-access-row">
+            <label>Folio / ID<input form="caseAccessSaveForm" name="folio_id" value="<?= e($item['folio_id'] ?? '') ?>"></label>
+            <label>Clave<input form="caseAccessSaveForm" name="access_key" value="<?= e($item['access_key'] ?? '') ?>"></label>
+        </div>
         <?php endif; ?>
-        <?php if ($isLinguaskillCase): ?>
+
+        <?php if ($isLinguaskillCase && false): ?>
             <div class="case-access-row">
                 <label>Doc prep (sin acceso)<input form="caseAccessSaveForm" name="prep_doc_url" value="<?= e($item['prep_doc_url'] ?? '') ?>" placeholder="https://…"></label>
                 <label>Doc con acceso / token<input form="caseAccessSaveForm" name="access_doc_url" value="<?= e($item['access_doc_url'] ?? '') ?>" placeholder="https://…"></label>

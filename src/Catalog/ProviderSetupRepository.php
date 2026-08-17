@@ -637,7 +637,7 @@ final class ProviderSetupRepository
             }
             $seen[$key] = true;
             $type = (string) ($row['type'] ?? 'text');
-            if (!in_array($type, ['text', 'textarea', 'date', 'number', 'tel', 'email', 'time', 'sex'], true)) {
+            if (!in_array($type, FlexibleFieldService::allowedStudentTypes(), true)) {
                 $type = 'text';
             }
             $out[] = [

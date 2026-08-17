@@ -23,6 +23,8 @@ $fichaMode = 'js';
 $fichaTabBase = '';
 require __DIR__ . '/../_ficha_head.php';
 ?>
+    <?php if (!empty($info)): ?><p class="alert alert-ok"><?= e($info) ?></p><?php endif; ?>
+    <?php if (!empty($error)): ?><p class="alert alert-error"><?= e($error) ?></p><?php endif; ?>
 
     <div class="admin-ficha-panel" data-tab-panel="plantilla" <?= $tab !== 'plantilla' ? 'hidden' : '' ?>>
         <form method="post" action="/admin/mail-templates/save" class="stack form-grid">
@@ -112,6 +114,25 @@ require __DIR__ . '/../_ficha_head.php';
             </div>
         </form>
         <?php if ($item): ?>
+            <form method="post" action="/admin/mail-templates/test-send" class="stack form-grid" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid #ddd">
+                <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">
+                <h3 class="field-wide" style="margin:0">Envío de prueba</h3>
+                <p class="muted field-wide">
+                    Te manda un ejemplo del correo <strong>sin cambiar</strong> el destinatario real del proveedor.
+                    Usa datos de muestra o un caso concreto.
+                </p>
+                <label>Enviar a
+                    <input type="email" name="test_to" required
+                           value="<?= e(\App\Auth\Auth::user()['email'] ?? ($item['to_fixed'] ?? '')) ?>"
+                           placeholder="tu@correo.com">
+                </label>
+                <label>Caso de muestra (opcional)
+                    <input type="number" name="case_id" min="1" placeholder="ID del caso · vacío = datos demo">
+                </label>
+                <div class="actions field-wide">
+                    <button class="btn btn-ghost" type="submit">Enviar prueba a mi correo</button>
+                </div>
+            </form>
             <form method="post" action="/admin/mail-templates/delete" style="margin-top:1rem"
                   onsubmit="return confirm('¿Eliminar esta plantilla?');">
                 <input type="hidden" name="id" value="<?= (int)$item['id'] ?>">

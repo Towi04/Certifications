@@ -89,6 +89,28 @@ Flujo alumno: `/curso?slug=…` → `/adquirir-curso` (formulario) → caso → 
 
 En admin: **Cursos** → precio, publicado, plataforma y protocolo (auto si se deja vacío). Migración: `sql/migration_course_protocols.sql` + `ensureCourseCommerceAndProtocols()`.
 
+## Campos flexibles (nuevos proveedores sin programar)
+
+Para agregar una certificación de un proveedor nuevo **sin tocar código**:
+
+1. **Proveedores → Campos**
+   - Marca campos built-in (CURP, teléfono…).
+   - Agrega campos personalizados: texto, URL o **archivo** (INE, reglamento, etc.).
+   - Define **datos de acceso** que llenará el admin (folio, clave, links, archivos).
+   - Usa **Aplicar a certificaciones** (todas o por grupo) para no repetir ficha por ficha.
+2. **Certificaciones → Adquisición**
+   - Elige off / opcional / obligatorio por campo.
+   - Activa los slots de acceso que esa cert usa.
+3. **Protocolos → Acciones**
+   - Botón **Activar paquete estándar** (pago, solicitar proveedor, cumplir, enviar accesos).
+4. **Correos**
+   - Tokens de documentos: `{{Doc CODIGO URL}}` / `{{Doc CODIGO Boton}}`
+   - Tokens de links: `{{Link CODIGO …}}`
+   - Tokens de adjuntos del caso: `{{Adjunto custom_ine URL}}`
+   - **Envío de prueba** en la plantilla (a tu correo, sin cambiar el contacto del proveedor).
+
+Migración: `sql/migration_flexible_fields.sql` (+ `FlexibleFieldService::ensureAccessFieldsColumn()` en runtime).
+
 ## Cómo usarlo en admin
 
 1. Ejecuta en MariaDB:
