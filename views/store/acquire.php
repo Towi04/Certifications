@@ -97,7 +97,7 @@ $minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAh
         <p class="muted">Sesión: <?= e($uEmail) ?></p>
     <?php endif; ?>
 
-    <form method="post" action="/adquirir" class="stack form-grid" id="acquireForm">
+    <form method="post" action="/adquirir" class="stack form-grid" id="acquireForm" enctype="multipart/form-data">
         <input type="hidden" name="slug" value="<?= e($item['slug']) ?>">
         <input type="hidden" name="mode" value="<?= $loggedIn ? 'confirm' : 'register' ?>">
 
@@ -295,13 +295,23 @@ $minDate = $minAhead > 0 ? (new DateTimeImmutable('today'))->modify('+' . $minAh
             $ck = $cf['key'];
             $req = ($cf['mode'] ?? '') === 'required';
             $cval = (string) ($extraOld[$ck] ?? '');
+            $ctype = (string) ($cf['type'] ?? 'text');
             ?>
-            <label class="<?= ($cf['type'] ?? '') === 'textarea' ? 'field-wide' : '' ?>">
+            <label class="<?= in_array($ctype, ['textarea', 'file'], true) ? 'field-wide' : '' ?>">
                 <?= e($cf['label']) ?>
-                <?php if (($cf['type'] ?? 'text') === 'textarea'): ?>
+                <?php if ($ctype === 'textarea'): ?>
                     <textarea name="extra[<?= e($ck) ?>]" rows="3" <?= $req ? 'required' : '' ?>><?= e($cval) ?></textarea>
+                <?php elseif ($ctype === 'file'): ?>
+                    <input type="file" name="extra_file[<?= e($ck) ?>]"
+                           accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+                        <?= $req ? 'required' : '' ?>>
+                    <small class="muted">PDF o imagen. Se adjunta a tu caso y el admin/correo pueden usar el enlace.</small>
+                <?php elseif ($ctype === 'url'): ?>
+                    <input type="url" name="extra[<?= e($ck) ?>]" value="<?= e($cval) ?>"
+                           placeholder="https://…" <?= $req ? 'required' : '' ?>>
                 <?php else: ?>
-                    <input type="<?= e($cf['type'] ?? 'text') ?>" name="extra[<?= e($ck) ?>]"
+                    <input type="<?= e(in_array($ctype, ['text','date','number','tel','email','time'], true) ? $ctype : 'text') ?>"
+                           name="extra[<?= e($ck) ?>]"
                            value="<?= e($cval) ?>" <?= $req ? 'required' : '' ?>>
                 <?php endif; ?>
             </label>

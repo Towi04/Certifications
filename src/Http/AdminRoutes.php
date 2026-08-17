@@ -279,6 +279,12 @@ final class AdminRoutes
                 'provider_documents' => $repo()->documents($id),
                 'provider_links' => $repo()->providerLinks($id),
                 'provider_reg_fields' => $repo()->getProviderRegistrationFields($id),
+                'provider_access_fields' => (static function () use ($repo, $id): array {
+                    $flex = new \App\Catalog\FlexibleFieldService();
+                    $flex->ensureAccessFieldsColumn();
+
+                    return $flex->getProviderAccessFields($id);
+                })(),
                 'docTypes' => CatalogRepository::documentTypes(),
                 'linkTypes' => CatalogRepository::providerLinkTypes(),
                 'appUrl' => rtrim((string) (Env::get('APP_URL', '') ?? ''), '/'),
@@ -1101,7 +1107,39 @@ final class AdminRoutes
 
             try {
                 $repo()->saveProviderRegistrationFields($providerId, $fields);
-                flash('info', 'Campos de adquisición guardados.');
+                $flex = new \App\Catalog\FlexibleFieldService();
+                $flex->ensureAccessFieldsColumn();
+                $rawAccess = $_POST['access_fields'] ?? [];
+                if (!is_array($rawAccess)) {
+                    $rawAccess = [];
+                }
+                $flex->saveProviderAccessFields($providerId, $rawAccess);
+                flash('info', 'Campos de adquisición y acceso guardados.');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $providerTabUrl($providerId, 'campos'));
+            exit;
+        });
+
+        $router->post('/admin/providers/fields/apply', static function () use ($repo, $providerTabUrl): void {
+            Auth::requireAdmin();
+            $providerId = (int) ($_POST['provider_id'] ?? 0);
+            if ($providerId < 1) {
+                flash('error', 'Proveedor no válido.');
+                header('Location: /admin/providers');
+                exit;
+            }
+            $scope = trim((string) ($_POST['scope'] ?? 'all'));
+            $defaultMode = (string) ($_POST['default_mode'] ?? 'required');
+            $groupId = null;
+            if (str_starts_with($scope, 'group:')) {
+                $groupId = (int) substr($scope, 6);
+            }
+            try {
+                $flex = new \App\Catalog\FlexibleFieldService();
+                $n = $flex->applyProviderCatalogDefaults($providerId, $defaultMode, $groupId, []);
+                flash('info', 'Campos aplicados a ' . $n . ' certificación(es).');
             } catch (\Throwable $e) {
                 flash('error', $e->getMessage());
             }
@@ -1575,6 +1613,37 @@ final class AdminRoutes
             }
         });
 
+        $router->post('/admin/protocols/actions/pack', static function () use ($repo, $protocolEditUrl): void {
+            Auth::requireAdmin();
+            $protocolId = (int) ($_POST['protocol_id'] ?? 0);
+            if ($protocolId < 1 || !$repo()->protocol($protocolId)) {
+                flash('error', 'Protocolo no encontrado.');
+                header('Location: /admin/protocols');
+                exit;
+            }
+            try {
+                $actions = new \App\Workflow\ActionRepository();
+                $actions->ensureSchema();
+                $ids = [];
+                foreach (\App\Catalog\FlexibleFieldService::standardActionCodes() as $code) {
+                    $row = $actions->findByCode($code);
+                    if ($row) {
+                        $ids[] = (int) $row['id'];
+                    }
+                }
+                // Conservar otras acciones ya marcadas
+                foreach ($actions->protocolActions($protocolId, false) as $pa) {
+                    $ids[] = (int) ($pa['id'] ?? 0);
+                }
+                $actions->setProtocolActions($protocolId, $ids);
+                flash('info', 'Paquete estándar de acciones activado (' . count(array_unique($ids)) . ').');
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: ' . $protocolEditUrl($protocolId, 'acciones'));
+            exit;
+        });
+
         $router->post('/admin/protocols/steps/save', static function () use ($repo, $protocolEditUrl): void {
             Auth::requireAdmin();
             $protocolId = (int) ($_POST['protocol_id'] ?? 0);
@@ -1927,7 +1996,63 @@ final class AdminRoutes
                     }
                     $fields[$key] = $val;
                 }
+
+                // Slots de acceso libres + archivos
+                $accessExtraIn = $_POST['access_extra'] ?? [];
+                if (is_array($accessExtraIn)) {
+                    $flex = new \App\Catalog\FlexibleFieldService();
+                    $flex->ensureAccessFieldsColumn();
+                    $cleanExtra = [];
+                    foreach ($accessExtraIn as $ek => $ev) {
+                        $ek = preg_replace('/[^a-z0-9_]/', '', strtolower((string) $ek)) ?? '';
+                        if ($ek === '') {
+                            continue;
+                        }
+                        $ev = trim((string) $ev);
+                        if ($ev !== '') {
+                            $cleanExtra[$ek] = $ev;
+                        }
+                    }
+                    $existingCase = $repo()->certificationCaseDetailed($caseId);
+                    $prevExtra = [];
+                    if (is_string($existingCase['access_extra_json'] ?? null) && $existingCase['access_extra_json'] !== '') {
+                        $tmp = json_decode((string) $existingCase['access_extra_json'], true);
+                        if (is_array($tmp)) {
+                            $prevExtra = $tmp;
+                        }
+                    }
+                    $mergedExtra = array_merge($prevExtra, $cleanExtra);
+                    $fields['access_extra_json'] = $mergedExtra === []
+                        ? null
+                        : (json_encode($mergedExtra, JSON_UNESCAPED_UNICODE) ?: null);
+                }
+
                 $repo()->updateCertificationCase($caseId, $fields);
+
+                // Archivos de slots de acceso
+                $accessFiles = $_FILES['access_file'] ?? null;
+                if (is_array($accessFiles) && isset($accessFiles['name']) && is_array($accessFiles['name'])) {
+                    $userId = Auth::user() ? (int) Auth::user()['id'] : null;
+                    foreach ($accessFiles['name'] as $fkey => $fname) {
+                        $fkey = preg_replace('/[^a-z0-9_]/', '', strtolower((string) $fkey)) ?? '';
+                        if ($fkey === '' || (int) ($accessFiles['error'][$fkey] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                            continue;
+                        }
+                        $file = [
+                            'name' => $accessFiles['name'][$fkey] ?? '',
+                            'type' => $accessFiles['type'][$fkey] ?? '',
+                            'tmp_name' => $accessFiles['tmp_name'][$fkey] ?? '',
+                            'error' => (int) ($accessFiles['error'][$fkey] ?? UPLOAD_ERR_NO_FILE),
+                            'size' => (int) ($accessFiles['size'][$fkey] ?? 0),
+                        ];
+                        if ($file['error'] !== UPLOAD_ERR_OK) {
+                            continue;
+                        }
+                        $rel = \App\Support\Uploader::store($file, 'cases/' . $caseId);
+                        $repo()->addCaseAttachment($caseId, 'access_' . $fkey, 'Acceso: ' . $fkey, $rel, $userId);
+                    }
+                }
+
                 $caseAfter = $repo()->certificationCaseDetailed($caseId);
                 if ($caseAfter) {
                     $folioReady = trim((string) ($caseAfter['folio_id'] ?? '')) !== ''
@@ -2979,6 +3104,14 @@ final class AdminRoutes
                 'cenni_product_options' => $repo()->certifications(null),
                 'provider_groups' => $providerId > 0 ? $repo()->providerGroups($providerId, true) : [],
                 'provider_available_fields' => $providerId > 0 ? $repo()->availableFieldsForCertification($providerId) : [],
+                'provider_access_fields' => $providerId > 0
+                    ? (static function () use ($providerId): array {
+                        $flex = new \App\Catalog\FlexibleFieldService();
+                        $flex->ensureAccessFieldsColumn();
+
+                        return $flex->getProviderAccessFields($providerId);
+                    })()
+                    : [],
                 'exam_sittings' => $providerId > 0
                     ? $repo()->examSittingsForCertificationAdmin(
                         $providerId,
@@ -3192,6 +3325,28 @@ final class AdminRoutes
                 'schedule' => $schedule,
             ]);
 
+            $rawAccessFields = $_POST['access_fields'] ?? [];
+            if (!is_array($rawAccessFields)) {
+                $rawAccessFields = [];
+            }
+            // Solo keys habilitados (checkbox access_enabled)
+            $enabledAccessKeys = $_POST['access_enabled'] ?? [];
+            if (!is_array($enabledAccessKeys)) {
+                $enabledAccessKeys = [];
+            }
+            $enabledAccessKeys = array_flip(array_map('strval', $enabledAccessKeys));
+            $accessFieldsOut = [];
+            foreach ($rawAccessFields as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $akey = trim((string) ($row['key'] ?? ''));
+                if ($akey === '' || !isset($enabledAccessKeys[$akey])) {
+                    continue;
+                }
+                $accessFieldsOut[] = $row;
+            }
+
             $featuresDecoded = [];
             if (is_array($existing) && !empty($existing['features_json'])) {
                 $tmp = json_decode((string) $existing['features_json'], true);
@@ -3242,6 +3397,7 @@ final class AdminRoutes
                         (string) ($_POST['value_points'] ?? '')
                     ),
                     'registration_fields_json' => $registrationFields,
+                    'access_fields_json' => $accessFieldsOut,
                     'description_html' => trim((string) ($_POST['description_html'] ?? '')) ?: null,
                     'syllabus_html' => is_array($existing) ? ($existing['syllabus_html'] ?? null) : null,
                     'duration_label' => trim((string) ($_POST['duration_label'] ?? '')) ?: null,
@@ -4241,8 +4397,30 @@ final class AdminRoutes
                 'title' => 'Editar plantilla · ' . $item['code'],
                 'item' => $item,
                 'tokens' => \App\Mail\CaseMailService::tokenHelp(),
+                'info' => flash('info'),
                 'error' => flash('error'),
             ]);
+        });
+
+        $router->post('/admin/mail-templates/test-send', static function () use ($repo): void {
+            Auth::requireAdmin();
+            $id = (int) ($_POST['id'] ?? 0);
+            $to = trim((string) ($_POST['test_to'] ?? ''));
+            $caseId = (int) ($_POST['case_id'] ?? 0) ?: null;
+            if ($id < 1) {
+                flash('error', 'Plantilla no válida.');
+                header('Location: /admin/mail-templates');
+                exit;
+            }
+            try {
+                $svc = new \App\Mail\CaseMailService($repo());
+                $result = $svc->sendTestTemplate($id, $to, $caseId);
+                flash('info', $result['message']);
+            } catch (\Throwable $e) {
+                flash('error', $e->getMessage());
+            }
+            header('Location: /admin/mail-templates/edit?id=' . $id);
+            exit;
         });
 
         $router->post('/admin/mail-templates/save', static function () use ($repo): void {

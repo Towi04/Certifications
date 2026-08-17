@@ -506,8 +506,33 @@ final class PublicRoutes
                     $extraIn = [];
                 }
                 $extraOut = [];
+                $fileFieldsPending = [];
                 foreach ($customDefs as $cf) {
                     $ck = $cf['key'];
+                    $ctype = (string) ($cf['type'] ?? 'text');
+                    if ($ctype === 'file') {
+                        $file = $_FILES['extra_file'] ?? null;
+                        $hasFile = is_array($file)
+                            && isset($file['name'][$ck])
+                            && (int) ($file['error'][$ck] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+                        if (($cf['mode'] ?? '') === 'required' && !$hasFile) {
+                            throw new \RuntimeException(($cf['label'] ?? $ck) . ' es obligatorio (archivo).');
+                        }
+                        if ($hasFile) {
+                            $fileFieldsPending[$ck] = [
+                                'label' => (string) ($cf['label'] ?? $ck),
+                                'file' => [
+                                    'name' => $file['name'][$ck] ?? '',
+                                    'type' => $file['type'][$ck] ?? '',
+                                    'tmp_name' => $file['tmp_name'][$ck] ?? '',
+                                    'error' => (int) ($file['error'][$ck] ?? UPLOAD_ERR_NO_FILE),
+                                    'size' => (int) ($file['size'][$ck] ?? 0),
+                                ],
+                            ];
+                            $extraOut[$ck] = 'archivo';
+                        }
+                        continue;
+                    }
                     $cval = trim((string) ($extraIn[$ck] ?? ''));
                     if (($cf['mode'] ?? '') === 'required' && $cval === '') {
                         throw new \RuntimeException(($cf['label'] ?? $ck) . ' es obligatorio.');
@@ -616,6 +641,21 @@ final class PublicRoutes
                         : null,
                     'notes' => $caseNotes,
                 ]);
+
+                foreach ($fileFieldsPending as $fkey => $meta) {
+                    try {
+                        $rel = \App\Support\Uploader::storeDocument($meta['file'], 'cases/' . $caseId);
+                        $repo()->addCaseAttachment(
+                            $caseId,
+                            $fkey,
+                            (string) $meta['label'],
+                            $rel,
+                            (int) $user['id']
+                        );
+                    } catch (\Throwable $upErr) {
+                        error_log('[PDV] Adjunto adquisición caso #' . $caseId . ' ' . $fkey . ': ' . $upErr->getMessage());
+                    }
+                }
 
                 // El formulario de adquisición cubre el registro del candidato.
                 $repo()->markCaseStepDoneByKeywords($caseId, ['registro', 'candidato'], (int) $user['id'], 'Datos capturados en adquisición');

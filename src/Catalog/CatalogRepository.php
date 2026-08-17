@@ -729,6 +729,7 @@ final class CatalogRepository
      * @return array{
      *   modes: array<string,string>,
      *   custom: list<array{key:string,label:string,type:string,mode:string}>,
+     *   access: list<array{key:string,label:string,type:string,required:bool,maps_to:?string}>,
      *   schedule: array<string,mixed>
      * }
      */
@@ -785,7 +786,7 @@ final class CatalogRepository
             }
             $seenKeys[$key] = true;
             $type = (string) ($row['type'] ?? 'text');
-            if (!in_array($type, ['text', 'textarea', 'date', 'number', 'tel', 'email'], true)) {
+            if (!in_array($type, FlexibleFieldService::allowedStudentTypes(), true)) {
                 $type = 'text';
             }
             $mode = strtolower(trim((string) ($row['mode'] ?? 'optional')));
@@ -803,9 +804,12 @@ final class CatalogRepository
             ];
         }
 
+        $accessRaw = is_array($decoded['access'] ?? null) ? $decoded['access'] : [];
+
         return [
             'modes' => $modes,
             'custom' => $custom,
+            'access' => FlexibleFieldService::normalizeAccessFields($accessRaw),
             'schedule' => self::normalizeExamSchedule($scheduleRaw),
         ];
     }
@@ -909,8 +913,14 @@ final class CatalogRepository
             return null;
         }
         $normalized = self::decodeRegistrationConfig($config);
+        // access vive en certifications.access_fields_json; no duplicar aquí
+        $payload = [
+            'modes' => $normalized['modes'],
+            'custom' => $normalized['custom'],
+            'schedule' => $normalized['schedule'],
+        ];
 
-        return json_encode($normalized, JSON_UNESCAPED_UNICODE) ?: null;
+        return json_encode($payload, JSON_UNESCAPED_UNICODE) ?: null;
     }
 
     /** @param array<string,mixed> $schedule */
@@ -3779,6 +3789,7 @@ final class CatalogRepository
                     pr.student_access_template, pr.provider_id, pr.requires_regulation_signature,
                     pr.requires_software, pr.requires_zoom, pr.requires_vm, pr.uses_inventory,
                     cert.registration_fields_json,
+                    cert.access_fields_json,
                     prov.code AS provider_code, COALESCE(prov.name, \'Doceo\') AS provider_name,
                     prov.contact_email AS provider_contact_email,
                     pu.email AS partner_email, p.organization AS partner_organization
@@ -3934,6 +3945,7 @@ final class CatalogRepository
             'exam_date', 'exam_time', 'reschedule_date', 'reschedule_time',
             'exam_sitting_id', 'schedule_deferred', 'institution_id',
             'exam_extraordinary', 'exam_extraordinary_fee', 'registration_extra_json',
+            'access_extra_json',
             'folio_id', 'access_key', 'zoom_url', 'prep_doc_url', 'access_doc_url',
             'moodle_user', 'moodle_password',             'payment_proof_path', 'payment_confirmed_at',
             'payment_method', 'payment_proof_share_token',
@@ -6451,6 +6463,24 @@ final class CatalogRepository
                 $this->pdo->prepare(
                     'UPDATE certifications SET cenni_late_certification_id = ? WHERE id = ?'
                 )->execute([$lateId, $savedId]);
+            } catch (\Throwable) {
+            }
+        }
+
+        if (array_key_exists('access_fields_json', $data)) {
+            try {
+                (new FlexibleFieldService($this->pdo))->ensureAccessFieldsColumn();
+                $accessJson = $data['access_fields_json'];
+                if (is_array($accessJson)) {
+                    $accessJson = json_encode(
+                        FlexibleFieldService::normalizeAccessFields($accessJson),
+                        JSON_UNESCAPED_UNICODE
+                    ) ?: null;
+                } elseif (!is_string($accessJson) && $accessJson !== null) {
+                    $accessJson = null;
+                }
+                $this->pdo->prepare('UPDATE certifications SET access_fields_json = ? WHERE id = ?')
+                    ->execute([$accessJson, $savedId]);
             } catch (\Throwable) {
             }
         }

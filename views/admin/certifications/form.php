@@ -589,6 +589,63 @@ $fichaInitial = mb_substr($fichaTitle, 0, 1);
                 iTEP mismo rango todos los días; TOEFL solo sábado 11:00 y 13:00 con extraordinarias.
             </p>
             <?php endif; ?>
+
+            <h3 class="reg-subtitle">Datos de acceso (admin)</h3>
+            <p class="muted">
+                Elige qué slots de acceso usa esta certificación (definidos en
+                <strong>Proveedores → Campos</strong>). El admin los llena en el caso y el correo puede usarlos.
+            </p>
+            <?php
+            $providerAccessCatalog = is_array($provider_access_fields ?? null) ? $provider_access_fields : [];
+            if ($providerAccessCatalog === [] && $providerIdCert > 0) {
+                try {
+                    $providerAccessCatalog = (new \App\Catalog\FlexibleFieldService())->getProviderAccessFields($providerIdCert);
+                } catch (\Throwable) {
+                    $providerAccessCatalog = \App\Catalog\FlexibleFieldService::defaultAccessFields();
+                }
+            }
+            $certAccess = \App\Catalog\FlexibleFieldService::decodeCertAccessFields(
+                $item['access_fields_json'] ?? null,
+                null
+            );
+            $certAccessKeys = [];
+            foreach ($certAccess as $ca) {
+                $certAccessKeys[(string) $ca['key']] = $ca;
+            }
+            // Si la cert aún no tiene access_fields, marcar defaults del proveedor como activos
+            $accessHasExplicit = is_string($item['access_fields_json'] ?? null)
+                && trim((string) $item['access_fields_json']) !== '';
+            ?>
+            <div class="reg-fields-grid">
+                <?php foreach ($providerAccessCatalog as $i => $af):
+                    $akey = (string) ($af['key'] ?? '');
+                    if ($akey === '') {
+                        continue;
+                    }
+                    $active = $accessHasExplicit ? isset($certAccessKeys[$akey]) : true;
+                    $cfg = $certAccessKeys[$akey] ?? $af;
+                    ?>
+                    <div class="reg-field-row" style="flex-wrap:wrap;gap:0.35rem">
+                        <label class="check">
+                            <input type="checkbox" name="access_enabled[]" value="<?= e($akey) ?>"
+                                <?= $active ? 'checked' : '' ?>>
+                            <?= e($af['label'] ?? $akey) ?>
+                            <em class="muted">(<?= e($af['type'] ?? 'text') ?>)</em>
+                        </label>
+                        <input type="hidden" name="access_fields[<?= (int)$i ?>][key]" value="<?= e($akey) ?>">
+                        <input type="hidden" name="access_fields[<?= (int)$i ?>][label]" value="<?= e($af['label'] ?? $akey) ?>">
+                        <input type="hidden" name="access_fields[<?= (int)$i ?>][type]" value="<?= e($af['type'] ?? 'text') ?>">
+                        <input type="hidden" name="access_fields[<?= (int)$i ?>][maps_to]" value="<?= e((string) ($af['maps_to'] ?? '')) ?>">
+                        <label class="check">
+                            <input type="checkbox" name="access_fields[<?= (int)$i ?>][required]" value="1"
+                                <?= !empty($cfg['required']) ? 'checked' : '' ?>> Obligatorio al enviar
+                        </label>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php if ($providerAccessCatalog === []): ?>
+                <p class="muted">Aún no hay slots. Defínelos en Proveedores → Campos → Datos de acceso.</p>
+            <?php endif; ?>
         </fieldset>
 
             </div>
