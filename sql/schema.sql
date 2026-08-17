@@ -579,6 +579,7 @@ CREATE TABLE IF NOT EXISTS certification_cases (
   regulation_signature_path VARCHAR(255) NULL,
   regulation_signature_mode VARCHAR(16) NULL,
   registration_extra_json JSON NULL,
+  access_extra_json JSON NULL COMMENT 'Valores de slots de acceso no mapeados a columnas',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_cases_cert (certification_id),
